@@ -9,10 +9,6 @@ deployment tooling.
 
 This repository provides a stable base runtime for downstream project images.
 
-Primary downstream consumer:
-
-- Private `ghcr.io/cbusillo/odoo-enterprise-docker` runtime images.
-
 ## Images
 
 - `runtime`: base Odoo runtime + PostgreSQL client + uv tooling
@@ -47,6 +43,6 @@ docker build -t ghcr.io/cbusillo/odoo-docker:19.0-devtools --target runtime-devt
 
 ## Security Notes
 
-- Do not add private repositories or access tokens in this repo.
-- Proprietary addons should be fetched by downstream private builds using
-  BuildKit secrets.
+- Do not add credentials or access tokens in this repo.
+- Proprietary addons should be fetched by downstream builds using BuildKit
+  secrets.
