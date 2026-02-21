@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, chris-testing]
     permissions:
       contents: read
     outputs:
@@ -92,7 +92,7 @@ jobs:
         run: scripts/smoke-devtools.sh odoo-docker:verify-devtools
 
   publish:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, chris-testing]
     needs: verify
     if: github.event_name != 'pull_request'
     permissions:
@@ -182,3 +182,49 @@ jobs:
             ODOO_SOURCE_REV=${{ needs.verify.outputs.odoo_source_rev }}
           cache-from: type=gha,scope=runtime-devtools-publish
           cache-to: type=gha,mode=max,scope=runtime-devtools-publish
+
+      - name: Trigger enterprise build
+        env:
+          DISPATCH_TOKEN: ${{ secrets.ENTERPRISE_REPO_DISPATCH_TOKEN }}
+          DISPATCH_PUBLISH_STABLE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_stable || 'false' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DISPATCH_TOKEN:-}" ]; then
+            echo "Missing ENTERPRISE_REPO_DISPATCH_TOKEN secret" >&2
+            exit 1
+          fi
+
+          short_sha="${GITHUB_SHA::12}"
+          runtime_image="ghcr.io/${GITHUB_REPOSITORY}:sha-${short_sha}-runtime"
+          devtools_image="ghcr.io/${GITHUB_REPOSITORY}:sha-${short_sha}-devtools"
+
+          publish_stable="false"
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            publish_stable="true"
+          fi
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${DISPATCH_PUBLISH_STABLE}" = "true" ]; then
+            publish_stable="true"
+          fi
+
+          request_payload="$(jq -cn \
+            --arg ref "main" \
+            --arg runtime "${runtime_image}" \
+            --arg devtools "${devtools_image}" \
+            --arg stable "${publish_stable}" \
+            '{
+              ref: $ref,
+              inputs: {
+                publish_stable: $stable,
+                base_runtime_image: $runtime,
+                base_devtools_image: $devtools
+              }
+            }')"
+
+          curl --fail --show-error --silent \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/cbusillo/odoo-enterprise-docker/actions/workflows/build.yml/dispatches \
+            -d "${request_payload}"
