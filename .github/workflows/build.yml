@@ -1,0 +1,184 @@
+name: Build And Publish Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_stable:
+        description: Publish stable 19.0 tags in addition to sha/nightly tags.
+        required: false
+        default: true
+        type: boolean
+  pull_request:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - scripts/**
+      - .github/workflows/build.yml
+      - README.md
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - scripts/**
+      - .github/workflows/build.yml
+      - README.md
+  schedule:
+    - cron: "17 4 * * *"
+
+concurrency:
+  group: odoo-docker-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      odoo_source_rev: ${{ steps.odoo_source.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Resolve Odoo source revision
+        id: odoo_source
+        run: |
+          set -euo pipefail
+          source_revision="$(git ls-remote https://github.com/odoo/odoo.git refs/heads/19.0 | awk '{print $1}')"
+          if [ -z "${source_revision}" ]; then
+            echo "Failed to resolve Odoo source revision" >&2
+            exit 1
+          fi
+          echo "value=${source_revision}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved Odoo source revision: ${source_revision}"
+
+      - name: Build runtime verification image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: runtime
+          pull: true
+          load: true
+          platforms: linux/amd64
+          tags: odoo-docker:verify-runtime
+          build-args: |
+            ODOO_SOURCE_REF=19.0
+            ODOO_SOURCE_REV=${{ steps.odoo_source.outputs.value }}
+          cache-from: type=gha,scope=runtime-verify
+          cache-to: type=gha,mode=max,scope=runtime-verify
+
+      - name: Smoke test runtime image
+        run: scripts/smoke-runtime.sh odoo-docker:verify-runtime
+
+      - name: Build runtime-devtools verification image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: runtime-devtools
+          pull: true
+          load: true
+          platforms: linux/amd64
+          tags: odoo-docker:verify-devtools
+          build-args: |
+            ODOO_SOURCE_REF=19.0
+            ODOO_SOURCE_REV=${{ steps.odoo_source.outputs.value }}
+          cache-from: type=gha,scope=runtime-devtools-verify
+          cache-to: type=gha,mode=max,scope=runtime-devtools-verify
+
+      - name: Smoke test runtime-devtools image
+        run: scripts/smoke-devtools.sh odoo-docker:verify-devtools
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: verify
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build tag set
+        id: tags
+        env:
+          DISPATCH_PUBLISH_STABLE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_stable || 'false' }}
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::12}"
+          nightly_date="$(date -u +%Y%m%d)"
+          image_root="ghcr.io/${GITHUB_REPOSITORY}"
+
+          runtime_tags=("${image_root}:sha-${short_sha}-runtime")
+          devtools_tags=("${image_root}:sha-${short_sha}-devtools")
+
+          if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
+            runtime_tags+=("${image_root}:nightly-runtime" "${image_root}:nightly-${nightly_date}-runtime")
+            devtools_tags+=("${image_root}:nightly-devtools" "${image_root}:nightly-${nightly_date}-devtools")
+          fi
+
+          publish_stable="false"
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            publish_stable="true"
+          fi
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${DISPATCH_PUBLISH_STABLE}" = "true" ]; then
+            publish_stable="true"
+          fi
+
+          if [ "${publish_stable}" = "true" ]; then
+            runtime_tags+=("${image_root}:19.0-runtime")
+            devtools_tags+=("${image_root}:19.0-devtools")
+          fi
+
+          {
+            echo "runtime<<EOF"
+            printf '%s\n' "${runtime_tags[@]}"
+            echo "EOF"
+            echo "devtools<<EOF"
+            printf '%s\n' "${devtools_tags[@]}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Publish runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: runtime
+          pull: true
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.tags.outputs.runtime }}
+          build-args: |
+            ODOO_SOURCE_REF=19.0
+            ODOO_SOURCE_REV=${{ needs.verify.outputs.odoo_source_rev }}
+          cache-from: type=gha,scope=runtime-publish
+          cache-to: type=gha,mode=max,scope=runtime-publish
+
+      - name: Publish runtime-devtools image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: runtime-devtools
+          pull: true
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.tags.outputs.devtools }}
+          build-args: |
+            ODOO_SOURCE_REF=19.0
+            ODOO_SOURCE_REV=${{ needs.verify.outputs.odoo_source_rev }}
+          cache-from: type=gha,scope=runtime-devtools-publish
+          cache-to: type=gha,mode=max,scope=runtime-devtools-publish
