@@ -29,6 +29,10 @@ concurrency:
   group: odoo-docker-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref || github.run_id }}
   cancel-in-progress: true
 
+env:
+  DOCKER_BUILD_SUMMARY: false
+  DOCKER_BUILD_RECORD_UPLOAD: false
+
 jobs:
   resolve_source:
     runs-on: [self-hosted, linux, x64, chris-testing]
