@@ -104,26 +104,26 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 RUN npm install --global rtlcss@4.3.0
 
-COPY --from=odoo-source /source/odoo /odoo
-COPY scripts/odoo-bin-wrapper.sh /usr/local/bin/odoo-bin-wrapper.sh
-
 RUN if ! id -u ubuntu >/dev/null 2>&1; then useradd --create-home --shell /bin/bash ubuntu; fi
+
+COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo /odoo
+COPY scripts/odoo-bin-wrapper.sh /usr/local/bin/odoo-bin-wrapper.sh
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
     && cp /root/.local/bin/uv* /usr/local/bin/
 ENV PATH="/venv/bin:/usr/local/bin:/root/.local/bin:${PATH}"
 ENV VIRTUAL_ENV=/venv
-ENV UV_CACHE_DIR=/root/.cache/uv
+ENV UV_CACHE_DIR=/home/ubuntu/.cache/uv
 ENV UV_PROJECT_ENVIRONMENT=/venv
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
 
-RUN mkdir -p /opt/uv/python /venv \
-    && uv python install "${PYTHON_VERSION}" \
-    && uv venv /venv --python "${PYTHON_VERSION}" \
-    && uv pip install --python /venv/bin/python --upgrade pip \
-    && uv pip install --python /venv/bin/python -r /odoo/requirements.txt \
-    && uv pip install --python /venv/bin/python /odoo \
-    && uv pip install --python /venv/bin/python rlpycairo
+RUN install -d -o ubuntu -g ubuntu /opt/uv/python /venv /home/ubuntu/.cache/uv \
+    && su -s /bin/bash ubuntu -c "uv python install '${PYTHON_VERSION}'" \
+    && su -s /bin/bash ubuntu -c "uv venv /venv --python '${PYTHON_VERSION}'" \
+    && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python --upgrade pip" \
+    && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements.txt" \
+    && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python /odoo" \
+    && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python rlpycairo"
 
 RUN mv /odoo/odoo-bin /usr/local/bin/odoo-source-bin \
     && install -m 0755 /usr/local/bin/odoo-bin-wrapper.sh /odoo/odoo-bin \
@@ -131,9 +131,9 @@ RUN mv /odoo/odoo-bin /usr/local/bin/odoo-source-bin \
     && ln -sfn /venv/bin/odoo /usr/local/bin/odoo \
     && mkdir -p /usr/lib/python3/dist-packages/addons
 
-RUN mkdir -p /opt/project /opt/extra_addons /volumes/addons /volumes/config /volumes/data /volumes/logs \
-    && echo "[options]" > /volumes/config/_generated.conf \
-    && chown -R ubuntu:ubuntu /odoo /opt/project /opt/extra_addons /volumes /venv
+RUN install -d -o ubuntu -g ubuntu /opt/project /opt/extra_addons /volumes/addons /volumes/config /volumes/data /volumes/logs \
+    && install -o ubuntu -g ubuntu -m 0644 /dev/null /volumes/config/_generated.conf \
+    && su -s /bin/bash ubuntu -c "printf '[options]\n' > /volumes/config/_generated.conf"
 
 RUN ln -sf /etc/ssl/certs/ca-certificates.crt /usr/lib/ssl/cert.pem
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
