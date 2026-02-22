@@ -4,7 +4,7 @@ ARG ODOO_SOURCE_REF=19.0
 ARG ODOO_SOURCE_REV=
 ARG PYTHON_VERSION=3.13
 
-FROM alpine/git:2.49.1 AS odoo-source
+FROM --platform=$BUILDPLATFORM alpine/git:2.49.1 AS odoo-source
 ARG ODOO_SOURCE_REPOSITORY
 ARG ODOO_SOURCE_REF
 ARG ODOO_SOURCE_REV
@@ -14,7 +14,7 @@ RUN git clone --depth 1 --branch "${ODOO_SOURCE_REF}" "${ODOO_SOURCE_REPOSITORY}
       cd odoo && git checkout --detach "${ODOO_SOURCE_REV}"; \
     fi
 
-FROM alpine/curl:8.12.1 AS wkhtmltox
+FROM --platform=$BUILDPLATFORM alpine/curl:8.12.1 AS wkhtmltox
 ARG TARGETARCH
 ARG WKHTMLTOPDF_VERSION=0.12.6.1-3
 ARG WKHTMLTOPDF_TARGET=jammy
