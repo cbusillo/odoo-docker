@@ -177,7 +177,58 @@ jobs:
             echo "EOF"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Publish image for platform
+      - name: Publish image for platform (attempt 1)
+        id: publish_attempt_1
+        continue-on-error: true
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: ${{ matrix.target }}
+          pull: true
+          push: true
+          platforms: ${{ matrix.platform }}
+          tags: ${{ steps.tags.outputs.value }}
+          build-args: |
+            ODOO_SOURCE_REF=19.0
+            ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
+
+      - name: Refresh ghcr login before retry
+        if: steps.publish_attempt_1.outcome == 'failure'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish image for platform (attempt 2)
+        id: publish_attempt_2
+        if: steps.publish_attempt_1.outcome == 'failure'
+        continue-on-error: true
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: ${{ matrix.target }}
+          pull: true
+          push: true
+          platforms: ${{ matrix.platform }}
+          tags: ${{ steps.tags.outputs.value }}
+          build-args: |
+            ODOO_SOURCE_REF=19.0
+            ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
+
+      - name: Refresh ghcr login before final retry
+        if: steps.publish_attempt_1.outcome == 'failure' && steps.publish_attempt_2.outcome == 'failure'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish image for platform (attempt 3)
+        id: publish_attempt_3
+        if: steps.publish_attempt_1.outcome == 'failure' && steps.publish_attempt_2.outcome == 'failure'
         uses: docker/build-push-action@v6
         with:
           context: .
