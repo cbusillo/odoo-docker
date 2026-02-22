@@ -69,8 +69,6 @@ jobs:
           build-args: |
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ steps.odoo_source.outputs.value }}
-          cache-from: type=gha,scope=runtime-verify
-          cache-to: type=gha,mode=max,scope=runtime-verify
 
       - name: Smoke test runtime image
         run: scripts/smoke-runtime.sh odoo-docker:verify-runtime
@@ -88,8 +86,6 @@ jobs:
           build-args: |
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ steps.odoo_source.outputs.value }}
-          cache-from: type=gha,scope=runtime-devtools-verify
-          cache-to: type=gha,mode=max,scope=runtime-devtools-verify
 
       - name: Smoke test runtime-devtools image
         run: scripts/smoke-devtools.sh odoo-docker:verify-devtools
@@ -170,8 +166,6 @@ jobs:
           build-args: |
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ needs.verify.outputs.odoo_source_rev }}
-          cache-from: type=gha,scope=runtime-publish
-          cache-to: type=gha,mode=max,scope=runtime-publish
 
       - name: Publish runtime-devtools image
         uses: docker/build-push-action@v6
@@ -186,8 +180,6 @@ jobs:
           build-args: |
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ needs.verify.outputs.odoo_source_rev }}
-          cache-from: type=gha,scope=runtime-devtools-publish
-          cache-to: type=gha,mode=max,scope=runtime-devtools-publish
 
       - name: Trigger enterprise build
         env:
