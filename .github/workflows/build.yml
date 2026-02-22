@@ -30,20 +30,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  resolve_source:
     runs-on: [self-hosted, linux, x64, chris-testing]
     permissions:
       contents: read
     outputs:
       odoo_source_rev: ${{ steps.odoo_source.outputs.value }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-buildx-action@v3
-        with:
-          keep-state: true
-          cleanup: false
-
       - name: Resolve Odoo source revision
         id: odoo_source
         run: |
@@ -56,47 +49,63 @@ jobs:
           echo "value=${source_revision}" >> "${GITHUB_OUTPUT}"
           echo "Resolved Odoo source revision: ${source_revision}"
 
-      - name: Build runtime verification image
+  verify:
+    runs-on: [self-hosted, linux, x64, chris-testing]
+    needs: resolve_source
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - target: runtime
+            suffix: runtime
+            smoke_script: scripts/smoke-runtime.sh
+          - target: runtime-devtools
+            suffix: devtools
+            smoke_script: scripts/smoke-devtools.sh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+        with:
+          keep-state: true
+          cleanup: false
+
+      - name: Build verification image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
-          target: runtime
+          target: ${{ matrix.target }}
           pull: true
           load: true
           platforms: linux/amd64
-          tags: odoo-docker:verify-runtime
+          tags: odoo-docker:verify-${{ matrix.suffix }}
           build-args: |
             ODOO_SOURCE_REF=19.0
-            ODOO_SOURCE_REV=${{ steps.odoo_source.outputs.value }}
+            ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
 
-      - name: Smoke test runtime image
-        run: scripts/smoke-runtime.sh odoo-docker:verify-runtime
-
-      - name: Build runtime-devtools verification image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          target: runtime-devtools
-          pull: true
-          load: true
-          platforms: linux/amd64
-          tags: odoo-docker:verify-devtools
-          build-args: |
-            ODOO_SOURCE_REF=19.0
-            ODOO_SOURCE_REV=${{ steps.odoo_source.outputs.value }}
-
-      - name: Smoke test runtime-devtools image
-        run: scripts/smoke-devtools.sh odoo-docker:verify-devtools
+      - name: Smoke test verification image
+        run: ${{ matrix.smoke_script }} odoo-docker:verify-${{ matrix.suffix }}
 
   publish:
     runs-on: [self-hosted, linux, x64, chris-testing]
-    needs: verify
+    needs: [resolve_source, verify]
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - target: runtime
+            suffix: runtime
+          - target: runtime-devtools
+            suffix: devtools
     steps:
       - uses: actions/checkout@v4
 
@@ -123,12 +132,10 @@ jobs:
           nightly_date="$(date -u +%Y%m%d)"
           image_root="ghcr.io/${GITHUB_REPOSITORY}"
 
-          runtime_tags=("${image_root}:sha-${short_sha}-runtime")
-          devtools_tags=("${image_root}:sha-${short_sha}-devtools")
+          tags=("${image_root}:sha-${short_sha}-${{ matrix.suffix }}")
 
           if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
-            runtime_tags+=("${image_root}:nightly-runtime" "${image_root}:nightly-${nightly_date}-runtime")
-            devtools_tags+=("${image_root}:nightly-devtools" "${image_root}:nightly-${nightly_date}-devtools")
+            tags+=("${image_root}:nightly-${{ matrix.suffix }}" "${image_root}:nightly-${nightly_date}-${{ matrix.suffix }}")
           fi
 
           publish_stable="false"
@@ -140,47 +147,36 @@ jobs:
           fi
 
           if [ "${publish_stable}" = "true" ]; then
-            runtime_tags+=("${image_root}:19.0-runtime")
-            devtools_tags+=("${image_root}:19.0-devtools")
+            tags+=("${image_root}:19.0-${{ matrix.suffix }}")
           fi
 
           {
-            echo "runtime<<EOF"
-            printf '%s\n' "${runtime_tags[@]}"
-            echo "EOF"
-            echo "devtools<<EOF"
-            printf '%s\n' "${devtools_tags[@]}"
+            echo "value<<EOF"
+            printf '%s\n' "${tags[@]}"
             echo "EOF"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Publish runtime image
+      - name: Publish image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
-          target: runtime
+          target: ${{ matrix.target }}
           pull: true
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.tags.outputs.runtime }}
+          tags: ${{ steps.tags.outputs.value }}
           build-args: |
             ODOO_SOURCE_REF=19.0
-            ODOO_SOURCE_REV=${{ needs.verify.outputs.odoo_source_rev }}
+            ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
 
-      - name: Publish runtime-devtools image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          target: runtime-devtools
-          pull: true
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.tags.outputs.devtools }}
-          build-args: |
-            ODOO_SOURCE_REF=19.0
-            ODOO_SOURCE_REV=${{ needs.verify.outputs.odoo_source_rev }}
-
+  trigger_enterprise:
+    runs-on: [self-hosted, linux, x64, chris-testing]
+    needs: publish
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+    steps:
       - name: Trigger enterprise build
         env:
           DISPATCH_TOKEN: ${{ secrets.ENTERPRISE_REPO_DISPATCH_TOKEN }}
