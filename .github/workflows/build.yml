@@ -91,7 +91,7 @@ jobs:
           platforms: linux/amd64
           tags: odoo-docker:verify-${{ matrix.suffix }}
           cache-from: type=gha,scope=odoo-docker-verify-${{ matrix.target }}-amd64
-          cache-to: type=gha,mode=max,scope=odoo-docker-verify-${{ matrix.target }}-amd64
+          cache-to: type=gha,mode=max,scope=odoo-docker-verify-${{ matrix.target }}-amd64,ignore-error=true
           provenance: false
           sbom: false
           build-args: |
@@ -180,7 +180,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.value }}
           cache-from: type=gha,scope=odoo-docker-${{ matrix.target }}-multiarch
-          cache-to: type=gha,mode=max,scope=odoo-docker-${{ matrix.target }}-multiarch
+          cache-to: type=gha,mode=max,scope=odoo-docker-${{ matrix.target }}-multiarch,ignore-error=true
           provenance: false
           sbom: false
           build-args: |
@@ -209,7 +209,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.value }}
           cache-from: type=gha,scope=odoo-docker-${{ matrix.target }}-multiarch
-          cache-to: type=gha,mode=max,scope=odoo-docker-${{ matrix.target }}-multiarch
+          cache-to: type=gha,mode=max,scope=odoo-docker-${{ matrix.target }}-multiarch,ignore-error=true
           provenance: false
           sbom: false
           build-args: |
@@ -237,7 +237,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.value }}
           cache-from: type=gha,scope=odoo-docker-${{ matrix.target }}-multiarch
-          cache-to: type=gha,mode=max,scope=odoo-docker-${{ matrix.target }}-multiarch
+          cache-to: type=gha,mode=max,scope=odoo-docker-${{ matrix.target }}-multiarch,ignore-error=true
           provenance: false
           sbom: false
           build-args: |
