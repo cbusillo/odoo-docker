@@ -3,7 +3,7 @@
 Base Odoo runtime image.
 
 This repository owns the base runtime build for Odoo 19. It compiles a
-deterministic runtime from upstream Odoo source, then layers in `uv`,
+deterministic runtime from the upstream Odoo source, then layers in `uv`,
 PostgreSQL 17 client tools, and compatibility paths used by downstream
 deployment tooling.
 
