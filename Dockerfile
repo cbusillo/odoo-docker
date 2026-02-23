@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.6
 ARG ODOO_SOURCE_REPOSITORY=https://github.com/odoo/odoo.git
 ARG ODOO_SOURCE_REF=19.0
-ARG ODOO_SOURCE_REV=
+ARG ODOO_SOURCE_REV
 ARG PYTHON_VERSION=3.13
 
 FROM --platform=$BUILDPLATFORM alpine/git:2.49.1 AS odoo-source
@@ -84,7 +84,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
     | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+    && echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
       > /etc/apt/sources.list.d/pgdg.list
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \

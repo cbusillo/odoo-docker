@@ -77,6 +77,9 @@ jobs:
           keep-state: true
           cleanup: false
 
+      - name: Validate odoo-bin wrapper behavior
+        run: scripts/test-odoo-bin-wrapper.sh
+
       - name: Build verification image
         uses: docker/build-push-action@v6
         with:

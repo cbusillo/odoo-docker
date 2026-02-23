@@ -17,6 +17,15 @@ This repository provides a stable base runtime for downstream project images.
 Both images default to the `ubuntu` user for compatibility with existing
 restore and SSH mount workflows.
 
+## CLI Contract
+
+- `/odoo/odoo-bin` is a compatibility wrapper over upstream
+  `/usr/local/bin/odoo-source-bin`.
+- The wrapper must preserve Odoo subcommands (`server`, `shell`, `db`, etc.).
+- Runtime defaults (`--db_host`, `--addons-path`, etc.) are injected only for
+  server-style invocations so non-server commands keep upstream argument
+  parsing semantics.
+
 ## CI Release Model
 
 - Every run builds test images first and executes smoke checks.
