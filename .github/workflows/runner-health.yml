@@ -1,0 +1,48 @@
+name: Runner Health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+jobs:
+  health:
+    runs-on: [self-hosted, linux, x64, chris-testing]
+    steps:
+      - name: Collect runner metrics
+        id: collect_metrics
+        env:
+          ROOT_DISK_THRESHOLD_PERCENT: "80"
+          DOCKER_DISK_THRESHOLD_PERCENT: "80"
+        run: |
+          set -euo pipefail
+
+          root_used_percent="$(df -P / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
+          docker_root_directory="$(docker info --format '{{.DockerRootDir}}')"
+          docker_root_used_percent="$(df -P "${docker_root_directory}" | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
+
+          {
+            echo "## chris-testing Runner Health"
+            echo ""
+            echo "- Root filesystem used: ${root_used_percent}%"
+            echo "- Docker root (${docker_root_directory}) used: ${docker_root_used_percent}%"
+            echo ""
+            echo '```text'
+            docker system df
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          {
+            echo "root_used_percent=${root_used_percent}"
+            echo "docker_root_used_percent=${docker_root_used_percent}"
+          } >> "${GITHUB_OUTPUT}"
+
+          if [ "${root_used_percent}" -ge "${ROOT_DISK_THRESHOLD_PERCENT}" ]; then
+            echo "Root filesystem usage ${root_used_percent}% is above threshold ${ROOT_DISK_THRESHOLD_PERCENT}%" >&2
+            exit 1
+          fi
+
+          if [ "${docker_root_used_percent}" -ge "${DOCKER_DISK_THRESHOLD_PERCENT}" ]; then
+            echo "Docker root usage ${docker_root_used_percent}% is above threshold ${DOCKER_DISK_THRESHOLD_PERCENT}%" >&2
+            exit 1
+          fi

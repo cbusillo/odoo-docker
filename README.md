@@ -46,6 +46,13 @@ same verification gate.
 This avoids unbounded local cache growth on self-hosted runners while still
 keeping cross-run cache reuse through GitHub Actions cache storage.
 
+## Runner Health Checks
+
+- A scheduled `Runner Health` workflow tracks root filesystem and Docker root
+  usage on `chris-testing` every six hours.
+- The check fails when usage crosses the configured thresholds so operators get
+  a visible GitHub Actions alert before the runner reaches saturation.
+
 ## Source Pinning
 
 The workflow resolves the current `odoo/odoo` `19.0` commit and pins that exact
