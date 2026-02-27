@@ -46,6 +46,10 @@ same verification gate.
 This avoids unbounded local cache growth on self-hosted runners while still
 keeping cross-run cache reuse through GitHub Actions cache storage.
 
+The GHCR retention workflow keeps stable and nightly tags, preserves the newest
+10 immutable `sha-*` tags per image suffix, and prunes untagged versions older
+than 7 days.
+
 ## Runner Health Checks
 
 - A scheduled `Runner Health` workflow tracks root filesystem and Docker root

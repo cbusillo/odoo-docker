@@ -20,7 +20,8 @@ jobs:
     runs-on: [self-hosted, linux, x64, chris-testing]
     env:
       PACKAGE_NAME: odoo-docker
-      KEEP_SHA_COUNT: "5"
+      KEEP_SHA_COUNT: "10"
+      KEEP_UNTAGGED_DAYS: "7"
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
     steps:
       - name: Prune old GHCR versions
@@ -28,7 +29,8 @@ jobs:
         with:
           script: |
             const packageName = process.env.PACKAGE_NAME;
-            const keepShaCount = Number.parseInt(process.env.KEEP_SHA_COUNT || "5", 10);
+            const keepShaCount = Number.parseInt(process.env.KEEP_SHA_COUNT || "10", 10);
+            const keepUntaggedDays = Number.parseInt(process.env.KEEP_UNTAGGED_DAYS || "7", 10);
             const dryRun = String(process.env.DRY_RUN).toLowerCase() === "true";
             const owner = context.repo.owner;
             const ownerType = String(context.payload.repository?.owner?.type || "User").toLowerCase();
@@ -46,10 +48,15 @@ jobs:
 
             const versions = await github.paginate(listRoute, listParameters);
             versions.sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
+            const keepUntaggedCutoffEpochMilliseconds = Date.now() - (keepUntaggedDays * 24 * 60 * 60 * 1000);
 
             const taggedVersions = versions.filter((version) =>
               Array.isArray(version?.metadata?.container?.tags)
               && version.metadata.container.tags.length > 0,
+            );
+            const untaggedVersions = versions.filter((version) =>
+              !Array.isArray(version?.metadata?.container?.tags)
+              || version.metadata.container.tags.length === 0,
             );
 
             const keepIds = new Set();
@@ -78,17 +85,29 @@ jobs:
               }
             }
 
-            const deleteVersions = taggedVersions.filter((version) => !keepIds.has(version.id));
+            const deleteTaggedVersions = taggedVersions.filter((version) => !keepIds.has(version.id));
+            const deleteUntaggedVersions = untaggedVersions.filter((version) => {
+              const createdAtEpochMilliseconds = Date.parse(version.created_at);
+              return Number.isFinite(createdAtEpochMilliseconds)
+                && createdAtEpochMilliseconds < keepUntaggedCutoffEpochMilliseconds;
+            });
+            const deleteVersions = [...deleteTaggedVersions, ...deleteUntaggedVersions];
 
             core.info(`Package: ${packageName}`);
             core.info(`Owner: ${owner} (${ownerType})`);
             core.info(`Tagged versions found: ${taggedVersions.length}`);
             core.info(`Tagged versions kept: ${keepIds.size}`);
-            core.info(`Tagged versions to delete: ${deleteVersions.length}`);
+            core.info(`Tagged versions to delete: ${deleteTaggedVersions.length}`);
+            core.info(`Untagged versions found: ${untaggedVersions.length}`);
+            core.info(`Untagged retention window days: ${keepUntaggedDays}`);
+            core.info(`Untagged versions to delete: ${deleteUntaggedVersions.length}`);
             core.info(`Dry run: ${dryRun}`);
 
             for (const version of deleteVersions) {
-              const tags = version.metadata.container.tags.join(",");
+              const tags = Array.isArray(version?.metadata?.container?.tags)
+                && version.metadata.container.tags.length > 0
+                ? version.metadata.container.tags.join(",")
+                : "<untagged>";
               if (dryRun) {
                 core.info(`[dry-run] delete id=${version.id} tags=${tags}`);
                 continue;
