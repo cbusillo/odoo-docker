@@ -97,7 +97,7 @@ jobs:
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
 
-      - name: Build verification image (attempt 2)
+      - name: Build verification image (attempt 2, no cache import)
         id: verify_build_attempt_2
         if: steps.verify_build_attempt_1.outcome == 'failure'
         continue-on-error: true
@@ -110,8 +110,6 @@ jobs:
           load: true
           platforms: linux/amd64
           tags: odoo-docker:verify-${{ matrix.suffix }}
-          cache-from: type=gha,scope=odoo-docker-verify-${{ matrix.target }}-amd64
-          cache-to: type=gha,mode=max,scope=odoo-docker-verify-${{ matrix.target }}-amd64,ignore-error=true
           provenance: false
           sbom: false
           build-args: |
@@ -259,7 +257,6 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.value }}
-          cache-from: type=gha,scope=odoo-docker-${{ matrix.target }}-multiarch
           cache-to: type=gha,mode=max,scope=odoo-docker-${{ matrix.target }}-multiarch,ignore-error=true
           provenance: false
           sbom: false

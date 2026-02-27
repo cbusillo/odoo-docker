@@ -1,0 +1,103 @@
+name: GHCR Retention
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Dry run (report only, no deletes)
+        required: false
+        default: true
+        type: boolean
+  schedule:
+    - cron: "43 6 * * *"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: [self-hosted, linux, x64, chris-testing]
+    env:
+      PACKAGE_NAME: odoo-docker
+      KEEP_SHA_COUNT: "5"
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+    steps:
+      - name: Prune old GHCR versions
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const packageName = process.env.PACKAGE_NAME;
+            const keepShaCount = Number.parseInt(process.env.KEEP_SHA_COUNT || "5", 10);
+            const dryRun = String(process.env.DRY_RUN).toLowerCase() === "true";
+            const owner = context.repo.owner;
+            const ownerType = String(context.payload.repository?.owner?.type || "User").toLowerCase();
+
+            const listRoute = ownerType === "organization"
+              ? "GET /orgs/{org}/packages/container/{package_name}/versions"
+              : "GET /users/{username}/packages/container/{package_name}/versions";
+            const deleteRoute = ownerType === "organization"
+              ? "DELETE /orgs/{org}/packages/container/{package_name}/versions/{package_version_id}"
+              : "DELETE /users/{username}/packages/container/{package_name}/versions/{package_version_id}";
+
+            const listParameters = ownerType === "organization"
+              ? { org: owner, package_name: packageName, per_page: 100 }
+              : { username: owner, package_name: packageName, per_page: 100 };
+
+            const versions = await github.paginate(listRoute, listParameters);
+            versions.sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
+
+            const taggedVersions = versions.filter((version) =>
+              Array.isArray(version?.metadata?.container?.tags)
+              && version.metadata.container.tags.length > 0,
+            );
+
+            const keepIds = new Set();
+            const keepTagRegexes = [
+              /^19\.0-(runtime|devtools)$/,
+              /^nightly-(runtime|devtools)$/,
+            ];
+
+            const shouldKeepByTag = (tags) =>
+              tags.some((tag) => keepTagRegexes.some((regex) => regex.test(tag)));
+
+            for (const version of taggedVersions) {
+              const tags = version.metadata.container.tags;
+              if (shouldKeepByTag(tags)) {
+                keepIds.add(version.id);
+              }
+            }
+
+            for (const suffix of ["runtime", "devtools"]) {
+              const shaRegex = new RegExp(`^sha-[0-9a-f]+-${suffix}$`);
+              const recentShaVersions = taggedVersions.filter((version) =>
+                version.metadata.container.tags.some((tag) => shaRegex.test(tag)),
+              );
+              for (const version of recentShaVersions.slice(0, keepShaCount)) {
+                keepIds.add(version.id);
+              }
+            }
+
+            const deleteVersions = taggedVersions.filter((version) => !keepIds.has(version.id));
+
+            core.info(`Package: ${packageName}`);
+            core.info(`Owner: ${owner} (${ownerType})`);
+            core.info(`Tagged versions found: ${taggedVersions.length}`);
+            core.info(`Tagged versions kept: ${keepIds.size}`);
+            core.info(`Tagged versions to delete: ${deleteVersions.length}`);
+            core.info(`Dry run: ${dryRun}`);
+
+            for (const version of deleteVersions) {
+              const tags = version.metadata.container.tags.join(",");
+              if (dryRun) {
+                core.info(`[dry-run] delete id=${version.id} tags=${tags}`);
+                continue;
+              }
+
+              const deleteParameters = ownerType === "organization"
+                ? { org: owner, package_name: packageName, package_version_id: version.id }
+                : { username: owner, package_name: packageName, package_version_id: version.id };
+
+              await github.request(deleteRoute, deleteParameters);
+              core.info(`deleted id=${version.id} tags=${tags}`);
+            }
