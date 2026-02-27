@@ -77,7 +77,9 @@ jobs:
       - name: Validate odoo-bin wrapper behavior
         run: scripts/test-odoo-bin-wrapper.sh
 
-      - name: Build verification image
+      - name: Build verification image (attempt 1)
+        id: verify_build_attempt_1
+        continue-on-error: true
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -94,6 +96,33 @@ jobs:
           build-args: |
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
+
+      - name: Build verification image (attempt 2)
+        id: verify_build_attempt_2
+        if: steps.verify_build_attempt_1.outcome == 'failure'
+        continue-on-error: true
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: ${{ matrix.target }}
+          pull: true
+          load: true
+          platforms: linux/amd64
+          tags: odoo-docker:verify-${{ matrix.suffix }}
+          cache-from: type=gha,scope=odoo-docker-verify-${{ matrix.target }}-amd64
+          cache-to: type=gha,mode=max,scope=odoo-docker-verify-${{ matrix.target }}-amd64,ignore-error=true
+          provenance: false
+          sbom: false
+          build-args: |
+            ODOO_SOURCE_REF=19.0
+            ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
+
+      - name: Fail verification build after retries
+        if: steps.verify_build_attempt_1.outcome == 'failure' && steps.verify_build_attempt_2.outcome == 'failure'
+        run: |
+          echo "Verification build failed after two attempts" >&2
+          exit 1
 
       - name: Smoke test verification image
         run: ${{ matrix.smoke_script }} odoo-docker:verify-${{ matrix.suffix }}
