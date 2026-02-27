@@ -37,6 +37,15 @@ restore and SSH mount workflows.
 This lets us keep a daily canary stream while protecting stable tags behind the
 same verification gate.
 
+## CI Cache Policy
+
+- Builds use `cache-from` / `cache-to` with `type=gha` as the primary cache.
+- Buildx builders are ephemeral in CI; the workflow does not persist local
+  BuildKit state between runs.
+
+This avoids unbounded local cache growth on self-hosted runners while still
+keeping cross-run cache reuse through GitHub Actions cache storage.
+
 ## Source Pinning
 
 The workflow resolves the current `odoo/odoo` `19.0` commit and pins that exact
