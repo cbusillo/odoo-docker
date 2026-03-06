@@ -21,7 +21,8 @@ RUN set -eux; \
     else \
       git fetch --depth 1 origin "refs/heads/${ODOO_SOURCE_REF}"; \
     fi; \
-    git checkout --detach FETCH_HEAD
+    git checkout --detach FETCH_HEAD; \
+    rm -rf .git
 
 FROM --platform=$BUILDPLATFORM alpine/curl:8.12.1 AS wkhtmltox
 ARG TARGETARCH
@@ -125,7 +126,8 @@ ENV UV_CACHE_DIR=/home/ubuntu/.cache/uv
 ENV UV_PROJECT_ENVIRONMENT=/venv
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
 
-RUN install -d -o ubuntu -g ubuntu /opt/uv/python /venv /home/ubuntu/.cache/uv \
+RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=locked \
+    install -d -o ubuntu -g ubuntu /opt/uv/python /venv /home/ubuntu/.cache/uv \
     && su -s /bin/bash ubuntu -c "uv python install '${PYTHON_VERSION}'" \
     && su -s /bin/bash ubuntu -c "uv venv /venv --python '${PYTHON_VERSION}'" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python --upgrade pip" \
