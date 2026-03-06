@@ -3,8 +3,6 @@ ARG ODOO_SOURCE_REPOSITORY=https://github.com/odoo/odoo.git
 ARG ODOO_SOURCE_REF=19.0
 ARG ODOO_SOURCE_REV
 ARG PYTHON_VERSION=3.13
-ARG BUILDPLATFORM
-ARG TARGETPLATFORM
 
 # Keep the official uv image first so Dependabot tracks it for Docker updates.
 FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.10.8@sha256:88234bc9e09c2b2f6d176a3daf411419eb0370d450a08129257410de9cfafd2a AS uv-binary
