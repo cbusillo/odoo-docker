@@ -280,7 +280,7 @@ jobs:
   trigger_enterprise:
     runs-on: [self-hosted, linux, x64, chris-testing]
     timeout-minutes: 15
-    needs: publish
+    needs: [resolve_source, publish]
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
