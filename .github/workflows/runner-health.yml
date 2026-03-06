@@ -8,6 +8,7 @@ on:
 jobs:
   health:
     runs-on: [self-hosted, linux, x64, chris-testing]
+    timeout-minutes: 10
     steps:
       - name: Collect runner metrics
         id: collect_metrics
