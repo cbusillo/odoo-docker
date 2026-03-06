@@ -3,16 +3,27 @@ ARG ODOO_SOURCE_REPOSITORY=https://github.com/odoo/odoo.git
 ARG ODOO_SOURCE_REF=19.0
 ARG ODOO_SOURCE_REV
 ARG PYTHON_VERSION=3.13
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+
+# Keep the official uv image first so Dependabot tracks it for Docker updates.
+FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.10.8@sha256:88234bc9e09c2b2f6d176a3daf411419eb0370d450a08129257410de9cfafd2a AS uv-binary
 
 FROM --platform=$BUILDPLATFORM alpine/git:2.49.1 AS odoo-source
 ARG ODOO_SOURCE_REPOSITORY
 ARG ODOO_SOURCE_REF
 ARG ODOO_SOURCE_REV
 WORKDIR /source
-RUN git clone --depth 1 --branch "${ODOO_SOURCE_REF}" "${ODOO_SOURCE_REPOSITORY}" odoo \
-    && if [ -n "${ODOO_SOURCE_REV}" ]; then \
-      cd odoo && git checkout --detach "${ODOO_SOURCE_REV}"; \
-    fi
+RUN set -eux; \
+    git init odoo; \
+    cd odoo; \
+    git remote add origin "${ODOO_SOURCE_REPOSITORY}"; \
+    if [ -n "${ODOO_SOURCE_REV}" ]; then \
+      git fetch --depth 1 origin "${ODOO_SOURCE_REV}"; \
+    else \
+      git fetch --depth 1 origin "refs/heads/${ODOO_SOURCE_REF}"; \
+    fi; \
+    git checkout --detach FETCH_HEAD
 
 FROM --platform=$BUILDPLATFORM alpine/curl:8.12.1 AS wkhtmltox
 ARG TARGETARCH
@@ -107,11 +118,10 @@ RUN npm install --global rtlcss@4.3.0
 RUN if ! id -u ubuntu >/dev/null 2>&1; then useradd --create-home --shell /bin/bash ubuntu; fi
 
 COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo /odoo
+COPY --from=uv-binary /uv /uvx /usr/local/bin/
 COPY scripts/odoo-bin-wrapper.sh /usr/local/bin/odoo-bin-wrapper.sh
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && cp /root/.local/bin/uv* /usr/local/bin/
-ENV PATH="/venv/bin:/usr/local/bin:/root/.local/bin:${PATH}"
+ENV PATH="/venv/bin:/usr/local/bin:${PATH}"
 ENV VIRTUAL_ENV=/venv
 ENV UV_CACHE_DIR=/home/ubuntu/.cache/uv
 ENV UV_PROJECT_ENVIRONMENT=/venv
@@ -159,6 +169,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       > /etc/apt/sources.list.d/xtradeb-apps.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends chromium fonts-liberation libu2f-udev \
+    && rm -f /etc/apt/sources.list.d/xtradeb-apps.list \
     && rm -rf /var/lib/apt/lists/*
 
 ENV CHROME_BIN=/usr/bin/chromium

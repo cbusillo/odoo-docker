@@ -36,6 +36,7 @@ env:
 jobs:
   resolve_source:
     runs-on: [self-hosted, linux, x64, chris-testing]
+    timeout-minutes: 20
     permissions:
       contents: read
     outputs:
@@ -55,6 +56,7 @@ jobs:
 
   verify:
     runs-on: [self-hosted, linux, x64, chris-testing]
+    timeout-minutes: 60
     needs: resolve_source
     permissions:
       contents: read
@@ -132,6 +134,7 @@ jobs:
 
   publish:
     runs-on: [self-hosted, linux, x64, chris-testing]
+    timeout-minutes: 90
     needs: [resolve_source, verify]
     if: github.event_name != 'pull_request'
     permissions:
@@ -165,14 +168,15 @@ jobs:
       - name: Build tag set
         id: tags
         env:
+          ODOO_SOURCE_REV: ${{ needs.resolve_source.outputs.odoo_source_rev }}
           DISPATCH_PUBLISH_STABLE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_stable || 'false' }}
         run: |
           set -euo pipefail
-          short_sha="${GITHUB_SHA::12}"
+          source_short_sha="${ODOO_SOURCE_REV::12}"
           nightly_date="$(date -u +%Y%m%d)"
           image_root="ghcr.io/${GITHUB_REPOSITORY}"
 
-          tags=("${image_root}:sha-${short_sha}-${{ matrix.suffix }}")
+          tags=("${image_root}:sha-${source_short_sha}-${{ matrix.suffix }}")
 
           if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
             tags+=("${image_root}:nightly-${{ matrix.suffix }}" "${image_root}:nightly-${nightly_date}-${{ matrix.suffix }}")
@@ -239,7 +243,6 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.value }}
-          cache-from: type=gha,scope=odoo-docker-${{ matrix.target }}-multiarch
           cache-to: type=gha,mode=max,scope=odoo-docker-${{ matrix.target }}-multiarch,ignore-error=true
           provenance: false
           sbom: false
@@ -276,14 +279,28 @@ jobs:
 
   trigger_enterprise:
     runs-on: [self-hosted, linux, x64, chris-testing]
+    timeout-minutes: 15
     needs: publish
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
+      packages: read
     steps:
+      - name: Install Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR for digest lookup
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Trigger enterprise build
         env:
+          ODOO_SOURCE_REV: ${{ needs.resolve_source.outputs.odoo_source_rev }}
           DISPATCH_TOKEN: ${{ secrets.ENTERPRISE_REPO_DISPATCH_TOKEN }}
+          DISPATCH_PUBLISH_NIGHTLY: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           DISPATCH_PUBLISH_STABLE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_stable || 'false' }}
         run: |
           set -euo pipefail
@@ -293,9 +310,21 @@ jobs:
             exit 1
           fi
 
-          short_sha="${GITHUB_SHA::12}"
-          runtime_image="ghcr.io/${GITHUB_REPOSITORY}:sha-${short_sha}-runtime"
-          devtools_image="ghcr.io/${GITHUB_REPOSITORY}:sha-${short_sha}-devtools"
+          source_short_sha="${ODOO_SOURCE_REV::12}"
+          image_root="ghcr.io/${GITHUB_REPOSITORY}"
+          runtime_tag="${image_root}:sha-${source_short_sha}-runtime"
+          devtools_tag="${image_root}:sha-${source_short_sha}-devtools"
+          runtime_digest="$(docker buildx imagetools inspect "${runtime_tag}" | awk '/^Digest:/ {print $2; exit}')"
+          devtools_digest="$(docker buildx imagetools inspect "${devtools_tag}" | awk '/^Digest:/ {print $2; exit}')"
+
+          if [ -z "${runtime_digest}" ] || [ -z "${devtools_digest}" ]; then
+            echo "Failed to resolve published base image digests" >&2
+            exit 1
+          fi
+
+          runtime_image="${image_root}@${runtime_digest}"
+          devtools_image="${image_root}@${devtools_digest}"
+          enterprise_repository="${GITHUB_REPOSITORY_OWNER}/odoo-enterprise-docker"
 
           publish_stable="false"
           if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
@@ -309,10 +338,12 @@ jobs:
             --arg ref "main" \
             --arg runtime "${runtime_image}" \
             --arg devtools "${devtools_image}" \
+            --arg nightly "${DISPATCH_PUBLISH_NIGHTLY}" \
             --arg stable "${publish_stable}" \
             '{
               ref: $ref,
               inputs: {
+                publish_nightly: $nightly,
                 publish_stable: $stable,
                 base_runtime_image: $runtime,
                 base_devtools_image: $devtools
@@ -330,7 +361,7 @@ jobs:
               -H "Accept: application/vnd.github+json" \
               -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              https://api.github.com/repos/cbusillo/odoo-enterprise-docker/actions/workflows/build.yml/dispatches \
+              "https://api.github.com/repos/${enterprise_repository}/actions/workflows/build.yml/dispatches" \
               -d "${request_payload}"; then
               echo "Enterprise dispatch succeeded on attempt ${dispatch_attempt}" >&2
               break

@@ -63,11 +63,21 @@ The workflow resolves the current `odoo/odoo` `19.0` commit and pins that exact
 revision into the build. This gives repeatable artifacts per run and makes
 nightly updates explicit.
 
+`uv` is copied from Astral's official container image and pinned by tag+digest
+in the Dockerfile. A GitHub-native Dependabot config watches that image
+reference and opens update PRs whenever a new `uv` release is available.
+
 ## Build
 
 ```bash
-docker build -t ghcr.io/cbusillo/odoo-docker:19.0-runtime --target runtime .
-docker build -t ghcr.io/cbusillo/odoo-docker:19.0-devtools --target runtime-devtools .
+docker build \
+  -t ghcr.io/cbusillo/odoo-docker:19.0-runtime \
+  --target runtime \
+  .
+docker build \
+  -t ghcr.io/cbusillo/odoo-docker:19.0-devtools \
+  --target runtime-devtools \
+  .
 ```
 
 ## Security Notes

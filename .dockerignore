@@ -1,3 +1,23 @@
 .git
 .github
 *.md
+.DS_Store
+.idea
+tmp
+*.log
+
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+.aws
+.npmrc
+.pypirc
+id_rsa
+id_ed25519
