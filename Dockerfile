@@ -16,7 +16,7 @@ RUN set -eux; \
     git init odoo; \
     cd odoo; \
     git remote add origin "${ODOO_SOURCE_REPOSITORY}"; \
-    if [ -n "${ODOO_SOURCE_REV}" ]; then \
+    if [ -n "${ODOO_SOURCE_REV:-}" ]; then \
       git fetch --depth 1 origin "${ODOO_SOURCE_REV}"; \
     else \
       git fetch --depth 1 origin "refs/heads/${ODOO_SOURCE_REF}"; \
@@ -119,6 +119,7 @@ RUN if ! id -u ubuntu >/dev/null 2>&1; then useradd --create-home --shell /bin/b
 COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo /odoo
 COPY --from=uv-binary /uv /uvx /usr/local/bin/
 COPY scripts/odoo-bin-wrapper.sh /usr/local/bin/odoo-bin-wrapper.sh
+COPY scripts/configure-dev-addon-paths.sh /usr/local/bin/configure-dev-addon-paths.sh
 
 ENV PATH="/venv/bin:/usr/local/bin:${PATH}"
 ENV VIRTUAL_ENV=/venv
@@ -128,18 +129,22 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
 
 RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=locked \
     install -d -o ubuntu -g ubuntu /opt/uv/python /venv /home/ubuntu/.cache/uv \
+    && chown -R ubuntu:ubuntu /home/ubuntu/.cache/uv \
     && su -s /bin/bash ubuntu -c "uv python install '${PYTHON_VERSION}'" \
     && su -s /bin/bash ubuntu -c "uv venv /venv --python '${PYTHON_VERSION}'" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python --upgrade pip" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements.txt" \
-    && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python /odoo" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python rlpycairo"
 
-RUN mv /odoo/odoo-bin /usr/local/bin/odoo-source-bin \
+RUN mv /odoo/odoo-bin /odoo/odoo-bin.source \
     && install -m 0755 /usr/local/bin/odoo-bin-wrapper.sh /odoo/odoo-bin \
+    && ln -sfn /odoo/odoo-bin.source /usr/local/bin/odoo-source-bin \
     && ln -sfn /odoo/odoo-bin /usr/local/bin/odoo-bin \
-    && ln -sfn /venv/bin/odoo /usr/local/bin/odoo \
+    && ln -sfn /odoo/odoo-bin /usr/local/bin/odoo \
     && mkdir -p /usr/lib/python3/dist-packages/addons
+
+# Remove duplicate source/build trees that confuse IDE/module indexing.
+RUN rm -rf /odoo/build/lib
 
 RUN install -d -o ubuntu -g ubuntu /opt/project /opt/extra_addons /volumes/addons /volumes/config /volumes/data /volumes/logs \
     && install -o ubuntu -g ubuntu -m 0644 /dev/null /volumes/config/_generated.conf \
@@ -157,6 +162,9 @@ USER ubuntu
 FROM runtime AS runtime-devtools
 USER root
 ARG UBUNTU_CODENAME=noble
+
+RUN chmod +x /usr/local/bin/configure-dev-addon-paths.sh \
+    && /usr/local/bin/configure-dev-addon-paths.sh
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \

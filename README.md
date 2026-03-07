@@ -17,6 +17,16 @@ This repository provides a stable base runtime for downstream project images.
 Both images default to the `ubuntu` user for compatibility with existing
 restore and SSH mount workflows.
 
+## Devtools Addon Paths
+
+- `runtime` stays runtime-first and does not write IDE-oriented Python path
+  entries.
+- `runtime-devtools` writes a minimal `odoo_paths.pth` for generic non-core
+  source and addon roots used in local development tooling:
+  - `/odoo`
+  - `/opt/project/addons`
+  - `/opt/extra_addons`
+
 ## CLI Contract
 
 - `/odoo/odoo-bin` is a compatibility wrapper over upstream

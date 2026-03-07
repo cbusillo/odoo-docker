@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-odoo_script="${ODOO_SOURCE_BIN:-/usr/local/bin/odoo-source-bin}"
+odoo_script="${ODOO_SOURCE_BIN:-/odoo/odoo-bin.source}"
 python_executable="${ODOO_WRAPPER_PYTHON:-/venv/bin/python}"
 arguments=("$@")
 inject_runtime_defaults=true
