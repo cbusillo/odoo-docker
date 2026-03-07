@@ -1,0 +1,5 @@
+<component name="DependencyValidationManager">
+  <scope
+    name="Docker Build Files"
+    pattern="file[odoo-docker]:Dockerfile||file[odoo-docker]:.dockerignore||file[odoo-enterprise-docker]:Dockerfile||file[odoo-enterprise-docker]:.dockerignore" />
+</component>
