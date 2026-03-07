@@ -7,6 +7,8 @@ docker run --rm --entrypoint /bin/bash "${image_reference}" -lc '
 set -euo pipefail
 test -x /odoo/odoo-bin
 test -x /usr/local/bin/uv
+test -x /usr/local/bin/odoo-python-sync.sh
+test -x /usr/local/bin/odoo-fetch-addons.sh
 test -x /usr/bin/pg_restore
 test -d /venv
 test -f /volumes/config/_generated.conf

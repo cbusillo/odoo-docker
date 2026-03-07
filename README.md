@@ -36,6 +36,27 @@ restore and SSH mount workflows.
   server-style invocations so non-server commands keep upstream argument
   parsing semantics.
 
+## Downstream Build Contract
+
+- Downstream images inherit a single shared Python environment at `/venv`.
+- `/venv` is not configurable; downstream images must extend it additively and
+  must not recreate it.
+- The image reserves these downstream layout paths:
+  - `/opt/project`
+  - `/opt/project/addons`
+  - `/opt/extra_addons`
+- `odoo-python-sync.sh <prod|dev>` installs root lockfile-backed dependencies
+  plus addon `requirements*.txt` and addon `pyproject.toml` dependencies into
+  `/venv`.
+- `ODOO_PYTHON_SYNC_SKIP_ADDONS` can exclude a comma-separated set of addon
+  directory names from Python dependency sync when a downstream workflow needs
+  addon code on the path without packaging it into `/venv`.
+- `odoo-fetch-addons.sh` downloads external addon repositories declared in
+  `ODOO_ADDON_REPOSITORIES` into `/opt/extra_addons`.
+- Neither helper bakes in project-specific policy; downstream images choose
+  which external repositories to fetch and whether to sync `prod` or `dev`
+  dependencies.
+
 ## CI Release Model
 
 - Every run builds test images first and executes smoke checks.
@@ -63,7 +84,7 @@ than 7 days.
 ## Runner Health Checks
 
 - A scheduled `Runner Health` workflow tracks root filesystem and Docker root
-  usage on `chris-testing` every six hours.
+  usage on `chris-testing` daily.
 - The check fails when usage crosses the configured thresholds so operators get
   a visible GitHub Actions alert before the runner reaches saturation.
 
@@ -94,4 +115,4 @@ docker build \
 
 - Do not add credentials or access tokens in this repo.
 - Proprietary addons should be fetched by downstream builds using BuildKit
-  secrets.
+  secrets via `odoo-fetch-addons.sh`.

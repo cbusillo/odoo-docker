@@ -120,6 +120,8 @@ COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo /odoo
 COPY --from=uv-binary /uv /uvx /usr/local/bin/
 COPY scripts/odoo-bin-wrapper.sh /usr/local/bin/odoo-bin-wrapper.sh
 COPY scripts/configure-dev-addon-paths.sh /usr/local/bin/configure-dev-addon-paths.sh
+COPY scripts/odoo-python-sync.sh /usr/local/bin/odoo-python-sync.sh
+COPY scripts/odoo-fetch-addons.sh /usr/local/bin/odoo-fetch-addons.sh
 
 ENV PATH="/venv/bin:/usr/local/bin:${PATH}"
 ENV VIRTUAL_ENV=/venv
@@ -141,6 +143,7 @@ RUN mv /odoo/odoo-bin /odoo/odoo-bin.source \
     && ln -sfn /odoo/odoo-bin.source /usr/local/bin/odoo-source-bin \
     && ln -sfn /odoo/odoo-bin /usr/local/bin/odoo-bin \
     && ln -sfn /odoo/odoo-bin /usr/local/bin/odoo \
+    && chmod +x /usr/local/bin/odoo-python-sync.sh /usr/local/bin/odoo-fetch-addons.sh \
     && mkdir -p /usr/lib/python3/dist-packages/addons
 
 # Remove duplicate source/build trees that confuse IDE/module indexing.

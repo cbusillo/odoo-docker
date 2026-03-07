@@ -132,6 +132,10 @@ jobs:
       - name: Smoke test verification image
         run: ${{ matrix.smoke_script }} odoo-docker:verify-${{ matrix.suffix }}
 
+      - name: Validate downstream helper contract
+        if: matrix.target == 'runtime'
+        run: scripts/test-downstream-helpers.sh odoo-docker:verify-runtime
+
   publish:
     runs-on: [self-hosted, linux, x64, chris-testing]
     timeout-minutes: 90
