@@ -219,8 +219,12 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.value }}
-          cache-from: type=gha,scope=odoo-docker-${{ matrix.target }}-multiarch
-          cache-to: type=gha,mode=max,scope=odoo-docker-${{ matrix.target }}-multiarch,ignore-error=true
+          cache-from: |
+            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }}
+            type=gha,scope=odoo-docker-${{ matrix.target }}-multiarch
+          cache-to: |
+            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }},mode=max
+            type=gha,mode=max,scope=odoo-docker-${{ matrix.target }}-multiarch,ignore-error=true
           provenance: false
           sbom: false
           build-args: |
@@ -277,6 +281,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.value }}
+          cache-from: |
+            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }}
           provenance: false
           sbom: false
           build-args: |

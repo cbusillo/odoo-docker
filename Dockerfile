@@ -116,12 +116,13 @@ RUN npm install --global rtlcss@4.3.0
 
 RUN if ! id -u ubuntu >/dev/null 2>&1; then useradd --create-home --shell /bin/bash ubuntu; fi
 
-COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo /odoo
 COPY --from=uv-binary /uv /uvx /usr/local/bin/
 COPY scripts/odoo-bin-wrapper.sh /usr/local/bin/odoo-bin-wrapper.sh
 COPY scripts/configure-dev-addon-paths.sh /usr/local/bin/configure-dev-addon-paths.sh
 COPY scripts/odoo-python-sync.sh /usr/local/bin/odoo-python-sync.sh
 COPY scripts/odoo-fetch-addons.sh /usr/local/bin/odoo-fetch-addons.sh
+RUN install -d -o ubuntu -g ubuntu /odoo
+COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo/requirements.txt /odoo/requirements.txt
 
 ENV PATH="/venv/bin:/usr/local/bin:${PATH}"
 ENV VIRTUAL_ENV=/venv
@@ -137,6 +138,8 @@ RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=l
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python --upgrade pip" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements.txt" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python rlpycairo"
+
+COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo /odoo
 
 RUN mv /odoo/odoo-bin /odoo/odoo-bin.source \
     && install -m 0755 /usr/local/bin/odoo-bin-wrapper.sh /odoo/odoo-bin \
