@@ -160,10 +160,28 @@ jobs:
         with:
           image: docker.io/tonistiigi/binfmt@sha256:d3b963f787999e6c0219a48dba02978769286ff61a5f4d26245cb6a6e5567ea3
 
+      - name: Resolve persistent publish builder name
+        id: publish_builder
+        env:
+          RUNNER_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          runner_slug="$(printf '%s' "${RUNNER_NAME}" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-')"
+          runner_slug="${runner_slug#-}"
+          runner_slug="${runner_slug%-}"
+          if [ -z "${runner_slug}" ]; then
+            echo "Unable to derive persistent builder name from runner '${RUNNER_NAME}'" >&2
+            exit 1
+          fi
+          echo "name=odoo-docker-publish-${runner_slug}" >> "${GITHUB_OUTPUT}"
+
       - id: setup_buildx_publish
         uses: docker/setup-buildx-action@v3
         with:
           driver: docker-container
+          name: ${{ steps.publish_builder.outputs.name }}
+          cleanup: false
+          keep-state: true
 
       - uses: docker/login-action@v3
         with:
@@ -221,10 +239,8 @@ jobs:
           tags: ${{ steps.tags.outputs.value }}
           cache-from: |
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }}
-            type=gha,scope=odoo-docker-${{ matrix.target }}-multiarch
           cache-to: |
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }},mode=max
-            type=gha,mode=max,scope=odoo-docker-${{ matrix.target }}-multiarch,ignore-error=true
           provenance: false
           sbom: false
           build-args: |
@@ -253,7 +269,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.value }}
-          cache-to: type=gha,mode=max,scope=odoo-docker-${{ matrix.target }}-multiarch,ignore-error=true
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }},mode=max
           provenance: false
           sbom: false
           build-args: |
@@ -288,6 +304,16 @@ jobs:
           build-args: |
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
+
+      - name: Prune stale persistent publish builder cache
+        if: always()
+        run: |
+          set -euo pipefail
+          docker buildx prune \
+            --builder "${{ steps.setup_buildx_publish.outputs.name }}" \
+            --force \
+            --filter 'until=336h' \
+            || true
 
   trigger_enterprise:
     runs-on: [self-hosted, linux, x64, chris-testing]

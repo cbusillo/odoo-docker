@@ -46,7 +46,7 @@ RUN set -eux; \
       "https://github.com/wkhtmltopdf/packaging/releases/download/${WKHTMLTOPDF_VERSION}/wkhtmltox_${WKHTMLTOPDF_VERSION}.${WKHTMLTOPDF_TARGET}_${package_arch}.deb"; \
     echo "${checksum}  wkhtmltox.deb" | sha1sum -c -
 
-FROM ubuntu:noble AS runtime
+FROM ubuntu:noble AS runtime-system
 ARG PYTHON_VERSION
 ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -117,10 +117,6 @@ RUN npm install --global rtlcss@4.3.0
 RUN if ! id -u ubuntu >/dev/null 2>&1; then useradd --create-home --shell /bin/bash ubuntu; fi
 
 COPY --from=uv-binary /uv /uvx /usr/local/bin/
-COPY scripts/odoo-bin-wrapper.sh /usr/local/bin/odoo-bin-wrapper.sh
-COPY scripts/configure-dev-addon-paths.sh /usr/local/bin/configure-dev-addon-paths.sh
-COPY scripts/odoo-python-sync.sh /usr/local/bin/odoo-python-sync.sh
-COPY scripts/odoo-fetch-addons.sh /usr/local/bin/odoo-fetch-addons.sh
 RUN install -d -o ubuntu -g ubuntu /odoo
 COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo/requirements.txt /odoo/requirements.txt
 
@@ -129,6 +125,8 @@ ENV VIRTUAL_ENV=/venv
 ENV UV_CACHE_DIR=/home/ubuntu/.cache/uv
 ENV UV_PROJECT_ENVIRONMENT=/venv
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
+
+FROM runtime-system AS runtime-pythondeps
 
 RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=locked \
     install -d -o ubuntu -g ubuntu /opt/uv/python /venv /home/ubuntu/.cache/uv \
@@ -139,7 +137,13 @@ RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=l
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements.txt" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python rlpycairo"
 
+FROM runtime-pythondeps AS runtime
+
 COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo /odoo
+COPY scripts/odoo-bin-wrapper.sh /usr/local/bin/odoo-bin-wrapper.sh
+COPY scripts/configure-dev-addon-paths.sh /usr/local/bin/configure-dev-addon-paths.sh
+COPY scripts/odoo-python-sync.sh /usr/local/bin/odoo-python-sync.sh
+COPY scripts/odoo-fetch-addons.sh /usr/local/bin/odoo-fetch-addons.sh
 
 RUN mv /odoo/odoo-bin /odoo/odoo-bin.source \
     && install -m 0755 /usr/local/bin/odoo-bin-wrapper.sh /odoo/odoo-bin \

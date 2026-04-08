@@ -70,12 +70,15 @@ same verification gate.
 
 ## CI Cache Policy
 
-- Builds use `cache-from` / `cache-to` with `type=gha` as the primary cache.
-- Buildx builders are ephemeral in CI; the workflow does not persist local
-  BuildKit state between runs.
+- Verify jobs still use ephemeral Buildx builders with `type=gha` cache because
+  they only build single-platform smoke images.
+- Publish jobs on `chris-testing` now reuse a persistent per-runner Buildx
+  builder and treat GHCR registry cache as the portable fallback.
+- The publish workflow prunes cache entries older than 14 days after each run
+  so local BuildKit state stays warm without growing forever.
 
-This avoids unbounded local cache growth on self-hosted runners while still
-keeping cross-run cache reuse through GitHub Actions cache storage.
+This keeps the expensive multi-arch publish path warm on the self-hosted runner
+while still giving us a recoverable remote cache when a builder is recreated.
 
 The GHCR retention workflow keeps stable and nightly tags, preserves the newest
 10 immutable `sha-*` tags per image suffix, and prunes untagged versions older
