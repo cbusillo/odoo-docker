@@ -9,9 +9,32 @@ test_root="$(mktemp -d)"
 trap 'rm -rf "${test_root}"' EXIT
 
 mkdir -p \
+	"${test_root}/tools" \
 	"${test_root}/addons/test_local_pkg/test_local_pkg" \
 	"${test_root}/addons/test_requirements" \
 	"${test_root}/addons/test_dev_requirements"
+
+cat >"${test_root}/pyproject.toml" <<'EOF'
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "downstream-root"
+version = "0.0.0"
+dependencies = [
+    "python-slugify==8.0.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "humanize==4.13.0",
+]
+EOF
+
+cat >"${test_root}/tools/__init__.py" <<'EOF'
+"""Downstream helper test package."""
+EOF
 
 cat >"${test_root}/addons/test_local_pkg/pyproject.toml" <<'EOF'
 [build-system]
@@ -25,14 +48,6 @@ EOF
 
 cat >"${test_root}/addons/test_local_pkg/test_local_pkg/__init__.py" <<'EOF'
 VALUE = "local-package-installed"
-EOF
-
-cat >"${test_root}/addons/test_requirements/requirements.txt" <<'EOF'
-python-slugify==8.0.4
-EOF
-
-cat >"${test_root}/addons/test_dev_requirements/requirements-dev.txt" <<'EOF'
-humanize==4.13.0
 EOF
 
 chmod -R a+rX "${test_root}"
