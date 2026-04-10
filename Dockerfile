@@ -156,7 +156,7 @@ RUN mv /odoo/odoo-bin /odoo/odoo-bin.source \
 # Remove duplicate source/build trees that confuse IDE/module indexing.
 RUN rm -rf /odoo/build/lib
 
-RUN install -d -o ubuntu -g ubuntu /opt/project /opt/extra_addons /volumes/addons /volumes/config /volumes/data /volumes/logs \
+RUN install -d -o ubuntu -g ubuntu /opt/project /opt/project/addons /opt/extra_addons /volumes/addons /volumes/config /volumes/data /volumes/logs \
     && install -o ubuntu -g ubuntu -m 0644 /dev/null /volumes/config/_generated.conf \
     && su -s /bin/bash ubuntu -c "printf '[options]\n' > /volumes/config/_generated.conf"
 

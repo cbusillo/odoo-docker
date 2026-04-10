@@ -27,6 +27,9 @@ assert contents == [
     "/opt/extra_addons",
 ], contents
 PY
+test -d /opt/project
+test -d /opt/project/addons
+test -d /opt/extra_addons
 '
 
 echo "devtools smoke checks passed: ${image_reference}"

@@ -36,6 +36,20 @@ cat >"${test_root}/tools/__init__.py" <<'EOF'
 """Downstream helper test package."""
 EOF
 
+generate_root_lockfile() {
+	uv lock --project "${test_root}" >/dev/null
+}
+
+assert_missing_root_lock_fails() {
+	if docker run --rm \
+		-v "${test_root}:/opt/project" \
+		--entrypoint /bin/bash \
+		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"; then
+		echo "Expected odoo-python-sync.sh to reject a missing root uv.lock" >&2
+		exit 1
+	fi
+}
+
 cat >"${test_root}/addons/test_local_pkg/pyproject.toml" <<'EOF'
 [build-system]
 requires = ["setuptools>=68"]
@@ -51,6 +65,9 @@ VALUE = "local-package-installed"
 EOF
 
 chmod -R a+rX "${test_root}"
+
+assert_missing_root_lock_fails
+generate_root_lockfile
 
 run_sync_check() {
 	local sync_mode="$1"

@@ -4,6 +4,7 @@ set -euo pipefail
 readonly sync_mode="${1:-}"
 readonly project_root="/opt/project"
 readonly root_pyproject_path="${project_root}/pyproject.toml"
+readonly root_lock_path="${project_root}/uv.lock"
 readonly addon_roots=(/opt/project/addons /opt/extra_addons)
 readonly python_executable="/venv/bin/python3"
 readonly skipped_addons_raw="${ODOO_PYTHON_SYNC_SKIP_ADDONS:-}"
@@ -50,6 +51,16 @@ ensure_project_layout() {
 		echo "Missing /opt/extra_addons; base addon layout is broken." >&2
 		exit 1
 	fi
+
+	if [[ -e "${root_pyproject_path}" && ! -e "${root_lock_path}" ]]; then
+		echo "Found ${root_pyproject_path} without ${root_lock_path}; root project installs must stay lockfile-backed." >&2
+		exit 1
+	fi
+
+	if [[ -e "${root_lock_path}" && ! -e "${root_pyproject_path}" ]]; then
+		echo "Found ${root_lock_path} without ${root_pyproject_path}; root project metadata is incomplete." >&2
+		exit 1
+	fi
 }
 
 python_has_optional_dependency() {
@@ -76,34 +87,6 @@ addon_is_skipped() {
 	[[ "${skipped_addons}" == *,"${addon_name}",* ]]
 }
 
-export_root_dependency_specs() {
-	local requirements_file="$1"
-	local include_dev_dependencies="$2"
-
-	PYPROJECT_PATH="${root_pyproject_path}" \
-	INCLUDE_DEV_DEPENDENCIES="${include_dev_dependencies}" \
-	REQUIREMENTS_PATH="${requirements_file}" \
-	"${python_executable}" - <<'PY'
-import os
-from pathlib import Path
-import tomllib
-
-pyproject_path = Path(os.environ["PYPROJECT_PATH"])
-requirements_path = Path(os.environ["REQUIREMENTS_PATH"])
-include_dev_dependencies = os.environ["INCLUDE_DEV_DEPENDENCIES"] == "1"
-
-data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
-project_data = data.get("project", {}) or {}
-dependency_specs = list(project_data.get("dependencies", []) or [])
-
-if include_dev_dependencies:
-    optional_dependencies = project_data.get("optional-dependencies", {}) or {}
-    dependency_specs.extend(optional_dependencies.get("dev", []) or [])
-
-requirements_path.write_text("".join(f"{dependency_spec}\n" for dependency_spec in dependency_specs), encoding="utf-8")
-PY
-}
-
 install_root_dependencies() {
 	if [[ ! -f "${root_pyproject_path}" ]]; then
 		return
@@ -111,14 +94,17 @@ install_root_dependencies() {
 
 	local requirements_file
 	requirements_file="$(mktemp /tmp/odoo-python-sync-root-XXXXXX.txt)"
-	local include_dev_dependencies=0
+	local export_args=(--frozen --format requirements.txt --no-emit-project --no-default-groups --output-file "${requirements_file}")
 
 	if [[ "${sync_mode}" == "dev" ]] && python_has_optional_dependency "${root_pyproject_path}" dev; then
-		include_dev_dependencies=1
+		export_args+=(--extra dev)
 	fi
 
-	echo "Installing root project dependencies from ${root_pyproject_path} into /venv..."
-	export_root_dependency_specs "${requirements_file}" "${include_dev_dependencies}"
+	echo "Installing root project dependencies from ${root_lock_path} into /venv..."
+	(
+		cd "${project_root}"
+		uv export "${export_args[@]}"
+	)
 
 	if [[ -s "${requirements_file}" ]]; then
 		uv pip install --python /venv/bin/python -r "${requirements_file}"

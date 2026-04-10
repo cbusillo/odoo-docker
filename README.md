@@ -45,9 +45,9 @@ restore and SSH mount workflows.
   - `/opt/project`
   - `/opt/project/addons`
   - `/opt/extra_addons`
-- `odoo-python-sync.sh <prod|dev>` installs root `pyproject.toml`
-  dependencies using the latest resolvable versions at build time, plus addon
-  `requirements*.txt` and addon `pyproject.toml` dependencies, into `/venv`.
+- `odoo-python-sync.sh <prod|dev>` installs root lockfile-backed dependencies
+  plus addon `requirements*.txt` and addon `pyproject.toml` dependencies into
+  `/venv`.
 - `ODOO_PYTHON_SYNC_SKIP_ADDONS` can exclude a comma-separated set of addon
   directory names from Python dependency sync when a downstream workflow needs
   addon code on the path without packaging it into `/venv`.

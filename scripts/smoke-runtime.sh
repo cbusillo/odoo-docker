@@ -11,6 +11,9 @@ test -x /usr/local/bin/odoo-python-sync.sh
 test -x /usr/local/bin/odoo-fetch-addons.sh
 test -x /usr/bin/pg_restore
 test -d /venv
+test -d /opt/project
+test -d /opt/project/addons
+test -d /opt/extra_addons
 test -f /volumes/config/_generated.conf
 /venv/bin/python -c "import sys; assert sys.version_info[:2] == (3, 13), sys.version"
 /odoo/odoo-bin --help >/dev/null
