@@ -24,7 +24,7 @@ RUN set -eux; \
     git checkout --detach FETCH_HEAD; \
     rm -rf .git
 
-FROM --platform=$BUILDPLATFORM alpine/curl:8.12.1 AS wkhtmltox
+FROM --platform=$BUILDPLATFORM alpine/curl:8.17.0 AS wkhtmltox
 ARG TARGETARCH
 ARG WKHTMLTOPDF_VERSION=0.12.6.1-3
 ARG WKHTMLTOPDF_TARGET=jammy
