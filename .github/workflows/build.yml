@@ -85,7 +85,7 @@ jobs:
       - name: Build verification image (attempt 1)
         id: verify_build_attempt_1
         continue-on-error: true
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           builder: ${{ steps.setup_buildx_verify.outputs.name }}
           context: .
@@ -107,7 +107,7 @@ jobs:
         id: verify_build_attempt_2
         if: steps.verify_build_attempt_1.outcome == 'failure'
         continue-on-error: true
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           builder: ${{ steps.setup_buildx_verify.outputs.name }}
           context: .
@@ -227,7 +227,7 @@ jobs:
       - name: Publish image (attempt 1)
         id: publish_attempt_1
         continue-on-error: true
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           builder: ${{ steps.setup_buildx_publish.outputs.name }}
           context: .
@@ -259,7 +259,7 @@ jobs:
         id: publish_attempt_2
         if: steps.publish_attempt_1.outcome == 'failure'
         continue-on-error: true
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           builder: ${{ steps.setup_buildx_publish.outputs.name }}
           context: .
@@ -287,7 +287,7 @@ jobs:
       - name: Publish image (attempt 3)
         id: publish_attempt_3
         if: steps.publish_attempt_1.outcome == 'failure' && steps.publish_attempt_2.outcome == 'failure'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           builder: ${{ steps.setup_buildx_publish.outputs.name }}
           context: .
