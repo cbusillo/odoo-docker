@@ -37,7 +37,11 @@ cat >"${test_root}/tools/__init__.py" <<'EOF'
 EOF
 
 generate_root_lockfile() {
-	uv lock --project "${test_root}" >/dev/null
+	docker run --rm \
+		--user root \
+		-v "${test_root}:/opt/project" \
+		--entrypoint /bin/bash \
+		"${image_reference}" -lc "set -euo pipefail; cd /opt/project; uv lock >/dev/null"
 }
 
 assert_missing_root_lock_fails() {
