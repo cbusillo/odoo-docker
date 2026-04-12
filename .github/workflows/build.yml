@@ -35,7 +35,7 @@ env:
 
 jobs:
   resolve_source:
-    runs-on: [self-hosted, linux, x64, chris-testing]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
@@ -55,7 +55,7 @@ jobs:
           echo "Resolved Odoo source revision: ${source_revision}"
 
   verify:
-    runs-on: [self-hosted, linux, x64, chris-testing]
+    runs-on: [self-hosted, linux, x64, chris-testing-build]
     timeout-minutes: 60
     needs: resolve_source
     permissions:
@@ -137,7 +137,7 @@ jobs:
         run: scripts/test-downstream-helpers.sh odoo-docker:verify-runtime
 
   publish:
-    runs-on: [self-hosted, linux, x64, chris-testing]
+    runs-on: [self-hosted, linux, x64, chris-testing-publish-cache]
     timeout-minutes: 240
     needs: [resolve_source, verify]
     if: github.event_name != 'pull_request'
@@ -162,18 +162,9 @@ jobs:
 
       - name: Resolve persistent publish builder name
         id: publish_builder
-        env:
-          RUNNER_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
-          runner_slug="$(printf '%s' "${RUNNER_NAME}" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-')"
-          runner_slug="${runner_slug#-}"
-          runner_slug="${runner_slug%-}"
-          if [ -z "${runner_slug}" ]; then
-            echo "Unable to derive persistent builder name from runner '${RUNNER_NAME}'" >&2
-            exit 1
-          fi
-          echo "name=odoo-docker-publish-${runner_slug}" >> "${GITHUB_OUTPUT}"
+          echo "name=odoo-docker-publish-chris-testing-odoo-docker" >> "${GITHUB_OUTPUT}"
 
       - id: setup_buildx_publish
         uses: docker/setup-buildx-action@v4
@@ -312,11 +303,12 @@ jobs:
           docker buildx prune \
             --builder "${{ steps.setup_buildx_publish.outputs.name }}" \
             --force \
-            --filter 'until=336h' \
+            --filter 'until=168h' \
+            --keep-storage 40000000000 \
             || true
 
   trigger_enterprise:
-    runs-on: [self-hosted, linux, x64, chris-testing]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [resolve_source, publish]
     if: github.event_name != 'pull_request'

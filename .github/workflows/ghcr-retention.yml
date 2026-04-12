@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   cleanup:
-    runs-on: [self-hosted, linux, x64, chris-testing]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       PACKAGE_NAME: odoo-docker

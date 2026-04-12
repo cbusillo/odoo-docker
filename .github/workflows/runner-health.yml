@@ -7,7 +7,7 @@ on:
 
 jobs:
   health:
-    runs-on: [self-hosted, linux, x64, chris-testing]
+    runs-on: [self-hosted, linux, x64, chris-testing-build]
     timeout-minutes: 10
     steps:
       - name: Collect runner metrics
@@ -21,7 +21,7 @@ jobs:
           root_used_percent="$(df -P / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
           docker_root_directory="$(docker info --format '{{.DockerRootDir}}')"
           docker_root_used_percent="$(df -P "${docker_root_directory}" | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
-          persistent_builder_names="$(docker buildx ls --format '{{.Name}}' | grep '^odoo-docker-publish-' || true)"
+          persistent_builder_containers="$(docker ps -a --format '{{.Names}}' | grep '^buildx_buildkit_odoo-docker-publish-chris-testing-odoo-docker0$' || true)"
 
           {
             echo "## chris-testing Runner Health"
@@ -32,15 +32,15 @@ jobs:
             echo '```text'
             docker system df
             echo '```'
-            if [ -n "${persistent_builder_names}" ]; then
+            if [ -n "${persistent_builder_containers}" ]; then
               echo ""
-              echo "### Persistent Buildx builders"
-              printf '%s\n' "${persistent_builder_names}" | while IFS= read -r builder_name; do
-                [ -n "${builder_name}" ] || continue
+              echo "### Persistent publish builder containers"
+              printf '%s\n' "${persistent_builder_containers}" | while IFS= read -r container_name; do
+                [ -n "${container_name}" ] || continue
                 echo ""
-                echo "#### ${builder_name}"
+                echo "#### ${container_name}"
                 echo '```text'
-                docker buildx du --builder "${builder_name}" --verbose || true
+                docker inspect "${container_name}" --format 'Status={{.State.Status}} Created={{.Created}}' || true
                 echo '```'
               done
             fi
