@@ -7,7 +7,8 @@ on:
 
 jobs:
   health:
-    runs-on: [self-hosted, linux, x64, chris-testing-build]
+    # Health checks should not consume the build lane that verify jobs need.
+    runs-on: [self-hosted, linux, x64, chris-testing-publish-cache]
     timeout-minutes: 10
     steps:
       - name: Collect runner metrics

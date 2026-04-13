@@ -70,12 +70,17 @@ same verification gate.
 
 ## CI Cache Policy
 
-- Verify jobs still use ephemeral Buildx builders with `type=gha` cache because
-  they only build single-platform smoke images.
-- Publish jobs on `chris-testing` now reuse a persistent per-runner Buildx
-  builder and treat GHCR registry cache as the portable fallback.
+- Verify jobs run on the `chris-testing-build` self-hosted lane and still use
+  ephemeral Buildx builders with `type=gha` cache because they only build
+  single-platform smoke images.
+- Publish jobs run on the `chris-testing-publish-cache` self-hosted lane and
+  reuse a persistent per-runner Buildx builder, with GHCR registry cache as
+  the portable fallback.
 - The publish workflow prunes cache entries older than 14 days after each run
   so local BuildKit state stays warm without growing forever.
+- Both build and publish paths now preflight runner availability on
+  `ubuntu-latest` first, so missing self-hosted labels fail fast instead of
+  queueing indefinitely.
 
 This keeps the expensive multi-arch publish path warm on the self-hosted runner
 while still giving us a recoverable remote cache when a builder is recreated.
@@ -88,6 +93,8 @@ than 7 days.
 
 - A scheduled `Runner Health` workflow tracks root filesystem and Docker root
   usage on `chris-testing` daily.
+- The health workflow runs on `chris-testing-publish-cache` so it does not
+  consume the `chris-testing-build` verification lane.
 - The check fails when usage crosses the configured thresholds so operators get
   a visible GitHub Actions alert before the runner reaches saturation.
 
