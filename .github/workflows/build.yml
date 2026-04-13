@@ -54,101 +54,10 @@ jobs:
           echo "value=${source_revision}" >> "${GITHUB_OUTPUT}"
           echo "Resolved Odoo source revision: ${source_revision}"
 
-  preflight_verify_runner:
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-    steps:
-      - name: Confirm build runner availability
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const runners = await github.paginate(
-              github.rest.actions.listSelfHostedRunnersForRepo,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                per_page: 100,
-              },
-            );
-
-            const matchingRunners = runners.filter((runner) => {
-              const labelNames = runner.labels.map((label) => label.name);
-              return (
-                runner.status === 'online' &&
-                labelNames.includes('self-hosted') &&
-                labelNames.includes('chris-testing-build')
-              );
-            });
-
-            if (!matchingRunners.length) {
-              core.setFailed(
-                'No online self-hosted runner with labels self-hosted and ' +
-                  'chris-testing-build is registered for this repo. ' +
-                  'Verification cannot start.',
-              );
-              return;
-            }
-
-            const busyRunners = matchingRunners.filter((runner) => runner.busy);
-            if (busyRunners.length === matchingRunners.length) {
-              core.warning(
-                'All matching chris-testing-build runners are currently busy. ' +
-                  'Verification may queue until one is free.',
-              );
-            }
-
-  preflight_publish_runner:
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
-    permissions:
-      actions: read
-      contents: read
-    steps:
-      - name: Confirm publish runner availability
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const runners = await github.paginate(
-              github.rest.actions.listSelfHostedRunnersForRepo,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                per_page: 100,
-              },
-            );
-
-            const matchingRunners = runners.filter((runner) => {
-              const labelNames = runner.labels.map((label) => label.name);
-              return (
-                runner.status === 'online' &&
-                labelNames.includes('self-hosted') &&
-                labelNames.includes('chris-testing-publish-cache')
-              );
-            });
-
-            if (!matchingRunners.length) {
-              core.setFailed(
-                'No online self-hosted runner with labels self-hosted and ' +
-                  'chris-testing-publish-cache is registered for this repo. ' +
-                  'Publish cannot start.',
-              );
-              return;
-            }
-
-            const busyRunners = matchingRunners.filter((runner) => runner.busy);
-            if (busyRunners.length === matchingRunners.length) {
-              core.warning(
-                'All matching chris-testing-publish-cache runners are currently busy. ' +
-                  'Publish may queue until one is free.',
-              );
-            }
-
   verify:
     runs-on: [self-hosted, linux, x64, chris-testing-build]
     timeout-minutes: 60
-    needs: [resolve_source, preflight_verify_runner]
+    needs: resolve_source
     permissions:
       contents: read
     strategy:
@@ -230,7 +139,7 @@ jobs:
   publish:
     runs-on: [self-hosted, linux, x64, chris-testing-publish-cache]
     timeout-minutes: 240
-    needs: [resolve_source, preflight_publish_runner, verify]
+    needs: [resolve_source, verify]
     if: github.event_name != 'pull_request'
     permissions:
       contents: read

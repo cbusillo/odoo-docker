@@ -78,9 +78,6 @@ same verification gate.
   the portable fallback.
 - The publish workflow prunes cache entries older than 14 days after each run
   so local BuildKit state stays warm without growing forever.
-- Both build and publish paths now preflight runner availability on
-  `ubuntu-latest` first, so missing self-hosted labels fail fast instead of
-  queueing indefinitely.
 
 This keeps the expensive multi-arch publish path warm on the self-hosted runner
 while still giving us a recoverable remote cache when a builder is recreated.
