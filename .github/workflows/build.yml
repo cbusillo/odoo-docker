@@ -344,13 +344,47 @@ jobs:
           image_root="ghcr.io/${GITHUB_REPOSITORY}"
           runtime_tag="${image_root}:sha-${source_short_sha}-runtime"
           devtools_tag="${image_root}:sha-${source_short_sha}-devtools"
-          runtime_digest="$(docker buildx imagetools inspect "${runtime_tag}" | awk '/^Digest:/ {print $2; exit}')"
-          devtools_digest="$(docker buildx imagetools inspect "${devtools_tag}" | awk '/^Digest:/ {print $2; exit}')"
 
-          if [ -z "${runtime_digest}" ] || [ -z "${devtools_digest}" ]; then
-            echo "Failed to resolve published base image digests" >&2
-            exit 1
-          fi
+          resolve_image_digest() {
+            local image_tag="$1"
+            local max_digest_attempts=6
+            local digest_attempt=1
+            local inspect_output=""
+            local image_digest=""
+            local backoff_seconds=0
+
+            while true; do
+              image_digest=""
+              if inspect_output="$(docker buildx imagetools inspect "${image_tag}" 2>&1)"; then
+                image_digest="$(printf '%s\n' "${inspect_output}" | awk '/^Digest:/ {print $2; exit}')"
+              fi
+
+              if [ -n "${image_digest}" ]; then
+                echo "Resolved ${image_tag} to ${image_digest}" >&2
+                printf '%s\n' "${image_digest}"
+                return 0
+              fi
+
+              if [ "${digest_attempt}" -ge "${max_digest_attempts}" ]; then
+                echo "Failed to resolve published image digest for ${image_tag} after ${max_digest_attempts} attempts" >&2
+                if [ -n "${inspect_output}" ]; then
+                  printf '%s\n' "${inspect_output}" >&2
+                fi
+                return 1
+              fi
+
+              backoff_seconds=$((digest_attempt * 10))
+              echo "Published image digest lookup for ${image_tag} failed on attempt ${digest_attempt}; retrying in ${backoff_seconds}s" >&2
+              if [ -n "${inspect_output}" ]; then
+                printf '%s\n' "${inspect_output}" >&2
+              fi
+              sleep "${backoff_seconds}"
+              digest_attempt=$((digest_attempt + 1))
+            done
+          }
+
+          runtime_digest="$(resolve_image_digest "${runtime_tag}")"
+          devtools_digest="$(resolve_image_digest "${devtools_tag}")"
 
           runtime_image="${image_root}@${runtime_digest}"
           devtools_image="${image_root}@${devtools_digest}"
