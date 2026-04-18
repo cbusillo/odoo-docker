@@ -94,14 +94,6 @@ than 7 days.
   consume the `chris-testing-build` verification lane.
 - The check fails when usage crosses the configured thresholds so operators get
   a visible GitHub Actions alert before the runner reaches saturation.
-- A `Build Timing Guard` workflow watches completed `Build And Publish Images`
-  runs and fails if verify or publish durations drift beyond the current
-  warm-cache timing budget.
-- The publish budget is intentionally looser than the current steady-state
-  baseline so it catches cold-cache regressions without alerting on normal run
-  variance.
-- Manual `workflow_dispatch` checks default to the latest successful `main`
-  `push` run and can be narrowed with branch and event inputs when needed.
 
 ## Source Pinning
 
