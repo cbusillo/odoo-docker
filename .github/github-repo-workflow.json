@@ -1,0 +1,22 @@
+{
+  "defaultBranch": "main",
+  "importantWorkflows": [
+    "Build And Publish Images",
+    "GHCR Retention",
+    "Runner Health"
+  ],
+  "qaLabels": [],
+  "deployLabels": [],
+  "healthUrls": [],
+  "relatedRepos": [
+    "odoo-enterprise-docker",
+    "odoo-devkit",
+    "odoo-shared-addons",
+    "launchplane"
+  ],
+  "validatedThrough": ["odoo-enterprise-docker"],
+  "cleanup": {
+    "deleteMergedLocalBranches": true,
+    "removeMergedCleanWorktrees": true
+  }
+}
