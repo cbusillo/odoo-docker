@@ -61,11 +61,11 @@ restore and SSH mount workflows.
 
 - Every run builds test images first and executes smoke checks.
 - Publish only happens after smoke checks pass.
-- `schedule` (daily) publishes `nightly-*` tags and immutable `sha-*` tags.
+- `schedule` (weekly) publishes `nightly-*` tags and immutable `sha-*` tags.
 - `push` to `main` publishes stable `19.0-*` tags and immutable `sha-*` tags.
 - `pull_request` runs verify-only (no image publishing).
 
-This lets us keep a daily canary stream while protecting stable tags behind the
+This lets us keep a weekly canary stream while protecting stable tags behind the
 same verification gate.
 
 ## CI Cache Policy
@@ -99,7 +99,7 @@ than 7 days.
 
 The workflow resolves the current `odoo/odoo` `19.0` commit and pins that exact
 revision into the build. This gives repeatable artifacts per run and makes
-nightly updates explicit.
+scheduled updates explicit.
 
 `uv` is copied from Astral's official container image and pinned by tag+digest
 in the Dockerfile. A GitHub-native Dependabot config watches that image

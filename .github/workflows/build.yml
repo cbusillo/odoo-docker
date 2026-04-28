@@ -25,7 +25,7 @@ on:
       - .github/workflows/build.yml
       - README.md
   schedule:
-    - cron: "17 4 * * *"
+    - cron: "17 4 * * 1"
 
 concurrency:
   group: odoo-docker-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref || github.run_id }}
