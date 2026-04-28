@@ -8,4 +8,4 @@ lxml==6.1.0
 Pillow==12.2.0
 pyopenssl==26.0.0
 urllib3==2.6.3
-Werkzeug==3.0.3
+Werkzeug==3.1.6
