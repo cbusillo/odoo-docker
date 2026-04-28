@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - Dockerfile
+      - requirements-overrides.txt
       - scripts/**
       - .github/workflows/build.yml
       - README.md
@@ -19,6 +20,7 @@ on:
     branches: [main]
     paths:
       - Dockerfile
+      - requirements-overrides.txt
       - scripts/**
       - .github/workflows/build.yml
       - README.md
@@ -54,10 +56,35 @@ jobs:
           echo "value=${source_revision}" >> "${GITHUB_OUTPUT}"
           echo "Resolved Odoo source revision: ${source_revision}"
 
+  check_overrides:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: resolve_source
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install requirement parser
+        run: python3 -m pip install --user packaging
+
+      - name: Check requirement overrides against upstream
+        env:
+          ODOO_SOURCE_REV: ${{ needs.resolve_source.outputs.odoo_source_rev }}
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://raw.githubusercontent.com/odoo/odoo/${ODOO_SOURCE_REV}/requirements.txt" \
+            -o "${RUNNER_TEMP}/odoo-requirements.txt"
+          python3 scripts/check-requirements-overrides.py \
+            --requirements "${RUNNER_TEMP}/odoo-requirements.txt" \
+            --overrides requirements-overrides.txt \
+            --python-version 3.13
+
   verify:
     runs-on: [self-hosted, linux, x64, chris-testing-build]
     timeout-minutes: 60
-    needs: resolve_source
+    needs: [resolve_source, check_overrides]
     permissions:
       contents: read
     strategy:
@@ -140,9 +167,25 @@ jobs:
       - name: Smoke test verification image
         run: ${{ matrix.smoke_script }} odoo-docker:verify-${{ matrix.suffix }}
 
+      - name: Smoke test database initialization
+        if: matrix.target == 'runtime'
+        run: scripts/smoke-db-init.sh odoo-docker:verify-runtime
+
       - name: Validate downstream helper contract
         if: matrix.target == 'runtime'
         run: scripts/test-downstream-helpers.sh odoo-docker:verify-runtime
+
+      - name: Scan verification image
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${RUNNER_TEMP}/trivy-cache:/root/.cache" \
+            aquasec/trivy:0.70.0 image \
+            --scanners vulnerability \
+            --ignore-unfixed \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            odoo-docker:verify-${{ matrix.suffix }}
 
       - name: Prune stale persistent verify builder cache
         if: always()

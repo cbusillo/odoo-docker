@@ -133,6 +133,7 @@ RUN if ! id -u ubuntu >/dev/null 2>&1; then useradd --create-home --shell /bin/b
 COPY --from=uv-binary /uv /uvx /usr/local/bin/
 RUN install -d -o ubuntu -g ubuntu /odoo
 COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo/requirements.txt /odoo/requirements.txt
+COPY requirements-overrides.txt /odoo/requirements-overrides.txt
 
 ENV PATH="/venv/bin:/usr/local/bin:${PATH}"
 ENV VIRTUAL_ENV=/venv
@@ -149,7 +150,9 @@ RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=l
     && su -s /bin/bash ubuntu -c "uv venv /venv --python '${PYTHON_VERSION}'" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python --upgrade pip" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements.txt" \
-    && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python rlpycairo"
+    && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements-overrides.txt" \
+    && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python rlpycairo" \
+    && su -s /bin/bash ubuntu -c "uv pip check --python /venv/bin/python"
 
 FROM runtime-pythondeps AS runtime
 
