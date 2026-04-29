@@ -10,13 +10,10 @@ Keep it short; defer deeper detail to the README and scripts.
 - Preserve `/venv`, `/opt/project`, `/opt/project/addons`, and
   `/opt/extra_addons` as stable downstream layout guarantees.
 
-## Primary Commands
+## Workflow Metadata
 
-- Build runtime image: `docker build -t ghcr.io/cbusillo/odoo-docker:19.0-runtime --target runtime .`
-- Build devtools image: `docker build -t ghcr.io/cbusillo/odoo-docker:19.0-devtools --target runtime-devtools .`
-- Smoke runtime image: `bash scripts/smoke-runtime.sh <image-reference>`
-- Smoke devtools image: `bash scripts/smoke-devtools.sh <image-reference>`
-- Validate downstream helper contract: `bash scripts/test-downstream-helpers.sh <image-reference>`
+- Use [`.github/github-repo-workflow.json`](.github/github-repo-workflow.json)
+  for primary commands, validation gates, workflow routing, and cleanup policy.
 
 ## Release Gate
 

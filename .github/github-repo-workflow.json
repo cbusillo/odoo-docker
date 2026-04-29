@@ -1,5 +1,40 @@
 {
   "defaultBranch": "main",
+  "projectType": "odoo-base-runtime-image",
+  "docs": {
+    "index": "README.md",
+    "dockerfile": "Dockerfile",
+    "scripts": "scripts"
+  },
+  "qualityGate": {
+    "build": {
+      "runtime": "docker build -t ghcr.io/cbusillo/odoo-docker:19.0-runtime --target runtime .",
+      "devtools": "docker build -t ghcr.io/cbusillo/odoo-docker:19.0-devtools --target runtime-devtools ."
+    },
+    "smoke": {
+      "runtime": "bash scripts/smoke-runtime.sh <image-reference>",
+      "devtools": "bash scripts/smoke-devtools.sh <image-reference>",
+      "downstreamHelpers": "bash scripts/test-downstream-helpers.sh <image-reference>",
+      "odooBinWrapper": "bash scripts/test-odoo-bin-wrapper.sh"
+    },
+    "inspection": {
+      "tool": "jetbrains",
+      "ide": "PyCharm",
+      "scopePreference": ["changed_files", "directory", "whole_project"]
+    },
+    "docsRequiredWhen": [
+      "behavior changes",
+      "api changes",
+      "config changes",
+      "operations changes",
+      "ownership boundaries change",
+      "Dockerfile changes",
+      "image contract changes",
+      "downstream helper behavior changes",
+      "self-hosted runner or cache behavior changes",
+      "workflow publishing changes"
+    ]
+  },
   "importantWorkflows": [
     "Build And Publish Images",
     "GHCR Retention",
@@ -15,8 +50,42 @@
     "launchplane"
   ],
   "validatedThrough": ["odoo-enterprise-docker"],
+  "githubSignals": {
+    "postMerge": {
+      "waitForActions": true,
+      "checkSecurityAndQuality": true
+    },
+    "capabilities": {
+      "codeScanning": "available",
+      "secretScanning": "available",
+      "dependabotAlerts": "available",
+      "securityAdvisories": "available"
+    },
+    "refreshWhen": [
+      "repo visibility changes",
+      "GitHub plan changes",
+      "security settings change",
+      "token permissions change"
+    ]
+  },
   "cleanup": {
     "deleteMergedLocalBranches": true,
     "removeMergedCleanWorktrees": true
+  },
+  "metadataFreshness": {
+    "updateWhen": [
+      "docs routing changes",
+      "validation gates change",
+      "primary commands change",
+      "important workflows change",
+      "repo relationship changes",
+      "validated-through repos change",
+      "cleanup policy changes",
+      "ownership boundaries change",
+      "Dockerfile changes",
+      "image contract changes",
+      "workflow publishing changes",
+      "self-hosted runner or cache behavior changes"
+    ]
   }
 }
