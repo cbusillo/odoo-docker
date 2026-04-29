@@ -358,6 +358,41 @@ jobs:
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
 
+      - name: Record published digest
+        env:
+          DIGEST_ATTEMPT_1: ${{ steps.publish_attempt_1.outputs.digest }}
+          DIGEST_ATTEMPT_2: ${{ steps.publish_attempt_2.outputs.digest }}
+          DIGEST_ATTEMPT_3: ${{ steps.publish_attempt_3.outputs.digest }}
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          set -euo pipefail
+
+          image_digest="${DIGEST_ATTEMPT_1:-}"
+          if [ -z "${image_digest}" ]; then
+            image_digest="${DIGEST_ATTEMPT_2:-}"
+          fi
+          if [ -z "${image_digest}" ]; then
+            image_digest="${DIGEST_ATTEMPT_3:-}"
+          fi
+          if [ -z "${image_digest}" ]; then
+            echo "Published image digest was not reported by Buildx for ${SUFFIX}" >&2
+            exit 1
+          fi
+
+          mkdir -p "${RUNNER_TEMP}/published-digests"
+          jq -cn \
+            --arg suffix "${SUFFIX}" \
+            --arg digest "${image_digest}" \
+            '{suffix: $suffix, digest: $digest}' \
+            >"${RUNNER_TEMP}/published-digests/${SUFFIX}.json"
+
+      - name: Upload published digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-digest-${{ matrix.suffix }}
+          path: ${{ runner.temp }}/published-digests/${{ matrix.suffix }}.json
+          if-no-files-found: error
+
       - name: Prune stale persistent publish builder cache
         if: always()
         run: |
@@ -378,15 +413,12 @@ jobs:
       contents: read
       packages: read
     steps:
-      - name: Install Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GHCR for digest lookup
-        uses: docker/login-action@v4
+      - name: Download published digests
+        uses: actions/download-artifact@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          pattern: published-digest-*
+          path: ${{ runner.temp }}/published-digests
+          merge-multiple: true
 
       - name: Trigger enterprise build
         env:
@@ -402,51 +434,27 @@ jobs:
             exit 1
           fi
 
-          source_short_sha="${ODOO_SOURCE_REV::12}"
           image_root="ghcr.io/${GITHUB_REPOSITORY}"
-          runtime_tag="${image_root}:sha-${source_short_sha}-runtime"
-          devtools_tag="${image_root}:sha-${source_short_sha}-devtools"
 
-          resolve_image_digest() {
-            local image_tag="$1"
-            local max_digest_attempts=6
-            local digest_attempt=1
-            local inspect_output=""
-            local image_digest=""
-            local backoff_seconds=0
+          read_published_digest() {
+            local suffix="$1"
+            local digest_file="${RUNNER_TEMP}/published-digests/${suffix}.json"
+            local digest
 
-            while true; do
-              image_digest=""
-              if inspect_output="$(docker buildx imagetools inspect "${image_tag}" 2>&1)"; then
-                image_digest="$(printf '%s\n' "${inspect_output}" | awk '/^Digest:/ {print $2; exit}')"
-              fi
-
-              if [ -n "${image_digest}" ]; then
-                echo "Resolved ${image_tag} to ${image_digest}" >&2
-                printf '%s\n' "${image_digest}"
-                return 0
-              fi
-
-              if [ "${digest_attempt}" -ge "${max_digest_attempts}" ]; then
-                echo "Failed to resolve published image digest for ${image_tag} after ${max_digest_attempts} attempts" >&2
-                if [ -n "${inspect_output}" ]; then
-                  printf '%s\n' "${inspect_output}" >&2
-                fi
-                return 1
-              fi
-
-              backoff_seconds=$((digest_attempt * 10))
-              echo "Published image digest lookup for ${image_tag} failed on attempt ${digest_attempt}; retrying in ${backoff_seconds}s" >&2
-              if [ -n "${inspect_output}" ]; then
-                printf '%s\n' "${inspect_output}" >&2
-              fi
-              sleep "${backoff_seconds}"
-              digest_attempt=$((digest_attempt + 1))
-            done
+            if [ ! -s "${digest_file}" ]; then
+              echo "Missing published digest metadata for ${suffix}: ${digest_file}" >&2
+              exit 1
+            fi
+            digest="$(jq -er '.digest' "${digest_file}")"
+            if [[ ! "${digest}" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
+              echo "Invalid published digest metadata for ${suffix}: ${digest}" >&2
+              exit 1
+            fi
+            printf '%s\n' "${digest}"
           }
 
-          runtime_digest="$(resolve_image_digest "${runtime_tag}")"
-          devtools_digest="$(resolve_image_digest "${devtools_tag}")"
+          runtime_digest="$(read_published_digest runtime)"
+          devtools_digest="$(read_published_digest devtools)"
 
           runtime_image="${image_root}@${runtime_digest}"
           devtools_image="${image_root}@${devtools_digest}"
