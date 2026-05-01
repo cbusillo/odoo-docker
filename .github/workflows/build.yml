@@ -195,7 +195,7 @@ jobs:
             --builder "${{ steps.setup_buildx_verify.outputs.name }}" \
             --force \
             --filter 'until=168h' \
-            --max-used-space 20000000000 \
+            --keep-storage 20000000000 \
             || true
 
   publish:
