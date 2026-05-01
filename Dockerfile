@@ -63,6 +63,7 @@ RUN set -eux; \
       'Acquire::Retries "5";' \
       'Acquire::http::Timeout "30";' \
       'Acquire::https::Timeout "30";' \
+      'APT::Update::Error-Mode "any";' \
       > /etc/apt/apt.conf.d/80odoo-network-hardening
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -198,12 +199,17 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
     && mkdir -p /usr/share/keyrings \
-    && curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x82BB6851C64F6880" \
+    && curl -fsSL --retry 5 --retry-all-errors --connect-timeout 30 \
+      "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x82BB6851C64F6880" \
       | gpg --dearmor -o /usr/share/keyrings/xtradeb-archive-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/xtradeb-archive-keyring.gpg] https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu ${UBUNTU_CODENAME} main" \
       > /etc/apt/sources.list.d/xtradeb-apps.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends chromium fonts-liberation libu2f-udev \
+    && test -x /usr/bin/chromium \
+    && dpkg-query -W -f='${binary:Package} ${Version}\n' chromium \
+      | grep -E '^chromium [0-9]' \
+    && /usr/bin/chromium --version \
     && rm -f /etc/apt/sources.list.d/xtradeb-apps.list \
     && rm -rf /var/lib/apt/lists/*
 
