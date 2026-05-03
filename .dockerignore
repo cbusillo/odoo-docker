@@ -1,10 +1,12 @@
 .git
+.code
 .github
 *.md
 .DS_Store
 .idea
 tmp
 *.log
+*.override.*
 
 # Local secrets and credentials
 .env
