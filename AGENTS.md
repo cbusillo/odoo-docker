@@ -20,7 +20,8 @@ Keep it short; defer deeper detail to the README and scripts.
 - Before release-oriented changes, run JetBrains inspections with the PyCharm
   inspection tool on changed scope and then whole-project scope.
 - Treat local image validation as part of the gate: build the affected target,
-  run the matching smoke script, and run `scripts/test-downstream-helpers.sh`
+  run the matching smoke script, run `scripts/smoke-db-init.sh` for runtime
+  database initialization coverage, and run `scripts/test-downstream-helpers.sh`
   for runtime changes that affect downstream behavior.
 - If a change affects downstream image semantics, verify with a real local
   build instead of reasoning from the Dockerfile alone.
