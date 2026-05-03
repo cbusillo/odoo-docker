@@ -118,6 +118,19 @@ docker build \
   .
 ```
 
+## Validation Commands
+
+- `scripts/test-odoo-bin-wrapper.sh` checks wrapper argument handling without a
+  container build.
+- `scripts/smoke-runtime.sh <image-reference>` checks the runtime image helper
+  contract and Odoo CLI availability.
+- `scripts/smoke-devtools.sh <image-reference>` checks the devtools image
+  browser tooling and addon path setup.
+- `scripts/smoke-db-init.sh <image-reference>` checks database-backed Odoo
+  initialization.
+- `scripts/test-downstream-helpers.sh <image-reference>` checks downstream
+  Python sync and external addon fetch behavior.
+
 ## Security Notes
 
 - Do not add credentials or access tokens in this repo.
