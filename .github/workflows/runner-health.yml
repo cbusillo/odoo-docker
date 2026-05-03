@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "17 6 * * *"
 
+permissions:
+  contents: read
+
 jobs:
   health:
     # Health checks should not consume the build lane that verify jobs need.
