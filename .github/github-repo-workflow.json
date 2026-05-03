@@ -14,6 +14,7 @@
     "smoke": {
       "runtime": "bash scripts/smoke-runtime.sh <image-reference>",
       "devtools": "bash scripts/smoke-devtools.sh <image-reference>",
+      "smokeDbInit": "bash scripts/smoke-db-init.sh <image-reference>",
       "downstreamHelpers": "bash scripts/test-downstream-helpers.sh <image-reference>",
       "odooBinWrapper": "bash scripts/test-odoo-bin-wrapper.sh"
     },
