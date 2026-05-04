@@ -189,29 +189,45 @@ USER ubuntu
 
 FROM runtime AS runtime-devtools
 USER root
-ARG UBUNTU_CODENAME=noble
+ARG PLAYWRIGHT_VERSION=1.59.1
 
 RUN chmod +x /usr/local/bin/configure-dev-addon-paths.sh \
     && /usr/local/bin/configure-dev-addon-paths.sh
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    --mount=type=cache,target=/root/.npm,sharing=locked \
     apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
-    && mkdir -p /usr/share/keyrings \
-    && curl -fsSL --retry 5 --retry-all-errors --connect-timeout 30 \
-      "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x82BB6851C64F6880" \
-      | gpg --dearmor -o /usr/share/keyrings/xtradeb-archive-keyring.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/xtradeb-archive-keyring.gpg] https://ppa.launchpadcontent.net/xtradeb/apps/ubuntu ${UBUNTU_CODENAME} main" \
-      > /etc/apt/sources.list.d/xtradeb-apps.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends chromium fonts-liberation libu2f-udev \
-    && test -x /usr/bin/chromium \
-    && dpkg-query -W -f='${binary:Package} ${Version}\n' chromium \
-      | grep -E '^chromium [0-9]' \
-    && /usr/bin/chromium --version \
-    && rm -f /etc/apt/sources.list.d/xtradeb-apps.list \
+    && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      fonts-liberation \
+      libasound2t64 \
+      libatk-bridge2.0-0t64 \
+      libatk1.0-0t64 \
+      libatspi2.0-0t64 \
+      libcups2t64 \
+      libdbus-1-3 \
+      libgbm1 \
+      libglib2.0-0t64 \
+      libnspr4 \
+      libnss3 \
+      libpango-1.0-0 \
+      libu2f-udev \
+      libx11-6 \
+      libxcb1 \
+      libxcomposite1 \
+      libxdamage1 \
+      libxext6 \
+      libxfixes3 \
+      libxkbcommon0 \
+      libxrandr2 \
+      npm \
+    && PLAYWRIGHT_BROWSERS_PATH=/ms-playwright npx --yes "playwright@${PLAYWRIGHT_VERSION}" install chromium --no-shell \
+    && chromium_path="$(find /ms-playwright -path '*/chrome-linux*/chrome' -type f | sort | head -n 1)" \
+    && test -x "${chromium_path}" \
+    && ln -sfn "${chromium_path}" /usr/local/bin/chromium-playwright \
+    && /usr/local/bin/chromium-playwright --version \
     && rm -rf /var/lib/apt/lists/*
 
-ENV CHROME_BIN=/usr/bin/chromium
+ENV CHROME_BIN=/usr/local/bin/chromium-playwright
 USER ubuntu

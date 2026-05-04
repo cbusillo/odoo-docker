@@ -12,7 +12,7 @@ This repository provides a stable base runtime for downstream project images.
 ## Images
 
 - `runtime`: base Odoo runtime + PostgreSQL client + uv tooling
-- `runtime-devtools`: `runtime` plus Chromium test tooling
+- `runtime-devtools`: `runtime` plus Playwright-managed Chromium test tooling
 
 Both images default to the `ubuntu` user for compatibility with existing
 restore and SSH mount workflows.
@@ -26,6 +26,8 @@ restore and SSH mount workflows.
   - `/odoo`
   - `/opt/project/addons`
   - `/opt/extra_addons`
+- `runtime-devtools` exposes Playwright-managed Chromium through `CHROME_BIN`
+  at `/usr/local/bin/chromium-playwright`.
 
 ## CLI Contract
 

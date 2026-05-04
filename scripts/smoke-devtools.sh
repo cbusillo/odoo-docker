@@ -7,7 +7,11 @@ docker run --rm --entrypoint /bin/bash "${image_reference}" -lc '
 set -euo pipefail
 binary="${CHROME_BIN:-/usr/bin/chromium}"
 if [[ ! -x "${binary}" ]]; then
-  if [[ -x /usr/bin/chromium-browser ]]; then
+  if [[ -x /usr/local/bin/chromium-playwright ]]; then
+    binary="/usr/local/bin/chromium-playwright"
+  elif [[ -x /usr/bin/chromium ]]; then
+    binary="/usr/bin/chromium"
+  elif [[ -x /usr/bin/chromium-browser ]]; then
     binary="/usr/bin/chromium-browser"
   else
     echo "Chromium binary not found" >&2
