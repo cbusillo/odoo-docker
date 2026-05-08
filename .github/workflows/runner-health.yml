@@ -25,7 +25,7 @@ jobs:
           root_used_percent="$(df -P / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
           docker_root_directory="$(docker info --format '{{.DockerRootDir}}')"
           docker_root_used_percent="$(df -P "${docker_root_directory}" | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
-          persistent_builder_containers="$(docker ps -a --format '{{.Names}}' | grep '^buildx_buildkit_odoo-docker-publish-chris-testing-odoo-docker0$' || true)"
+          persistent_builder_containers="$(docker ps -a --format '{{.Names}}' | grep '^buildx_buildkit_odoo-docker-chris-testing0$' || true)"
 
           {
             echo "## chris-testing Runner Health"

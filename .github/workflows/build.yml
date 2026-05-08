@@ -105,7 +105,7 @@ jobs:
         id: verify_builder
         run: |
           set -euo pipefail
-          echo "name=odoo-docker-verify-chris-testing-${{ matrix.suffix }}" >> "${GITHUB_OUTPUT}"
+          echo "name=odoo-docker-chris-testing" >> "${GITHUB_OUTPUT}"
 
       - id: setup_buildx_verify
         uses: docker/setup-buildx-action@v4
@@ -195,7 +195,7 @@ jobs:
             --builder "${{ steps.setup_buildx_verify.outputs.name }}" \
             --force \
             --filter 'until=168h' \
-            --keep-storage 20000000000 \
+            --keep-storage 60000000000 \
             || true
 
   publish:
@@ -226,7 +226,7 @@ jobs:
         id: publish_builder
         run: |
           set -euo pipefail
-          echo "name=odoo-docker-publish-chris-testing-odoo-docker" >> "${GITHUB_OUTPUT}"
+          echo "name=odoo-docker-chris-testing" >> "${GITHUB_OUTPUT}"
 
       - id: setup_buildx_publish
         uses: docker/setup-buildx-action@v4
@@ -401,7 +401,7 @@ jobs:
             --builder "${{ steps.setup_buildx_publish.outputs.name }}" \
             --force \
             --filter 'until=168h' \
-            --keep-storage 40000000000 \
+            --keep-storage 60000000000 \
             || true
 
   trigger_enterprise:
