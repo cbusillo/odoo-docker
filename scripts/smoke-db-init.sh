@@ -24,11 +24,17 @@ docker run -d \
 	-e POSTGRES_DB=postgres \
 	-e POSTGRES_USER="${db_user}" \
 	-e POSTGRES_PASSWORD="${db_password}" \
-	postgres:17-alpine >/dev/null
+	ghcr.io/baosystems/postgis:17-3.5 >/dev/null
 
 ready=false
 for _ in {1..60}; do
-	if docker exec "${postgres_container}" pg_isready -U "${db_user}" -d postgres >/dev/null 2>&1; then
+	if docker run --rm \
+		--network "${network_name}" \
+		--entrypoint pg_isready \
+		ghcr.io/baosystems/postgis:17-3.5 \
+		-h "${postgres_container}" \
+		-U "${db_user}" \
+		-d postgres >/dev/null 2>&1; then
 		ready=true
 		break
 	fi
