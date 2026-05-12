@@ -21,7 +21,11 @@
     "inspection": {
       "tool": "jetbrains",
       "ide": "PyCharm",
-      "scopePreference": ["changed_files", "directory", "whole_project"]
+      "scopePreference": [
+        "changed_files",
+        "directory",
+        "whole_project"
+      ]
     },
     "docsRequiredWhen": [
       "behavior changes",
@@ -50,7 +54,6 @@
     "odoo-shared-addons",
     "launchplane"
   ],
-  "validatedThrough": ["odoo-enterprise-docker"],
   "githubSignals": {
     "postMerge": {
       "waitForActions": true,
@@ -80,7 +83,6 @@
       "primary commands change",
       "important workflows change",
       "repo relationship changes",
-      "validated-through repos change",
       "cleanup policy changes",
       "ownership boundaries change",
       "Dockerfile changes",
