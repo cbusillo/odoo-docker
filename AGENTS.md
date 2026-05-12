@@ -12,7 +12,7 @@ Keep it short; defer deeper detail to the README and scripts.
 
 ## Workflow Metadata
 
-- Use [`.github/github-repo-workflow.json`](.github/github-repo-workflow.json)
+- Use [`.github/github.json`](.github/github.json)
   for primary commands, validation gates, workflow routing, and cleanup policy.
 
 ## Release Gate
