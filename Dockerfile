@@ -48,6 +48,7 @@ RUN set -eux; \
 
 FROM ubuntu:noble AS runtime-system
 ARG PYTHON_VERSION
+ARG APT_REFRESH_EPOCH=0
 ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -65,6 +66,16 @@ RUN set -eux; \
       'Acquire::https::Timeout "30";' \
       'APT::Update::Error-Mode "any";' \
       > /etc/apt/apt.conf.d/80odoo-network-hardening
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    echo "apt refresh epoch: ${APT_REFRESH_EPOCH}" \
+    && apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
+      linux-libc-dev \
+      rsync \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
