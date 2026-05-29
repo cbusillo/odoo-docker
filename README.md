@@ -88,6 +88,11 @@ The GHCR retention workflow keeps stable and nightly tags, preserves the newest
 10 immutable `sha-*` tags per image suffix, and prunes untagged versions older
 than 7 days.
 
+GHCR retention is repo-local package hygiene. This repo owns the package tags it
+publishes, so the retention workflow may delete only this repo's old package
+versions; it does not own Launchplane runtime state, tenant deployments,
+provider targets, product profiles, managed secrets, or artifact evidence.
+
 ## Runner Health Checks
 
 - A scheduled `Runner Health` workflow tracks root filesystem and Docker root
@@ -96,6 +101,11 @@ than 7 days.
   consume the `chris-testing-build` verification lane.
 - The check fails when usage crosses the configured thresholds so operators get
   a visible GitHub Actions alert before the runner reaches saturation.
+
+Runner health is repo-local image-build lane telemetry. It tracks the
+self-hosted cache lane used by this image build workflow and does not replace
+Launchplane-owned runner-host hygiene, runtime inventory, or provider health
+records.
 
 ## Source Pinning
 
