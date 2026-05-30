@@ -43,7 +43,8 @@ grep -Fx -- "--db_host=database" "${captured_arguments_file}" >/dev/null
 grep -Fx -- "--db_port=5432" "${captured_arguments_file}" >/dev/null
 grep -Fx -- "--db_user=odoo" "${captured_arguments_file}" >/dev/null
 grep -Fx -- "--db_password=secret" "${captured_arguments_file}" >/dev/null
-grep -Fx -- "--addons-path=/opt/project/addons" "${captured_arguments_file}" >/dev/null
+grep -Fx -- "--addons-path=/opt/launchplane/addons,/opt/project/addons" "${captured_arguments_file}" >/dev/null
+grep -Fx -- "--load=base,web,launchplane_runtime_health" "${captured_arguments_file}" >/dev/null
 
 run_wrapper shell -d opw --no-http
 second_argument="$(sed -n '2p' "${captured_arguments_file}")"
@@ -61,5 +62,9 @@ if ! grep -q -- "--db_host=database" "${captured_arguments_file}"; then
   echo "Wrapper failed to inject server defaults when database name is shell" >&2
   exit 1
 fi
+
+run_wrapper --addons-path=/custom/addons,/opt/launchplane/addons --load=web,queue_job --stop-after-init
+grep -Fx -- "--addons-path=/opt/launchplane/addons,/custom/addons" "${captured_arguments_file}" >/dev/null
+grep -Fx -- "--load=base,web,queue_job,launchplane_runtime_health" "${captured_arguments_file}" >/dev/null
 
 echo "odoo-bin wrapper tests passed"

@@ -14,6 +14,7 @@ paths = [
     "/odoo",
     "/opt/project/addons",
     "/opt/extra_addons",
+    "/opt/launchplane/addons",
 ]
 
 site_packages = Path(site.getsitepackages()[0])
