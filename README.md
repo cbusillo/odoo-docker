@@ -5,7 +5,8 @@ Base Odoo runtime image.
 This repository owns the base runtime build for Odoo 19. It compiles a
 deterministic runtime from the upstream Odoo source, then layers in `uv`,
 PostgreSQL 17 client tools, and compatibility paths used by downstream
-deployment tooling.
+deployment tooling. The runtime also includes the Launchplane substrate needed
+by Launchplane-managed Odoo lanes.
 
 This repository provides a stable base runtime for downstream project images.
 
@@ -29,6 +30,32 @@ restore and SSH mount workflows.
 - `runtime-devtools` exposes Playwright-managed Chromium through `CHROME_BIN`
   at `/usr/local/bin/chromium-playwright`.
 
+## Launchplane Runtime Substrate
+
+The image reserves `/opt/launchplane/addons` for image-owned Odoo addons that
+support Launchplane-managed runtime behavior. These addons are separate from
+upstream Odoo source, downstream project addons in `/opt/project/addons`, and
+shared business addons in `/opt/extra_addons`.
+
+`launchplane_runtime_health` is loaded as a server-wide module by default. It
+exposes `GET /launchplane/health` with `auth="none"` and `save_session=False`
+so Launchplane can verify the exact runtime serving a public lane without
+depending on tenant database or Website state. The endpoint returns JSON shaped
+like:
+
+```json
+{"runtime_identity":null,"status":"pass"}
+```
+
+When `LAUNCHPLANE_RUNTIME_IDENTITY_JSON` is present and valid, the parsed object
+is returned as `runtime_identity`. If the variable is present but malformed, the
+endpoint returns a failing response instead of echoing raw environment text.
+
+Downstream runtime overrides must preserve `/opt/launchplane/addons` in the
+effective addons path and `base,web,launchplane_runtime_health` in the effective
+server-wide modules. `/odoo/odoo-bin` normalizes server-mode invocations to keep
+those image-owned defaults present.
+
 ## CLI Contract
 
 - `/odoo/odoo-bin` is a compatibility wrapper over upstream
@@ -37,6 +64,9 @@ restore and SSH mount workflows.
 - Runtime defaults (`--db_host`, `--addons-path`, etc.) are injected only for
   server-style invocations so non-server commands keep upstream argument
   parsing semantics.
+- Server-style invocations always include `/opt/launchplane/addons` in the
+  effective addons path and `launchplane_runtime_health` in the server-wide
+  module list while preserving `base,web`.
 
 ## Downstream Build Contract
 
@@ -47,6 +77,8 @@ restore and SSH mount workflows.
   - `/opt/project`
   - `/opt/project/addons`
   - `/opt/extra_addons`
+- The image reserves `/opt/launchplane/addons` for image-owned Launchplane
+  runtime addons. Downstream images must not replace this directory.
 - `odoo-python-sync.sh <prod|dev>` installs root lockfile-backed dependencies
   plus addon `requirements*.txt` and addon `pyproject.toml` dependencies into
   `/venv`.

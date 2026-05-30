@@ -169,6 +169,7 @@ RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=l
 FROM runtime-pythondeps AS runtime
 
 COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo /odoo
+COPY --chown=ubuntu:ubuntu launchplane/addons /opt/launchplane/addons
 COPY scripts/odoo-bin-wrapper.sh /usr/local/bin/odoo-bin-wrapper.sh
 COPY scripts/configure-dev-addon-paths.sh /usr/local/bin/configure-dev-addon-paths.sh
 COPY scripts/odoo-python-sync.sh /usr/local/bin/odoo-python-sync.sh
@@ -185,14 +186,15 @@ RUN mv /odoo/odoo-bin /odoo/odoo-bin.source \
 # Remove duplicate source/build trees that confuse IDE/module indexing.
 RUN rm -rf /odoo/build/lib
 
-RUN install -d -o ubuntu -g ubuntu /opt/project /opt/project/addons /opt/extra_addons /volumes/addons /volumes/config /volumes/data /volumes/logs \
+RUN install -d -o ubuntu -g ubuntu /opt/project /opt/project/addons /opt/extra_addons /opt/launchplane/addons /volumes/addons /volumes/config /volumes/data /volumes/logs \
     && install -o ubuntu -g ubuntu -m 0644 /dev/null /volumes/config/_generated.conf \
     && su -s /bin/bash ubuntu -c "printf '[options]\n' > /volumes/config/_generated.conf"
 
 RUN ln -sf /etc/ssl/certs/ca-certificates.crt /usr/lib/ssl/cert.pem
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENV ODOO_RC=/volumes/config/_generated.conf
-ENV ODOO_ADDONS_PATH=/opt/project/addons,/opt/extra_addons,/odoo/addons,/odoo/odoo/addons
+ENV ODOO_ADDONS_PATH=/opt/project/addons,/opt/extra_addons,/opt/launchplane/addons,/odoo/addons,/odoo/odoo/addons
+ENV ODOO_SERVER_WIDE_MODULES=base,web,launchplane_runtime_health
 ENV ODOO_DATA_DIR=/volumes/data
 
 WORKDIR /volumes

@@ -6,9 +6,12 @@ Keep it short; defer deeper detail to the README and scripts.
 ## Start Here
 
 - Read [README.md](README.md) before changing build or release behavior.
-- Treat this repo as the public base image contract for downstream Odoo images.
+- Treat this repo as the base image contract for Launchplane-managed Odoo
+  runtimes. Keep tenant/business policy downstream, but image-owned
+  Launchplane runtime substrate belongs here.
 - Preserve `/venv`, `/opt/project`, `/opt/project/addons`, and
-  `/opt/extra_addons` as stable downstream layout guarantees.
+  `/opt/extra_addons` as stable downstream layout guarantees. Preserve
+  `/opt/launchplane/addons` as the image-owned runtime addon root.
 
 ## Workflow Metadata
 
@@ -41,7 +44,9 @@ Keep it short; defer deeper detail to the README and scripts.
 
 ## Editing Guardrails
 
-- Keep the image contract generic. Project-specific policy belongs downstream.
+- Keep the image contract tenant-agnostic. Project-specific business policy
+  belongs downstream; shared Launchplane runtime compatibility belongs in this
+  image-owned substrate layer.
 - Prefer small, reviewable Dockerfile and script changes.
 - When changing helper scripts under `scripts/`, keep the downstream contract in
   sync with README wording and validation coverage.

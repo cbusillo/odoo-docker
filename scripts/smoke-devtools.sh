@@ -29,11 +29,13 @@ assert contents == [
     "/odoo",
     "/opt/project/addons",
     "/opt/extra_addons",
+    "/opt/launchplane/addons",
 ], contents
 PY
 test -d /opt/project
 test -d /opt/project/addons
 test -d /opt/extra_addons
+test -d /opt/launchplane/addons
 '
 
 echo "devtools smoke checks passed: ${image_reference}"
