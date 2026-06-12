@@ -104,9 +104,10 @@ same verification gate.
 
 ## CI Cache Policy
 
-- Verify jobs run on the `chris-testing-build` self-hosted lane and still use
-  ephemeral Buildx builders with `type=gha` cache because they only build
-  single-platform smoke images.
+- Verify jobs run on the `chris-testing-build` self-hosted lane and reuse a
+  persistent per-runner Buildx builder for single-platform smoke images. Pull
+  request verification uses a per-run apt refresh epoch so Ubuntu package
+  layers are rehydrated for each verification run.
 - Publish jobs run on the `chris-testing-publish-cache` self-hosted lane and
   reuse a persistent per-runner Buildx builder, with GHCR registry cache as
   the portable fallback.
