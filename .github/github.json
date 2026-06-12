@@ -47,7 +47,6 @@
   ],
   "qaLabels": [],
   "deployLabels": [],
-  "healthUrls": [],
   "relatedRepos": [
     "odoo-enterprise-docker",
     "odoo-devkit",
