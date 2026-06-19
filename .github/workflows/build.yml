@@ -63,7 +63,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install requirement parser
         run: python3 -m pip install --user packaging
@@ -99,7 +99,7 @@ jobs:
             suffix: devtools
             smoke_script: scripts/smoke-devtools.sh
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Resolve persistent verify builder name
         id: verify_builder
@@ -218,7 +218,7 @@ jobs:
           - target: runtime-devtools
             suffix: devtools
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-qemu-action@v4
         with:

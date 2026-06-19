@@ -5,9 +5,9 @@ ARG ODOO_SOURCE_REV
 ARG PYTHON_VERSION=3.13
 
 # Keep the official uv image first so Dependabot tracks it for Docker updates.
-FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.11.21@sha256:ff07b86af50d4d9391d9daf4ff89ce427bc544f9aae87057e69a1cc0aa369946 AS uv-binary
+FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.11.22@sha256:16b63af0e7342dd372da9ca989ea9fa542fc68f4640972d59a8450a5240fe42e AS uv-binary
 
-FROM --platform=$BUILDPLATFORM alpine/git:v2.52.0 AS odoo-source
+FROM --platform=$BUILDPLATFORM alpine/git:v2.54.0 AS odoo-source
 ARG ODOO_SOURCE_REPOSITORY
 ARG ODOO_SOURCE_REF
 ARG ODOO_SOURCE_REV
@@ -24,7 +24,7 @@ RUN set -eux; \
     git checkout --detach FETCH_HEAD; \
     rm -rf .git
 
-FROM --platform=$BUILDPLATFORM alpine/curl:8.19.0 AS wkhtmltox
+FROM --platform=$BUILDPLATFORM alpine/curl:8.20.0 AS wkhtmltox
 ARG TARGETARCH
 ARG WKHTMLTOPDF_VERSION=0.12.6.1-3
 ARG WKHTMLTOPDF_TARGET=jammy
