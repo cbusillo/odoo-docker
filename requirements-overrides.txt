@@ -3,7 +3,7 @@
 # releases. scripts/check-requirements-overrides.py fails CI once upstream Odoo
 # catches up so this file can be removed instead of silently downgrading packages.
 cbor2==5.9.0
-cryptography==46.0.7
+cryptography==48.0.1
 lxml==6.1.0
 Pillow==12.2.0
 pyopenssl==26.0.0
