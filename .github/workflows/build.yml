@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - Dockerfile
+      - .hadolint.yaml
       - requirements-overrides.txt
       - scripts/**
       - .github/workflows/build.yml
@@ -20,6 +21,7 @@ on:
     branches: [main]
     paths:
       - Dockerfile
+      - .hadolint.yaml
       - requirements-overrides.txt
       - scripts/**
       - .github/workflows/build.yml
@@ -36,6 +38,22 @@ env:
   DOCKER_BUILD_RECORD_UPLOAD: false
 
 jobs:
+  dockerfile-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run Hadolint
+        run: |
+          docker run --rm \
+            -v "$PWD:/work:ro" \
+            -w /work \
+            hadolint/hadolint:v2.14.0 \
+            hadolint Dockerfile
+
   resolve_source:
     runs-on: ubuntu-latest
     timeout-minutes: 20

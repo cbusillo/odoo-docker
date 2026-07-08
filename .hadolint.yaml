@@ -1,0 +1,8 @@
+ignored:
+  # Odoo runtime images intentionally refresh Ubuntu packages during image
+  # builds and rely on Trivy to block high/critical fixed vulnerabilities.
+  - DL3008
+
+  # The wkhtmltox stage uses alpine/curl's shell and a simple checksum pipe;
+  # switching shells there would add noise without changing runtime behavior.
+  - DL4006

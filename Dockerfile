@@ -14,15 +14,14 @@ ARG ODOO_SOURCE_REV
 WORKDIR /source
 RUN set -eux; \
     git init odoo; \
-    cd odoo; \
-    git remote add origin "${ODOO_SOURCE_REPOSITORY}"; \
+    git -C odoo remote add origin "${ODOO_SOURCE_REPOSITORY}"; \
     if [ -n "${ODOO_SOURCE_REV:-}" ]; then \
-      git fetch --depth 1 origin "${ODOO_SOURCE_REV}"; \
+      git -C odoo fetch --depth 1 origin "${ODOO_SOURCE_REV}"; \
     else \
-      git fetch --depth 1 origin "refs/heads/${ODOO_SOURCE_REF}"; \
+      git -C odoo fetch --depth 1 origin "refs/heads/${ODOO_SOURCE_REF}"; \
     fi; \
-    git checkout --detach FETCH_HEAD; \
-    rm -rf .git
+    git -C odoo checkout --detach FETCH_HEAD; \
+    rm -rf odoo/.git
 
 FROM --platform=$BUILDPLATFORM alpine/curl:8.20.0 AS wkhtmltox
 ARG TARGETARCH
