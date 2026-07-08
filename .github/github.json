@@ -43,7 +43,14 @@
   "importantWorkflows": [
     "Build And Publish Images",
     "GHCR Retention",
-    "Runner Health"
+    "Runner Health",
+    "CodeQL",
+    "Dependency Graph",
+    "Dependabot Updates"
+  ],
+  "requiredStatusChecks": [
+    "Analyze (actions)",
+    "Analyze (python)"
   ],
   "qaLabels": [],
   "deployLabels": [],
