@@ -18,6 +18,9 @@
       "downstreamHelpers": "bash scripts/test-downstream-helpers.sh <image-reference>",
       "odooBinWrapper": "bash scripts/test-odoo-bin-wrapper.sh"
     },
+    "lint": {
+      "dockerfile": "docker run --rm -v \"$PWD:/work:ro\" -w /work hadolint/hadolint:v2.14.0 hadolint Dockerfile"
+    },
     "inspection": {
       "tool": "jetbrains",
       "ide": "PyCharm",
