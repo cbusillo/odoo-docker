@@ -4,7 +4,8 @@
 # catches up so this file can be removed instead of silently downgrading packages.
 cbor2==5.9.0
 cryptography==48.0.1
-lxml==6.1.0
+lxml==6.1.1  # Required by lxml-html-clean>=0.4.5 for CVE-2026-49825.
+lxml-html-clean==0.4.5
 Pillow==12.2.0
 pyopenssl==26.2.0
 urllib3==2.7.0
