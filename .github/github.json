@@ -51,10 +51,15 @@
     "Dependency Graph",
     "Dependabot Updates"
   ],
-  "requiredStatusChecks": [
-    "Analyze (actions)",
-    "Analyze (python)"
-  ],
+  "requiredStatusChecks": [],
+  "codeScanningMergeProtection": {
+    "ruleset": "Require code scanning results",
+    "target": "defaultBranch",
+    "tool": "CodeQL",
+    "alertsThreshold": "errors",
+    "securityAlertsThreshold": "high_or_higher",
+    "dependabotDefaultSetupException": true
+  },
   "qaLabels": [],
   "deployLabels": [],
   "relatedRepos": [
