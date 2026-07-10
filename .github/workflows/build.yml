@@ -91,6 +91,7 @@ jobs:
           ODOO_SOURCE_REV: ${{ needs.resolve_source.outputs.odoo_source_rev }}
         run: |
           set -euo pipefail
+          bash scripts/test-check-requirements-overrides.sh
           curl -fsSL \
             "https://raw.githubusercontent.com/odoo/odoo/${ODOO_SOURCE_REV}/requirements.txt" \
             -o "${RUNNER_TEMP}/odoo-requirements.txt"
