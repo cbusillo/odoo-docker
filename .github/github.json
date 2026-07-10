@@ -16,7 +16,8 @@
       "devtools": "bash scripts/smoke-devtools.sh <image-reference>",
       "smokeDbInit": "bash scripts/smoke-db-init.sh <image-reference>",
       "downstreamHelpers": "bash scripts/test-downstream-helpers.sh <image-reference>",
-      "odooBinWrapper": "bash scripts/test-odoo-bin-wrapper.sh"
+      "odooBinWrapper": "bash scripts/test-odoo-bin-wrapper.sh",
+      "requirementsOverrides": "bash scripts/test-check-requirements-overrides.sh"
     },
     "lint": {
       "dockerfile": "docker run --rm -v \"$PWD:/work:ro\" -w /work hadolint/hadolint:v2.14.0 hadolint Dockerfile"

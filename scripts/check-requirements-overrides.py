@@ -12,13 +12,20 @@ from packaging.utils import canonicalize_name
 from packaging.version import Version
 
 
-def active_exact_pins(requirements_path: Path, python_version: str) -> dict[str, Version]:
+UNPINNED_UPSTREAM_OVERRIDE_ALLOWLIST = frozenset({"lxml-html-clean"})
+
+
+def active_requirements(
+    requirements_path: Path, python_version: str
+) -> dict[str, Requirement]:
     environment = {key: str(value) for key, value in default_environment().items()}
     environment["python_version"] = python_version
     environment["python_full_version"] = f"{python_version}.0"
 
-    pins: dict[str, Version] = {}
-    for line_number, raw_line in enumerate(requirements_path.read_text(encoding="utf-8").splitlines(), 1):
+    requirements: dict[str, Requirement] = {}
+    for line_number, raw_line in enumerate(
+        requirements_path.read_text(encoding="utf-8").splitlines(), 1
+    ):
         line = raw_line.split("#", 1)[0].strip()
         if not line or line.startswith("-"):
             continue
@@ -26,21 +33,25 @@ def active_exact_pins(requirements_path: Path, python_version: str) -> dict[str,
         try:
             requirement = Requirement(line)
         except InvalidRequirement as exc:
-            raise SystemExit(f"{requirements_path}:{line_number}: invalid requirement: {raw_line}\n{exc}") from exc
+            raise SystemExit(
+                f"{requirements_path}:{line_number}: invalid requirement: {raw_line}\n{exc}"
+            ) from exc
 
-        if requirement.marker is not None and not requirement.marker.evaluate(environment):
+        if requirement.marker is not None and not requirement.marker.evaluate(
+            environment
+        ):
             continue
 
-        exact_versions = [Version(specifier.version) for specifier in requirement.specifier if specifier.operator == "=="]
-        if exact_versions:
-            pins[canonicalize_name(requirement.name)] = exact_versions[-1]
+        requirements[canonicalize_name(requirement.name)] = requirement
 
-    return pins
+    return requirements
 
 
 def override_pins(overrides_path: Path) -> dict[str, Version]:
     pins: dict[str, Version] = {}
-    for line_number, raw_line in enumerate(overrides_path.read_text(encoding="utf-8").splitlines(), 1):
+    for line_number, raw_line in enumerate(
+        overrides_path.read_text(encoding="utf-8").splitlines(), 1
+    ):
         line = raw_line.split("#", 1)[0].strip()
         if not line:
             continue
@@ -48,11 +59,19 @@ def override_pins(overrides_path: Path) -> dict[str, Version]:
         try:
             requirement = Requirement(line)
         except InvalidRequirement as exc:
-            raise SystemExit(f"{overrides_path}:{line_number}: invalid requirement: {raw_line}\n{exc}") from exc
+            raise SystemExit(
+                f"{overrides_path}:{line_number}: invalid requirement: {raw_line}\n{exc}"
+            ) from exc
 
-        exact_versions = [Version(specifier.version) for specifier in requirement.specifier if specifier.operator == "=="]
+        exact_versions = [
+            Version(specifier.version)
+            for specifier in requirement.specifier
+            if specifier.operator == "=="
+        ]
         if len(exact_versions) != 1:
-            raise SystemExit(f"{overrides_path}:{line_number}: overrides must use one exact == pin: {raw_line}")
+            raise SystemExit(
+                f"{overrides_path}:{line_number}: overrides must use one exact == pin: {raw_line}"
+            )
 
         pins[canonicalize_name(requirement.name)] = exact_versions[0]
 
@@ -66,20 +85,41 @@ def main() -> int:
     parser.add_argument("--python-version", required=True)
     args = parser.parse_args()
 
-    upstream_pins = active_exact_pins(args.requirements, args.python_version)
+    upstream_requirements = active_requirements(args.requirements, args.python_version)
     local_overrides = override_pins(args.overrides)
 
     failures: list[str] = []
     for name, override_version in sorted(local_overrides.items()):
-        upstream_version = upstream_pins.get(name)
-        if upstream_version is None:
-            failures.append(f"{name}: no active upstream pin for Python {args.python_version}")
-            continue
-        if upstream_version >= override_version:
+        upstream_requirement = upstream_requirements.get(name)
+        if upstream_requirement is None:
             failures.append(
-                f"{name}: upstream pins {upstream_version}, override pins {override_version}; "
-                "remove or raise the override"
+                f"{name}: no active upstream requirement for Python {args.python_version}"
             )
+            continue
+        specifiers = list(upstream_requirement.specifier)
+        if not specifiers:
+            if name not in UNPINNED_UPSTREAM_OVERRIDE_ALLOWLIST:
+                failures.append(
+                    f"{name}: upstream requirement is unpinned; exact override requires review"
+                )
+            continue
+        exact_versions = [
+            Version(specifier.version)
+            for specifier in specifiers
+            if specifier.operator == "==" and "*" not in specifier.version
+        ]
+        if len(specifiers) == 1 and len(exact_versions) == 1:
+            upstream_version = exact_versions[0]
+            if upstream_version >= override_version:
+                failures.append(
+                    f"{name}: upstream pins {upstream_version}, override pins {override_version}; "
+                    "remove or raise the override"
+                )
+            continue
+        failures.append(
+            f"{name}: upstream uses non-exact constraint "
+            f"{upstream_requirement.specifier}; exact override requires review"
+        )
 
     if failures:
         print("Stale requirements overrides detected:")
@@ -87,7 +127,7 @@ def main() -> int:
             print(f"- {failure}")
         return 1
 
-    print(f"requirements overrides are still ahead of upstream for Python {args.python_version}")
+    print(f"requirements overrides remain valid for Python {args.python_version}")
     return 0
 
 

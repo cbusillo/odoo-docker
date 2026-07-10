@@ -165,6 +165,9 @@ docker build \
 
 ## Validation Commands
 
+- `bash scripts/test-check-requirements-overrides.sh` checks exact pins,
+  explicitly allowed unpinned requirements, non-exact constraints, and removed
+  requirements for the override freshness gate.
 - `scripts/test-odoo-bin-wrapper.sh` checks wrapper argument handling without a
   container build.
 - `scripts/smoke-runtime.sh <image-reference>` checks the runtime image helper
@@ -181,3 +184,9 @@ docker build \
 - Do not add credentials or access tokens in this repo.
 - Proprietary addons should be fetched by downstream builds using BuildKit
   secrets via `odoo-fetch-addons.sh`.
+- `requirements-overrides.txt` carries minimum secure Python compatibility
+  pins when upstream Odoo requirements cannot yet resolve a fixed transitive
+  release. Keep those pins narrow and let
+  `scripts/check-requirements-overrides.py` reject removed upstream
+  requirements, unexpected unpinned or ranged requirements, and upstream exact
+  pins that make an override removable.
