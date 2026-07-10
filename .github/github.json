@@ -52,13 +52,7 @@
     "Dependency Graph",
     "Dependabot Updates"
   ],
-  "requiredStatusChecks": [
-    "dockerfile-lint",
-    "resolve_source",
-    "check_overrides",
-    "verify (runtime, runtime, scripts/smoke-runtime.sh)",
-    "verify (runtime-devtools, devtools, scripts/smoke-devtools.sh)"
-  ],
+  "requiredStatusChecks": ["image-verification"],
   "codeScanningMergeProtection": {
     "ruleset": "Require code scanning results",
     "tool": "CodeQL",

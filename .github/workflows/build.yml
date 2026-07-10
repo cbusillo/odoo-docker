@@ -94,6 +94,9 @@ jobs:
             --python-version 3.13
 
   verify:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64, chris-testing-build]
     timeout-minutes: 60
     needs: [resolve_source, check_overrides]
@@ -211,6 +214,43 @@ jobs:
             --filter 'until=168h' \
             --keep-storage 60000000000 \
             || true
+
+  image_verification:
+    name: image-verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [dockerfile-lint, resolve_source, check_overrides, verify]
+    if: always() && github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    steps:
+      - name: Require successful image verification
+        env:
+          BASE_REPOSITORY: ${{ github.repository }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          DOCKERFILE_LINT_RESULT: ${{ needs.dockerfile-lint.result }}
+          RESOLVE_SOURCE_RESULT: ${{ needs.resolve_source.result }}
+          CHECK_OVERRIDES_RESULT: ${{ needs.check_overrides.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+        run: |
+          set -euo pipefail
+          if [ "${HEAD_REPOSITORY}" != "${BASE_REPOSITORY}" ]; then
+            echo "Fork pull requests cannot run trusted self-hosted image verification." >&2
+            echo "Recreate the change on a branch in ${BASE_REPOSITORY} before merging." >&2
+            exit 1
+          fi
+
+          for result in \
+            "${DOCKERFILE_LINT_RESULT}" \
+            "${RESOLVE_SOURCE_RESULT}" \
+            "${CHECK_OVERRIDES_RESULT}" \
+            "${VERIFY_RESULT}"
+          do
+            if [ "${result}" != "success" ]; then
+              echo "Required image verification job concluded with: ${result}" >&2
+              exit 1
+            fi
+          done
 
   publish:
     runs-on: [self-hosted, linux, x64, chris-testing-publish-cache]

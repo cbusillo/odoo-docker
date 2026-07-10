@@ -97,7 +97,12 @@ those image-owned defaults present.
 - Publish only happens after smoke checks pass.
 - `schedule` (weekly) publishes `nightly-*` tags and immutable `sha-*` tags.
 - `push` to `main` publishes stable `19.0-*` tags and immutable `sha-*` tags.
-- `pull_request` runs verify-only (no image publishing).
+- `pull_request` runs verify-only (no image publishing) and reports one stable
+  `image-verification` merge gate after lint, source resolution, override
+  validation, both image builds, smoke tests, and vulnerability scans pass.
+- Fork pull requests fail closed before using trusted self-hosted runners. A
+  maintainer must recreate an accepted fork change on a branch in this
+  repository before it can pass the image-verification merge gate.
 
 This lets us keep a weekly canary stream while protecting stable tags behind the
 same verification gate.
