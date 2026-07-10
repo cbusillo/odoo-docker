@@ -52,7 +52,7 @@
     "Dependency Graph",
     "Dependabot Updates"
   ],
-  "requiredStatusChecks": [],
+  "requiredStatusChecks": ["image-verification"],
   "codeScanningMergeProtection": {
     "ruleset": "Require code scanning results",
     "tool": "CodeQL",
