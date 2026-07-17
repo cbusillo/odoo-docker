@@ -7,6 +7,7 @@ downstream_helper_ref="${ODOO_DOWNSTREAM_HELPER_REF:-c69e4df113df460fb933a351933
 support_ref="1111111111111111111111111111111111111111"
 tenant_ref="2222222222222222222222222222222222222222"
 external_ref="3333333333333333333333333333333333333333"
+shared_ref="4444444444444444444444444444444444444444"
 
 test_root="$(mktemp -d)"
 trap 'rm -rf "${test_root}"' EXIT
@@ -22,10 +23,17 @@ write_source_marker() {
 	local root="$1"
 	local repository="$2"
 	local ref="$3"
+	local lock_path="${4:-}"
 
-	cat >"${root}/.odoo-python-source.json" <<EOF
+	if [[ -n "${lock_path}" ]]; then
+		cat >"${root}/.odoo-python-source.json" <<EOF
+{"repository":"${repository}","ref":"${ref}","lock_path":"${lock_path}"}
+EOF
+	else
+		cat >"${root}/.odoo-python-source.json" <<EOF
 {"repository":"${repository}","ref":"${ref}"}
 EOF
+	fi
 }
 
 write_external_source_marker() {
@@ -41,6 +49,7 @@ mkdir -p \
 	"${legacy_root}/addons/test_local_pkg/test_local_pkg" \
 	"${strict_support_root}" \
 	"${strict_tenant_root}/addons/test_local_pkg/test_local_pkg" \
+	"${strict_tenant_root}/addons/shared/test_shared_pkg/test_shared_pkg" \
 	"${strict_external_root}/test_external/test_external_pkg" \
 	"${layout_only_root}" \
 	"${empty_project_root}/addons/code_only"
@@ -107,10 +116,11 @@ dependencies = [
 package = false
 
 [tool.uv.workspace]
-members = ["addons/*"]
+members = ["addons/test_local_pkg", "addons/shared/*"]
 
 [tool.uv.sources]
 test-local-pkg = { workspace = true }
+test-shared-pkg = { workspace = true }
 EOF
 
 cat >"${strict_tenant_root}/addons/test_local_pkg/pyproject.toml" <<'EOF'
@@ -139,6 +149,27 @@ EOF
 
 cat >"${strict_tenant_root}/addons/test_local_pkg/test_local_pkg/__init__.py" <<'EOF'
 VALUE = "strict-local-package-installed"
+EOF
+
+cat >"${strict_tenant_root}/addons/shared/test_shared_pkg/pyproject.toml" <<'EOF'
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "test-shared-pkg"
+version = "0.0.0"
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["test_shared_pkg"]
+
+[tool.uv]
+package = false
+EOF
+
+cat >"${strict_tenant_root}/addons/shared/test_shared_pkg/test_shared_pkg/__init__.py" <<'EOF'
+VALUE = "strict-shared-package-installed"
 EOF
 
 cat >"${strict_external_root}/test_external/requirements.txt" <<'EOF'
@@ -176,8 +207,16 @@ write_external_source_marker \
 
 printf '2\n' >"${strict_support_root}/.odoo-python-sync-layout"
 printf '2\n' >"${layout_only_root}/.odoo-python-sync-layout"
-write_source_marker "${strict_support_root}" "cbusillo/odoo-devkit" "${support_ref}"
+write_source_marker \
+	"${strict_support_root}" \
+	"cbusillo/odoo-devkit" \
+	"${support_ref}" \
+	"docker/runtime-python/uv.lock"
 write_source_marker "${strict_tenant_root}" "example/tenant-runtime" "${tenant_ref}"
+write_source_marker \
+	"${strict_tenant_root}/addons/shared" \
+	"example/shared-addons" \
+	"${shared_ref}"
 
 chmod -R a+rX "${test_root}"
 
@@ -360,6 +399,30 @@ assert_external_repository_traversal_fails() {
 		-e ODOO_ADDON_REPOSITORIES="../unsafe@${external_ref}" \
 		--entrypoint /bin/bash \
 		"${image_reference}" -lc "set -euo pipefail; odoo-fetch-addons.sh"
+}
+
+assert_invalid_source_lock_path_fails() {
+	local test_case label lock_path invalid_root
+	for test_case in \
+		"traversal|../uv.lock" \
+		"absolute|/tmp/uv.lock" \
+		"wrong-filename|locks/runtime.lock"; do
+		IFS='|' read -r label lock_path <<<"${test_case}"
+		invalid_root="${test_root}/invalid-source-lock-path-${label}"
+		cp -R "${strict_support_root}" "${invalid_root}"
+		write_source_marker \
+			"${invalid_root}" \
+			"cbusillo/odoo-devkit" \
+			"${support_ref}" \
+			"${lock_path}"
+
+		assert_command_fails "source marker lock path ${label}" \
+			docker run --rm \
+			-v "${invalid_root}:/opt/runtime" \
+			-v "${strict_tenant_root}:/opt/project" \
+			--entrypoint /bin/bash \
+			"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+	done
 }
 
 assert_external_duplicate_ref_fails() {
@@ -687,8 +750,10 @@ import json
 import platform
 from pathlib import Path
 from test_local_pkg import VALUE
+from test_shared_pkg import VALUE as shared_value
 
 assert VALUE == 'strict-local-package-installed'
+assert shared_value == 'strict-shared-package-installed'
 assert importlib.util.find_spec('slugify') is not None
 assert importlib.util.find_spec('humanize') is not None
 boltons_spec = importlib.util.find_spec('boltons')
@@ -711,6 +776,8 @@ assert evidence['target_platform'] == f'linux/{architecture}'
 assert [item['scope'] for item in evidence['uv_locks']] == ['support_runtime', 'tenant']
 assert evidence['uv_locks'][0]['source_ref'] == '${support_ref}'
 assert evidence['uv_locks'][1]['source_ref'] == '${tenant_ref}'
+assert evidence['uv_locks'][0]['path'] == 'docker/runtime-python/uv.lock'
+assert evidence['uv_locks'][1]['path'] == 'uv.lock'
 environment = evidence['python_environment']
 assert environment['package_count'] == len(environment['packages'])
 canonical = json.dumps(
@@ -725,6 +792,11 @@ assert packages['test-local-pkg']['source'] == {
     'kind': 'vcs',
     'repository': 'example/tenant-runtime',
     'commit': '${tenant_ref}',
+}
+assert packages['test-shared-pkg']['source'] == {
+    'kind': 'vcs',
+    'repository': 'example/shared-addons',
+    'commit': '${shared_ref}',
 }
 if '${external_root}' == '${strict_external_root}':
     from test_external_pkg import VALUE as external_value
@@ -804,6 +876,7 @@ assert_mutable_build_requirement_fails
 assert_bare_external_archive_fails
 assert_mutable_external_ref_fails
 assert_external_repository_traversal_fails
+assert_invalid_source_lock_path_fails
 assert_external_duplicate_ref_fails
 assert_external_symlink_escape_fails
 assert_strict_skip_addons_fails

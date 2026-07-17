@@ -8,7 +8,7 @@ import hashlib
 from importlib import metadata
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform
 import re
 import subprocess
@@ -61,6 +61,7 @@ class SyncError(RuntimeError):
 class SourceMarker:
     repository: str
     ref: str
+    lock_path: str = "uv.lock"
 
 
 @dataclass(frozen=True)
@@ -126,8 +127,11 @@ def load_source_marker(root: Path, *, label: str) -> SourceMarker:
         raise SyncError(
             f"{label} requires valid source marker {marker_path}: {error}"
         ) from error
-    if not isinstance(payload, dict) or set(payload) != {"repository", "ref"}:
-        raise SyncError(f"{label} source marker must contain only repository and ref")
+    if not isinstance(payload, dict) or set(payload) not in (
+        {"repository", "ref"},
+        {"repository", "ref", "lock_path"},
+    ):
+        raise SyncError(f"{label} source marker must contain repository/ref and optional lock_path")
     repository = str(payload["repository"]).strip()
     ref = str(payload["ref"]).strip()
     if not REPOSITORY_SLUG_PATTERN.fullmatch(repository):
@@ -138,7 +142,27 @@ def load_source_marker(root: Path, *, label: str) -> SourceMarker:
         raise SyncError(
             f"{label} source ref must be an exact lowercase 40-character git commit"
         )
-    return SourceMarker(repository=repository, ref=ref)
+    lock_path = str(payload.get("lock_path", "uv.lock")).strip()
+    normalized_lock_path = PurePosixPath(lock_path)
+    if (
+        normalized_lock_path.is_absolute()
+        or normalized_lock_path.name != "uv.lock"
+        or any(part in {"", ".", ".."} for part in normalized_lock_path.parts)
+    ):
+        raise SyncError(f"{label} source lock_path must be a repository-relative uv.lock path")
+    return SourceMarker(repository=repository, ref=ref, lock_path=normalized_lock_path.as_posix())
+
+
+def owned_project_source(project_root: Path, *, tenant_source: SourceMarker) -> SourceMarker:
+    boundary = TENANT_ROOT.resolve()
+    current = project_root.resolve()
+    while current != boundary:
+        if boundary not in current.parents:
+            raise SyncError(f"Owned addon project escapes tenant root: {project_root}")
+        if (current / SOURCE_MARKER).is_file():
+            return load_source_marker(current, label=f"Owned addon project {project_root}")
+        current = current.parent
+    return tenant_source
 
 
 def validate_git_references(value: str, *, label: str) -> None:
@@ -1030,7 +1054,13 @@ def strict_sync(sync_mode: str) -> None:
         if item.format == "pyproject_toml"
     }
     owned_package_roots = (
-        {path.resolve(): lock_sources[TENANT_ROOT.resolve()] for path in owned}
+        {
+            path.resolve(): owned_project_source(
+                path,
+                tenant_source=lock_sources[TENANT_ROOT.resolve()],
+            )
+            for path in owned
+        }
         if has_tenant
         else {}
     )
@@ -1194,7 +1224,7 @@ def strict_sync(sync_mode: str) -> None:
                 "scope": "support_runtime",
                 "source_repository": source.repository,
                 "source_ref": source.ref,
-                "path": "uv.lock",
+                "path": source.lock_path,
                 "sha256": lock_hashes[SUPPORT_ROOT / "uv.lock"],
             }
         )
@@ -1205,7 +1235,7 @@ def strict_sync(sync_mode: str) -> None:
                 "scope": "tenant",
                 "source_repository": source.repository,
                 "source_ref": source.ref,
-                "path": "uv.lock",
+                "path": source.lock_path,
                 "sha256": lock_hashes[TENANT_ROOT / "uv.lock"],
             }
         )
