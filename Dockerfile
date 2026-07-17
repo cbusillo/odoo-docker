@@ -172,6 +172,7 @@ COPY --chown=ubuntu:ubuntu launchplane/addons /opt/launchplane/addons
 COPY scripts/odoo-bin-wrapper.sh /usr/local/bin/odoo-bin-wrapper.sh
 COPY scripts/configure-dev-addon-paths.sh /usr/local/bin/configure-dev-addon-paths.sh
 COPY scripts/odoo-python-sync.sh /usr/local/bin/odoo-python-sync.sh
+COPY scripts/odoo-python-sync.py /usr/local/lib/odoo-python-sync.py
 COPY scripts/odoo-fetch-addons.sh /usr/local/bin/odoo-fetch-addons.sh
 
 RUN mv /odoo/odoo-bin /odoo/odoo-bin.source \
@@ -185,7 +186,7 @@ RUN mv /odoo/odoo-bin /odoo/odoo-bin.source \
 # Remove duplicate source/build trees that confuse IDE/module indexing.
 RUN rm -rf /odoo/build/lib
 
-RUN install -d -o ubuntu -g ubuntu /opt/project /opt/project/addons /opt/extra_addons /opt/launchplane/addons /volumes/addons /volumes/config /volumes/data /volumes/logs \
+RUN install -d -o ubuntu -g ubuntu /opt/runtime /opt/project /opt/project/addons /opt/extra_addons /opt/launchplane/addons /opt/launchplane/evidence /volumes/addons /volumes/config /volumes/data /volumes/logs \
     && install -o ubuntu -g ubuntu -m 0644 /dev/null /volumes/config/_generated.conf \
     && su -s /bin/bash ubuntu -c "printf '[options]\n' > /volumes/config/_generated.conf"
 

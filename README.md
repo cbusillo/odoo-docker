@@ -74,19 +74,53 @@ those image-owned defaults present.
 - `/venv` is not configurable; downstream images must extend it additively and
   must not recreate it.
 - The image reserves these downstream layout paths:
+  - `/opt/runtime`
   - `/opt/project`
   - `/opt/project/addons`
   - `/opt/extra_addons`
 - The image reserves `/opt/launchplane/addons` for image-owned Launchplane
   runtime addons. Downstream images must not replace this directory.
-- `odoo-python-sync.sh <prod|dev>` installs root lockfile-backed dependencies
-  plus addon `requirements*.txt` and addon `pyproject.toml` dependencies into
-  `/venv`.
-- `ODOO_PYTHON_SYNC_SKIP_ADDONS` can exclude a comma-separated set of addon
-  directory names from Python dependency sync when a downstream workflow needs
-  addon code on the path without packaging it into `/venv`.
-- `odoo-fetch-addons.sh` downloads external addon repositories declared in
-  `ODOO_ADDON_REPOSITORIES` into `/opt/extra_addons`.
+- Layout 2 is selected by `/opt/runtime/.odoo-python-sync-layout` containing
+  `2`. Each populated dependency root must contain both `pyproject.toml` and
+  `uv.lock`, plus `.odoo-python-source.json` with only an `owner/repository`
+  identity and exact lowercase 40-character source commit.
+- `/opt/runtime` owns the support/runtime lock. `/opt/project` owns the tenant
+  uv workspace lock. Both root pyprojects are static dependency catalogs with
+  `tool.uv.package = false` and no build system. The helper checks and exports
+  the support lock first and the tenant lock second with frozen semantics, then
+  installs both exports in one dependency-free operation that cannot replace
+  packages inherited from the base image.
+- Layout 2 tenant workspace members must exactly match owned addon projects
+  under `/opt/project/addons`. Owned projects use static package metadata,
+  `tool.uv.package = false`, exact build-tool versions supplied by a lock, and
+  code and package-metadata installation with `--no-deps` and no build
+  isolation. Owned
+  `requirements*.txt`, mutable VCS references, and local or archive dependency
+  paths fail closed.
+- Support-only and tenant-only layout 2 roots are accepted for staging and
+  tests but emit non-publishable evidence. Support-only layouts may still carry
+  ordinary addon code when it has no Python dependency metadata. Publishable
+  artifacts require both lock scopes.
+- `ODOO_PYTHON_SYNC_SKIP_ADDONS` remains a legacy-layout compatibility option.
+  Layout 2 rejects it because skipping installation while exporting the full
+  workspace lock would produce misleading dependency evidence.
+- Without the layout marker, `odoo-python-sync.sh <prod|dev>` preserves the
+  bounded legacy single-root behavior and writes non-publishable evidence. The
+  legacy path remains available only while downstream producers migrate.
+- `odoo-fetch-addons.sh` fetches external addon repositories declared in
+  `ODOO_ADDON_REPOSITORIES` into `/opt/extra_addons`. Every entry must use
+  `owner/repository@<exact-commit>`; branch and tag refs fail closed. The helper
+  verifies the fetched Git commit before removing repository metadata and stores
+  authoritative source sidecars beside checkouts rather than trusting marker
+  files committed inside external repositories.
+- Layout 2 treats external dependency files as an explicit compatibility lane.
+  Their repository commit, repo-relative path, format, and SHA-256 are recorded;
+  they may add compatible packages but cannot replace base- or lock-owned
+  package identities.
+- Every layout 2 sync finishes with `uv pip check` and writes deterministic
+  platform-specific package evidence to
+  `/opt/launchplane/evidence/dependency-provenance.json`. The producer combines
+  one sidecar per target platform before publishing artifact provenance.
 - Neither helper bakes in project-specific policy; downstream images choose
   which external repositories to fetch and whether to sync `prod` or `dev`
   dependencies.
@@ -182,7 +216,10 @@ docker build \
 - `scripts/smoke-db-init.sh <image-reference>` checks database-backed Odoo
   initialization.
 - `scripts/test-downstream-helpers.sh <image-reference>` checks downstream
-  Python sync and external addon fetch behavior.
+  Python sync and external addon fetch behavior, including legacy compatibility,
+  strict partial and layered locks, stale and incomplete lock failures, owned
+  workspace enforcement, exact external source handling, conflict isolation,
+  final environment checks, and deterministic evidence.
 
 ## Security Notes
 
