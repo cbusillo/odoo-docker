@@ -2,6 +2,8 @@
 set -euo pipefail
 
 readonly sync_mode="${1:-}"
+readonly layout_marker_path="/opt/runtime/.odoo-python-sync-layout"
+readonly strict_sync_helper="/usr/local/lib/odoo-python-sync.py"
 readonly project_root="/opt/project"
 readonly root_pyproject_path="${project_root}/pyproject.toml"
 readonly root_lock_path="${project_root}/uv.lock"
@@ -94,7 +96,7 @@ install_root_dependencies() {
 
 	local requirements_file
 	requirements_file="$(mktemp /tmp/odoo-python-sync-root-XXXXXX.txt)"
-	local export_args=(--frozen --format requirements.txt --no-emit-project --no-default-groups --output-file "${requirements_file}")
+	local export_args=(--quiet --frozen --format requirements.txt --no-emit-project --no-default-groups --output-file "${requirements_file}")
 
 	if [[ "${sync_mode}" == "dev" ]] && python_has_optional_dependency "${root_pyproject_path}" dev; then
 		export_args+=(--extra dev)
@@ -156,10 +158,21 @@ install_addon_dependencies() {
 
 ensure_base_environment
 ensure_project_layout
+
+if [[ -e "${layout_marker_path}" ]]; then
+	"${python_executable}" "${strict_sync_helper}" strict-sync --mode "${sync_mode}"
+	echo "odoo-python-sync completed in ${sync_mode} mode with layout 2"
+	exit 0
+fi
+
+echo "WARNING: using legacy single-root Odoo Python sync layout; migrate the producer to layout 2." >&2
 install_root_dependencies
 
 for addon_root in "${addon_roots[@]}"; do
 	install_addon_dependencies "${addon_root}"
 done
 
-echo "odoo-python-sync completed in ${sync_mode} mode"
+uv pip check --python /venv/bin/python
+"${python_executable}" "${strict_sync_helper}" legacy-evidence --mode "${sync_mode}"
+
+echo "odoo-python-sync completed in ${sync_mode} mode with legacy layout"
