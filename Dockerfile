@@ -5,7 +5,7 @@ ARG ODOO_SOURCE_REV
 ARG PYTHON_VERSION=3.13
 
 # Keep the official uv image first so Dependabot tracks it for Docker updates.
-FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.11.28@sha256:0f36cb9361a3346885ca3677e3767016687b5a170c1a6b88465ec14aefec90aa AS uv-binary
+FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.11.29@sha256:eb2843a1e56fd9e30c7276ce1a52cba86e64c7b385f5e3279a0e08e02dd058fc AS uv-binary
 
 FROM --platform=$BUILDPLATFORM alpine/git:v2.54.0 AS odoo-source
 ARG ODOO_SOURCE_REPOSITORY
