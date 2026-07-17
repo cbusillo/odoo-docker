@@ -82,8 +82,10 @@ those image-owned defaults present.
   runtime addons. Downstream images must not replace this directory.
 - Layout 2 is selected by `/opt/runtime/.odoo-python-sync-layout` containing
   `2`. Each populated dependency root must contain both `pyproject.toml` and
-  `uv.lock`, plus `.odoo-python-source.json` with only an `owner/repository`
-  identity and exact lowercase 40-character source commit.
+  `uv.lock`, plus `.odoo-python-source.json` with an `owner/repository`
+  identity, exact lowercase 40-character source commit, and optional
+  repository-relative `lock_path`. Legacy two-field markers default the lock
+  path to `uv.lock`.
 - `/opt/runtime` owns the support/runtime lock. `/opt/project` owns the tenant
   uv workspace lock. Both root pyprojects are static dependency catalogs with
   `tool.uv.package = false` and no build system. The helper checks and exports
@@ -94,7 +96,9 @@ those image-owned defaults present.
   under `/opt/project/addons`. Owned projects use static package metadata,
   `tool.uv.package = false`, exact build-tool versions supplied by a lock, and
   code and package-metadata installation with `--no-deps` and no build
-  isolation. Owned
+  isolation. A nested `.odoo-python-source.json` applies to projects beneath
+  that directory, so staged shared-addon projects retain their own repository
+  and commit attribution instead of inheriting the tenant root marker. Owned
   `requirements*.txt`, mutable VCS references, and local or archive dependency
   paths fail closed.
 - Support-only and tenant-only layout 2 roots are accepted for staging and
