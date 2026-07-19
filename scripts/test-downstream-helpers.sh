@@ -837,6 +837,70 @@ PY
 "
 }
 
+assert_vcs_repository_canonicalization() {
+	docker run --rm -i \
+		--entrypoint /venv/bin/python \
+		"${image_reference}" - <<'PY'
+import json
+import runpy
+
+sync = runpy.run_path('/usr/local/lib/odoo-python-sync.py')
+normalize = sync['normalize_vcs_repository']
+package_source = sync['package_source']
+sync_error = sync['SyncError']
+
+assert normalize('https://github.com/OCA/openupgradelib.git') == 'OCA/openupgradelib'
+assert normalize('git+https://github.com/sacherjj/simple_zpl2') == 'sacherjj/simple_zpl2'
+assert normalize('ssh://git@github.com/OCA/openupgradelib.git') == 'OCA/openupgradelib'
+assert normalize('https://git.example.com/group/project.git') == (
+    'https://git.example.com/group/project'
+)
+assert normalize('ssh://git@git.example.com:2222/group/project.git') == (
+    'ssh://git@git.example.com:2222/group/project'
+)
+
+for value in (
+    'file:///tmp/project',
+    'https://operator@example.com/owner/project',
+    'ssh://git:secret@example.com/owner/project',
+    'https://example.com/owner/project?token=secret',
+    'https://example.com/owner/project#fragment',
+    'https://example.com/owner/../project',
+    'https://example.com/owner/%2e%2e/project',
+):
+    try:
+        normalize(value)
+    except sync_error:
+        pass
+    else:
+        raise AssertionError(f'unsafe repository identity was accepted: {value}')
+
+
+class DirectUrlDistribution:
+    metadata = {'Name': 'simple-zpl2'}
+
+    def read_text(self, filename: str) -> str | None:
+        if filename != 'direct_url.json':
+            return None
+        return json.dumps(
+            {
+                'url': 'https://github.com/sacherjj/simple_zpl2',
+                'vcs_info': {
+                    'commit_id': '177de4500279034d7bf4b6a8ba0244730d9c1219',
+                    'vcs': 'git',
+                },
+            }
+        )
+
+
+assert package_source(DirectUrlDistribution(), {}) == {
+    'kind': 'vcs',
+    'repository': 'sacherjj/simple_zpl2',
+    'commit': '177de4500279034d7bf4b6a8ba0244730d9c1219',
+}
+PY
+}
+
 run_partial_strict_check() {
 	local support_mount="$1"
 	local tenant_mount="$2"
@@ -883,6 +947,7 @@ assert_external_duplicate_ref_fails
 assert_external_symlink_escape_fails
 assert_strict_skip_addons_fails
 assert_target_platform_mismatch_fails
+assert_vcs_repository_canonicalization
 
 run_legacy_sync_check prod
 run_legacy_sync_check dev

@@ -31,6 +31,7 @@ PYTHON_EXECUTABLE = "/venv/bin/python"
 VENV_ROOT = Path("/venv")
 GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 REPOSITORY_SLUG_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+REPOSITORY_URL_PATH_PATTERN = re.compile(r"^/[A-Za-z0-9._/-]+$")
 PACKAGE_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 PACKAGE_VERSION_PATTERN = re.compile(r"^(?=.*[0-9])[A-Za-z0-9][A-Za-z0-9.!+_-]*$")
 EXACT_BUILD_REQUIREMENT_PATTERN = re.compile(
@@ -716,7 +717,7 @@ def target_platform() -> str:
 
 def normalize_vcs_repository(value: str) -> str:
     normalized = value.strip()
-    if normalized.startswith("git+"):
+    if normalized.lower().startswith("git+"):
         normalized = normalized[4:]
     parsed = urlsplit(normalized)
     if parsed.scheme not in {"https", "ssh"} or not parsed.hostname:
@@ -741,10 +742,19 @@ def normalize_vcs_repository(value: str) -> str:
         authority += f":{port}"
     if username is not None:
         authority = f"{username}@{authority}"
-    path = parsed.path.rstrip("/")
-    if not path or any(part in {"", ".", ".."} for part in path.strip("/").split("/")):
+    path = f"/{parsed.path.strip('/')}"
+    if REPOSITORY_URL_PATH_PATTERN.fullmatch(path) is None:
         raise SyncError("VCS package evidence contains an invalid repository path")
-    return urlunsplit((parsed.scheme, authority, path, "", ""))
+    repository_path = path.strip("/").removesuffix(".git")
+    if not repository_path or any(
+        part in {"", ".", ".."} for part in repository_path.split("/")
+    ):
+        raise SyncError("VCS package evidence contains an invalid repository path")
+    if parsed.hostname.lower() == "github.com" and REPOSITORY_SLUG_PATTERN.fullmatch(
+        repository_path
+    ):
+        return repository_path
+    return urlunsplit((parsed.scheme, authority, f"/{repository_path}", "", ""))
 
 
 def marker_for_local_path(path: Path, roots: dict[Path, SourceMarker]) -> SourceMarker:

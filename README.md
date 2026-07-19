@@ -125,6 +125,10 @@ those image-owned defaults present.
   platform-specific package evidence to
   `/opt/launchplane/evidence/dependency-provenance.json`. The producer combines
   one sidecar per target platform before publishing artifact provenance.
+- VCS package evidence uses `owner/repository` identities for GitHub sources
+  and sanitized HTTPS or SSH URLs for other hosts, with any terminal `.git`
+  suffix removed. `packages_sha256` hashes the exact canonical package array
+  embedded in the evidence.
 - Neither helper bakes in project-specific policy; downstream images choose
   which external repositories to fetch and whether to sync `prod` or `dev`
   dependencies.
