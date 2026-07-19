@@ -230,9 +230,9 @@ docker build \
 - Do not add credentials or access tokens in this repo.
 - Proprietary addons should be fetched by downstream builds using BuildKit
   secrets via `odoo-fetch-addons.sh`.
-- `requirements-overrides.txt` carries minimum secure Python compatibility
-  pins when upstream Odoo requirements cannot yet resolve a fixed transitive
-  release. Keep those pins narrow and let
+- `requirements-overrides.txt` carries reviewed secure or shared downstream
+  compatibility pins when upstream Odoo requirements cannot yet resolve the
+  required release. Keep those pins narrow and let
   `scripts/check-requirements-overrides.py` reject removed upstream
   requirements, unexpected unpinned or ranged requirements, and upstream exact
   pins that make an override removable.
