@@ -745,6 +745,7 @@ set -euo pipefail
 odoo-python-sync.sh ${sync_mode}
 /venv/bin/python - <<'PY'
 import hashlib
+import importlib.metadata
 import importlib.util
 import json
 import platform
@@ -756,6 +757,7 @@ assert VALUE == 'strict-local-package-installed'
 assert shared_value == 'strict-shared-package-installed'
 assert importlib.util.find_spec('slugify') is not None
 assert importlib.util.find_spec('humanize') is not None
+assert importlib.metadata.version('requests') == '2.34.2'
 boltons_spec = importlib.util.find_spec('boltons')
 if '${sync_mode}' == 'dev' or '${external_root}' != '${test_root}/empty-external':
     assert boltons_spec is not None

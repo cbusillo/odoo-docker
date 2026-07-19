@@ -1,12 +1,13 @@
 # Temporary Odoo 19.0 Python 3.13 requirement overrides.
-# Keep these at the minimum fixed versions reported by Trivy, not broad latest
-# releases. scripts/check-requirements-overrides.py fails CI once upstream Odoo
-# catches up so this file can be removed instead of silently downgrading packages.
+# Keep these at reviewed secure or downstream-compatible versions; do not chase
+# broad latest releases. scripts/check-requirements-overrides.py fails CI once upstream
+# Odoo catches up so entries can be removed instead of silently downgrading packages.
 cbor2==5.9.0
 cryptography==48.0.1
 lxml==6.1.1  # Required by lxml-html-clean>=0.4.5 for CVE-2026-49825.
 lxml-html-clean==0.4.5
 Pillow==12.2.0
 pyopenssl==26.2.0
+requests==2.34.2
 urllib3==2.7.0
 Werkzeug==3.1.6
