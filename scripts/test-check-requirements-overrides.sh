@@ -22,6 +22,11 @@ printf 'lxml-html-clean==0.4.5\n' >"${overrides_file}"
 run_check >"${output_file}"
 grep -Fq 'requirements overrides remain valid' "${output_file}"
 
+printf 'PyPDF==5.4.0 ; python_version >= "3.13"\n' >"${requirements_file}"
+printf 'pypdf==6.14.2\n' >"${overrides_file}"
+run_check >"${output_file}"
+grep -Fq 'requirements overrides remain valid' "${output_file}"
+
 printf 'demo\n' >"${requirements_file}"
 printf 'demo==1.2.0\n' >"${overrides_file}"
 if run_check >"${output_file}"; then
