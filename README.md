@@ -240,3 +240,7 @@ docker build \
   `scripts/check-requirements-overrides.py` reject removed upstream
   requirements, unexpected unpinned or ranged requirements, and upstream exact
   pins that make an override removable.
+- The runtime virtual environment intentionally does not ship `pip`. Image
+  builds and downstream dependency synchronization use `uv`; restoring `pip`
+  would add unused vendored packages and expand the runtime vulnerability and
+  supply-chain surface.
