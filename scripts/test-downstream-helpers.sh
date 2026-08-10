@@ -2,12 +2,58 @@
 set -euo pipefail
 
 image_reference="${1:?Usage: scripts/test-downstream-helpers.sh <image-reference>}"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+requirements_overrides_file="${repo_root}/requirements-overrides.txt"
 downstream_helper_repo="${ODOO_DOWNSTREAM_HELPER_REPO:-McMillan-Woods-Global/disable_odoo_online}"
 downstream_helper_ref="${ODOO_DOWNSTREAM_HELPER_REF:-c69e4df113df460fb933a3519331fdadbca1a32f}"
 support_ref="1111111111111111111111111111111111111111"
 tenant_ref="2222222222222222222222222222222222222222"
 external_ref="3333333333333333333333333333333333333333"
 shared_ref="4444444444444444444444444444444444444444"
+
+read_exact_override_pin() {
+	local package_name="$1"
+
+	awk -v package_name="${package_name}" '
+		{
+			line = $0
+			sub(/[[:space:]]*#.*/, "", line)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+
+			package_pattern = "^" package_name "[[:space:]]*(==|!=|~=|>=|<=|>|<)"
+			if (line !~ package_pattern) {
+				next
+			}
+
+			match_count++
+			if (line !~ ("^" package_name "[[:space:]]*==[[:space:]]*[0-9][0-9A-Za-z.!+_-]*$")) {
+				invalid_line = NR ":" line
+				next
+			}
+
+			version = line
+			sub("^" package_name "[[:space:]]*==[[:space:]]*", "", version)
+		}
+		END {
+			if (match_count == 0) {
+				print FILENAME ": missing exact " package_name "== pin" > "/dev/stderr"
+				exit 1
+			}
+			if (match_count != 1) {
+				print FILENAME ": expected one " package_name " pin, found " match_count > "/dev/stderr"
+				exit 1
+			}
+			if (invalid_line != "") {
+				print FILENAME ": " package_name " override must use one exact == pin at " invalid_line > "/dev/stderr"
+				exit 1
+			}
+
+			print version
+		}
+	' "${requirements_overrides_file}"
+}
+
+requests_override_version="$(read_exact_override_pin requests)"
 
 test_root="$(mktemp -d)"
 trap 'rm -rf "${test_root}"' EXIT
@@ -757,7 +803,7 @@ assert VALUE == 'strict-local-package-installed'
 assert shared_value == 'strict-shared-package-installed'
 assert importlib.util.find_spec('slugify') is not None
 assert importlib.util.find_spec('humanize') is not None
-assert importlib.metadata.version('requests') == '2.34.2'
+assert importlib.metadata.version('requests') == '${requests_override_version}'
 boltons_spec = importlib.util.find_spec('boltons')
 if '${sync_mode}' == 'dev' or '${external_root}' != '${test_root}/empty-external':
     assert boltons_spec is not None
