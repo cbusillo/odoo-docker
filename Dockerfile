@@ -159,7 +159,6 @@ RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=l
     && chown -R ubuntu:ubuntu /home/ubuntu/.cache/uv \
     && su -s /bin/bash ubuntu -c "uv python install '${PYTHON_VERSION}'" \
     && su -s /bin/bash ubuntu -c "uv venv /venv --python '${PYTHON_VERSION}'" \
-    && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python --upgrade pip" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements.txt" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements-overrides.txt" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python rlpycairo" \
