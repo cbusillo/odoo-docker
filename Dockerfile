@@ -107,7 +107,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       openssh-client \
       pkg-config \
       python3 \
-      python3-venv \
       ripgrep \
       rsync \
       tini \
@@ -159,6 +158,23 @@ RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=l
     && chown -R ubuntu:ubuntu /home/ubuntu/.cache/uv \
     && su -s /bin/bash ubuntu -c "uv python install '${PYTHON_VERSION}'" \
     && su -s /bin/bash ubuntu -c "uv venv /venv --python '${PYTHON_VERSION}'" \
+    && base_python="$(su -s /bin/bash ubuntu -c 'PYTHONDONTWRITEBYTECODE=1 /venv/bin/python -c "import sys; print(sys._base_executable)"')" \
+    && case "${base_python}" in /opt/uv/python/*) ;; *) echo "Unexpected base interpreter: ${base_python}" >&2; exit 1 ;; esac \
+    && base_site_packages="$(env -u VIRTUAL_ENV PYTHONDONTWRITEBYTECODE=1 "${base_python}" -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" \
+    && base_scripts="$(env -u VIRTUAL_ENV PYTHONDONTWRITEBYTECODE=1 "${base_python}" -c 'import sysconfig; print(sysconfig.get_path("scripts"))')" \
+    && base_stdlib="$(env -u VIRTUAL_ENV PYTHONDONTWRITEBYTECODE=1 "${base_python}" -c 'import sysconfig; print(sysconfig.get_path("stdlib"))')" \
+    && for managed_path in "${base_site_packages}" "${base_scripts}" "${base_stdlib}"; do \
+      case "${managed_path}" in /opt/uv/python/*) ;; *) echo "Unexpected managed Python path: ${managed_path}" >&2; exit 1 ;; esac; \
+      test -d "${managed_path}"; \
+    done \
+    && rm -rf \
+      "${base_site_packages}/pip" \
+      "${base_site_packages}"/pip-*.dist-info \
+      "${base_scripts}"/pip* \
+      "${base_stdlib}/ensurepip" \
+    && test -z "$(find "${base_site_packages}" -maxdepth 1 -name 'pip-*.dist-info' -print -quit)" \
+    && test -z "$(find "${base_scripts}" -maxdepth 1 -name 'pip*' -print -quit)" \
+    && env -u VIRTUAL_ENV PYTHONDONTWRITEBYTECODE=1 "${base_python}" -c 'import importlib.util; assert importlib.util.find_spec("pip") is None; assert importlib.util.find_spec("ensurepip") is None' \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements.txt" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements-overrides.txt" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python rlpycairo" \
