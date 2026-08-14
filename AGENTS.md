@@ -12,8 +12,9 @@ Keep it short; defer deeper detail to the README and scripts.
 - Preserve `/venv`, `/opt/project`, `/opt/project/addons`, and
   `/opt/extra_addons` as stable downstream layout guarantees. Preserve
   `/opt/launchplane/addons` as the image-owned runtime addon root.
-- Keep `pip` out of the runtime virtual environment. Use the image-owned `uv`
-  binary for base and downstream Python dependency installation.
+- Keep `pip` and `ensurepip` out of the runtime Python installations, including
+  `/venv` and the uv-managed interpreter under `/opt/uv/python`. Use the
+  image-owned `uv` binary for base and downstream Python dependency installation.
 
 ## Workflow Metadata
 
