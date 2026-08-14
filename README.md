@@ -219,8 +219,8 @@ docker build \
   container build.
 - `scripts/smoke-runtime.sh <image-reference>` checks the runtime image helper
   contract and Odoo CLI availability.
-- `scripts/smoke-devtools.sh <image-reference>` checks the devtools image
-  browser tooling and addon path setup.
+- `scripts/smoke-devtools.sh <image-reference>` checks the runtime contract
+  before checking the devtools image browser tooling and addon path setup.
 - `scripts/smoke-db-init.sh <image-reference>` checks database-backed Odoo
   initialization.
 - `scripts/test-downstream-helpers.sh <image-reference>` checks downstream
@@ -240,7 +240,9 @@ docker build \
   `scripts/check-requirements-overrides.py` reject removed upstream
   requirements, unexpected unpinned or ranged requirements, and upstream exact
   pins that make an override removable.
-- The runtime virtual environment intentionally does not ship `pip`. Image
-  builds and downstream dependency synchronization use `uv`; restoring `pip`
-  would add unused vendored packages and expand the runtime vulnerability and
-  supply-chain surface.
+- Neither the runtime virtual environment nor its uv-managed base interpreter
+  under `/opt/uv/python` ships `pip` or `ensurepip`. Image builds and downstream
+  dependency synchronization use `uv`; restoring `pip` would add unused
+  vendored packages and expand the runtime vulnerability and supply-chain
+  surface. Standard-library virtual environment bootstrapping with bundled
+  `pip` is intentionally unavailable; use `uv venv` instead.
