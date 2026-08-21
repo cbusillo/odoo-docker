@@ -84,6 +84,7 @@ jobs:
       resolver_cutoff: ${{ steps.inputs.outputs.resolver_cutoff }}
       scan_configuration_sha256: ${{ steps.inputs.outputs.scan_configuration_sha256 }}
       trivy_db_sha256: ${{ steps.inputs.outputs.trivy_db_sha256 }}
+      trivy_image: ${{ steps.inputs.outputs.trivy_image }}
       trivy_version: ${{ steps.inputs.outputs.trivy_version }}
     steps:
       - uses: actions/checkout@v7
@@ -95,12 +96,32 @@ jobs:
 
       - name: Resolve comparison inputs and scanner database
         id: inputs
+        env:
+          BASELINE_COMMIT: ${{ github.event.pull_request.base.sha || '' }}
         run: |
           set -euo pipefail
 
           resolver_cutoff="$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:00:00Z')"
           apt_snapshot="$(date -u -d '24 hours ago' '+%Y%m%dT%H0000Z')"
           ubuntu_image='ubuntu:noble@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517'
+          trivy_image="${TRIVY_IMAGE}"
+
+          if [ -n "${BASELINE_COMMIT}" ]; then
+            git fetch --no-tags --depth 1 origin "${BASELINE_COMMIT}"
+            if git cat-file -e "${BASELINE_COMMIT}:scripts/scan-image-dependencies.sh" 2>/dev/null \
+              && ! git diff --quiet "${BASELINE_COMMIT}" HEAD -- \
+                .github/workflows/build.yml \
+                scripts/image-dependency-health.py \
+                scripts/scan-image-dependencies.sh; then
+              trivy_image="$(git show "${BASELINE_COMMIT}:.github/workflows/build.yml" \
+                | sed -n 's/^  TRIVY_IMAGE: //p' \
+                | head -n 1)"
+            fi
+          fi
+          if [[ ! "${trivy_image}" =~ ^aquasec/trivy:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "Resolved Trivy image is not an approved immutable reference" >&2
+            exit 1
+          fi
 
           postgresql_versions="$(docker run --rm --platform linux/amd64 \
             --env APT_SNAPSHOT="${apt_snapshot}" \
@@ -140,10 +161,10 @@ jobs:
           mkdir -p "${trivy_cache}"
           docker run --rm \
             --volume "${trivy_cache}:/root/.cache/trivy" \
-            "${TRIVY_IMAGE}" image \
+            "${trivy_image}" image \
             --cache-dir /root/.cache/trivy \
             --download-db-only
-          trivy_version="$(docker run --rm "${TRIVY_IMAGE}" --version --format json | jq -er '.Version')"
+          trivy_version="$(docker run --rm "${trivy_image}" --version --format json | jq -er '.Version')"
           trivy_db_sha256="$(cd "${trivy_cache}" \
             && find . -type f -print0 \
               | sort -z \
@@ -160,7 +181,7 @@ jobs:
             --arg python_version "${PYTHON_VERSION}" \
             --arg resolver_cutoff "${resolver_cutoff}" \
             --arg trivy_db_sha256 "${trivy_db_sha256}" \
-            --arg trivy_image "${TRIVY_IMAGE}" \
+            --arg trivy_image "${trivy_image}" \
             --arg trivy_version "${trivy_version}" \
             '{
               apt_snapshot: $apt_snapshot,
@@ -202,6 +223,7 @@ jobs:
             echo "resolver_cutoff=${resolver_cutoff}"
             echo "scan_configuration_sha256=${scan_configuration_sha256}"
             echo "trivy_db_sha256=${trivy_db_sha256}"
+            echo "trivy_image=${trivy_image}"
             echo "trivy_version=${trivy_version}"
           } >>"${GITHUB_OUTPUT}"
 
@@ -533,6 +555,7 @@ jobs:
           SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
           TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
           TRIVY_DB_SHA256: ${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}
+          TRIVY_IMAGE: ${{ needs.resolve_inputs.outputs.trivy_image }}
           TRIVY_VERSION: ${{ needs.resolve_inputs.outputs.trivy_version }}
         run: |
           tooling_root="${GITHUB_WORKSPACE}"
@@ -556,6 +579,7 @@ jobs:
           SCAN_CONFIGURATION_SHA256: ${{ needs.resolve_inputs.outputs.scan_configuration_sha256 }}
           TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
           TRIVY_DB_SHA256: ${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}
+          TRIVY_IMAGE: ${{ needs.resolve_inputs.outputs.trivy_image }}
           TRIVY_VERSION: ${{ needs.resolve_inputs.outputs.trivy_version }}
         run: |
           bash "${BASELINE_ROOT}/scripts/scan-image-dependencies.sh" \
@@ -923,6 +947,7 @@ jobs:
           SCAN_CONFIGURATION_SHA256: ${{ needs.resolve_inputs.outputs.scan_configuration_sha256 }}
           TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
           TRIVY_DB_SHA256: ${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}
+          TRIVY_IMAGE: ${{ needs.resolve_inputs.outputs.trivy_image }}
           TRIVY_VERSION: ${{ needs.resolve_inputs.outputs.trivy_version }}
         run: |
           set -euo pipefail

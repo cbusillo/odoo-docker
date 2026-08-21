@@ -144,7 +144,9 @@ those image-owned defaults present.
   has native resolver support and its workflow, scanner, and evaluator match
   the head. The comparison uses the base copies of that tooling. Otherwise,
   verification retains the stricter candidate absolute gate, using base scanner
-  tooling when available.
+  tooling and its pinned scanner image when available. Scanner upgrades are
+  therefore validated by the prior scanner on the upgrade pull request and
+  become active for absolute default-branch health after merge.
 - Default-branch, scheduled, and dispatch runs retain absolute high/critical
   health. Multi-architecture images are pushed first under a unique
   `candidate-<run>-<repository-sha>-*` tag, then the exact registry manifest and
