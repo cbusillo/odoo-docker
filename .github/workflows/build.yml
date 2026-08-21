@@ -29,6 +29,8 @@ concurrency:
 env:
   DOCKER_BUILD_SUMMARY: false
   DOCKER_BUILD_RECORD_UPLOAD: false
+  PYTHON_VERSION: 3.13.15
+  TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
 
 jobs:
   dockerfile-lint:
@@ -38,6 +40,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Run Hadolint
         run: |
@@ -66,6 +70,169 @@ jobs:
           fi
           echo "value=${source_revision}" >> "${GITHUB_OUTPUT}"
           echo "Resolved Odoo source revision: ${source_revision}"
+
+  resolve_inputs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      apt_snapshot: ${{ steps.inputs.outputs.apt_snapshot }}
+      postgresql_client_common_version: ${{ steps.inputs.outputs.postgresql_client_common_version }}
+      postgresql_client_version: ${{ steps.inputs.outputs.postgresql_client_version }}
+      postgresql_libpq_version: ${{ steps.inputs.outputs.postgresql_libpq_version }}
+      resolver_cutoff: ${{ steps.inputs.outputs.resolver_cutoff }}
+      scan_configuration_sha256: ${{ steps.inputs.outputs.scan_configuration_sha256 }}
+      trivy_db_sha256: ${{ steps.inputs.outputs.trivy_db_sha256 }}
+      trivy_image: ${{ steps.inputs.outputs.trivy_image }}
+      trivy_version: ${{ steps.inputs.outputs.trivy_version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Validate dependency-health tooling
+        run: scripts/test-image-dependency-health.sh
+
+      - name: Resolve comparison inputs and scanner database
+        id: inputs
+        env:
+          BASELINE_COMMIT: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+
+          resolver_cutoff="$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:00:00Z')"
+          apt_snapshot="$(date -u -d '24 hours ago' '+%Y%m%dT%H0000Z')"
+          ubuntu_image='ubuntu:noble@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517'
+          trivy_image="${TRIVY_IMAGE}"
+
+          if [ -n "${BASELINE_COMMIT}" ]; then
+            git fetch --no-tags --depth 1 origin "${BASELINE_COMMIT}"
+            if git cat-file -e "${BASELINE_COMMIT}:scripts/scan-image-dependencies.sh" 2>/dev/null \
+              && ! git diff --quiet "${BASELINE_COMMIT}" HEAD -- \
+                .github/workflows/build.yml \
+                scripts/image-dependency-health.py \
+                scripts/scan-image-dependencies.sh; then
+              trivy_image="$(git show "${BASELINE_COMMIT}:.github/workflows/build.yml" \
+                | sed -n 's/^  TRIVY_IMAGE: //p' \
+                | head -n 1)"
+            fi
+          fi
+          if [[ ! "${trivy_image}" =~ ^aquasec/trivy:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "Resolved Trivy image is not an approved immutable reference" >&2
+            exit 1
+          fi
+
+          postgresql_versions="$(docker run --rm --platform linux/amd64 \
+            --env APT_SNAPSHOT="${apt_snapshot}" \
+            --volume /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro \
+            "${ubuntu_image}" \
+            bash -euo pipefail -c '
+              snapshot_url="https://snapshot.ubuntu.com/ubuntu/${APT_SNAPSHOT}/"
+              sed -i \
+                -e "s|http:/[/]archive.ubuntu.com/ubuntu/|${snapshot_url}|g" \
+                -e "s|http:/[/]security.ubuntu.com/ubuntu/|${snapshot_url}|g" \
+                /etc/apt/sources.list.d/ubuntu.sources
+              apt-get update >/dev/null
+              apt-get install -y --no-install-recommends curl gnupg >/dev/null
+              curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+                | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
+              echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt-archive.postgresql.org/pub/repos/apt noble-pgdg-archive main" \
+                >/etc/apt/sources.list.d/pgdg.list
+              apt-get update >/dev/null
+              for package in postgresql-client-17 postgresql-client-common libpq5; do
+                apt-cache madison "${package}" >"/tmp/${package}-versions"
+                IFS="|" read -r _ version _ <"/tmp/${package}-versions"
+                version="$(echo "${version}" | xargs)"
+                echo "${package}=${version}"
+              done
+            ')"
+          postgresql_client_version="$(sed -n 's/^postgresql-client-17=//p' <<<"${postgresql_versions}")"
+          postgresql_client_common_version="$(sed -n 's/^postgresql-client-common=//p' <<<"${postgresql_versions}")"
+          postgresql_libpq_version="$(sed -n 's/^libpq5=//p' <<<"${postgresql_versions}")"
+          if [ -z "${postgresql_client_version}" ] \
+            || [ -z "${postgresql_client_common_version}" ] \
+            || [ -z "${postgresql_libpq_version}" ]; then
+            echo "Failed to resolve exact PostgreSQL package set" >&2
+            exit 1
+          fi
+
+          trivy_cache="${RUNNER_TEMP}/trivy-cache"
+          mkdir -p "${trivy_cache}"
+          docker run --rm \
+            --volume "${trivy_cache}:/root/.cache/trivy" \
+            "${trivy_image}" image \
+            --cache-dir /root/.cache/trivy \
+            --download-db-only
+          trivy_version="$(docker run --rm "${trivy_image}" --version --format json | jq -er '.Version')"
+          trivy_db_sha256="$(cd "${trivy_cache}" \
+            && find . -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              | sha256sum \
+              | awk '{print $1}')"
+
+          mkdir -p "${RUNNER_TEMP}/dependency-health-inputs"
+          jq -cn \
+            --arg apt_snapshot "${apt_snapshot}" \
+            --arg postgresql_client_common_version "${postgresql_client_common_version}" \
+            --arg postgresql_client_version "${postgresql_client_version}" \
+            --arg postgresql_libpq_version "${postgresql_libpq_version}" \
+            --arg python_version "${PYTHON_VERSION}" \
+            --arg resolver_cutoff "${resolver_cutoff}" \
+            --arg trivy_db_sha256 "${trivy_db_sha256}" \
+            --arg trivy_image "${trivy_image}" \
+            --arg trivy_version "${trivy_version}" \
+            '{
+              apt_snapshot: $apt_snapshot,
+              postgresql_packages: {
+                client: $postgresql_client_version,
+                client_common: $postgresql_client_common_version,
+                libpq: $postgresql_libpq_version
+              },
+              python_version: $python_version,
+              resolver_cutoff: $resolver_cutoff,
+              scanner: {
+                image: $trivy_image,
+                version: $trivy_version,
+                databases_sha256: $trivy_db_sha256,
+                scanners: ["vulnerability"],
+                severities: ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+                ignore_unfixed: true,
+                ignorefile: "/dev/null",
+                skipped_files: [
+                  "/usr/share/java/gettext.jar",
+                  "/usr/share/java/libintl-0.21.jar"
+                ],
+                skip_java_database: true
+              }
+            }' >"${RUNNER_TEMP}/dependency-health-inputs/comparison-inputs.json"
+          scan_configuration_sha256="$(sha256sum \
+            "${RUNNER_TEMP}/dependency-health-inputs/comparison-inputs.json" \
+            | awk '{print $1}')"
+
+          tar -C "${RUNNER_TEMP}" -czf \
+            "${RUNNER_TEMP}/dependency-health-inputs/trivy-cache.tar.gz" \
+            trivy-cache
+
+          {
+            echo "apt_snapshot=${apt_snapshot}"
+            echo "postgresql_client_common_version=${postgresql_client_common_version}"
+            echo "postgresql_client_version=${postgresql_client_version}"
+            echo "postgresql_libpq_version=${postgresql_libpq_version}"
+            echo "resolver_cutoff=${resolver_cutoff}"
+            echo "scan_configuration_sha256=${scan_configuration_sha256}"
+            echo "trivy_db_sha256=${trivy_db_sha256}"
+            echo "trivy_image=${trivy_image}"
+            echo "trivy_version=${trivy_version}"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Upload comparison inputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: dependency-health-inputs
+          path: ${{ runner.temp }}/dependency-health-inputs
+          if-no-files-found: error
 
   check_overrides:
     runs-on: ubuntu-latest
@@ -98,8 +265,8 @@ jobs:
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64, chris-testing-build]
-    timeout-minutes: 60
-    needs: [resolve_source, check_overrides]
+    timeout-minutes: 90
+    needs: [resolve_source, resolve_inputs, check_overrides]
     permissions:
       contents: read
     strategy:
@@ -115,6 +282,113 @@ jobs:
             smoke_script: scripts/smoke-devtools.sh
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Materialize exact pull-request baseline
+        if: github.event_name == 'pull_request'
+        env:
+          BASELINE_COMMIT: ${{ github.event.pull_request.base.sha }}
+          BASELINE_ROOT: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${BASELINE_ROOT}"
+          git fetch --no-tags --depth 1 origin "${BASELINE_COMMIT}"
+          git archive "${BASELINE_COMMIT}" | tar -x -C "${BASELINE_ROOT}"
+
+      - name: Detect native resolver and scanner parity
+        id: resolver_parity
+        if: github.event_name == 'pull_request'
+        env:
+          BASELINE_ROOT: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+        run: |
+          set -euo pipefail
+          resolver_parity="false"
+          if grep -q '^ARG APT_SNAPSHOT$' "${BASELINE_ROOT}/Dockerfile" \
+            && grep -q '^ARG POSTGRESQL_CLIENT_VERSION$' "${BASELINE_ROOT}/Dockerfile" \
+            && grep -q '^ARG POSTGRESQL_CLIENT_COMMON_VERSION$' "${BASELINE_ROOT}/Dockerfile" \
+            && grep -q '^ARG POSTGRESQL_LIBPQ_VERSION$' "${BASELINE_ROOT}/Dockerfile" \
+            && grep -q '^ARG RESOLVER_CUTOFF$' "${BASELINE_ROOT}/Dockerfile"; then
+            resolver_parity="true"
+          fi
+
+          scanner_available="true"
+          scanner_parity="true"
+          for path in \
+            .github/workflows/build.yml \
+            scripts/image-dependency-health.py \
+            scripts/scan-image-dependencies.sh
+          do
+            if [ ! -f "${BASELINE_ROOT}/${path}" ]; then
+              scanner_available="false"
+              scanner_parity="false"
+            elif ! cmp -s "${BASELINE_ROOT}/${path}" "${path}"; then
+              scanner_parity="false"
+            fi
+          done
+
+          comparison_parity="false"
+          resolver_contract="false"
+          if [ "$(grep -c '^ARG APT_SNAPSHOT$' "${BASELINE_ROOT}/Dockerfile")" -ge 2 ] \
+            && [ "$(grep -c '^ARG POSTGRESQL_CLIENT_VERSION$' "${BASELINE_ROOT}/Dockerfile")" -ge 2 ] \
+            && [ "$(grep -c '^ARG POSTGRESQL_CLIENT_COMMON_VERSION$' "${BASELINE_ROOT}/Dockerfile")" -ge 2 ] \
+            && [ "$(grep -c '^ARG POSTGRESQL_LIBPQ_VERSION$' "${BASELINE_ROOT}/Dockerfile")" -ge 2 ] \
+            && [ "$(grep -c '^ARG RESOLVER_CUTOFF$' "${BASELINE_ROOT}/Dockerfile")" -ge 2 ] \
+            && grep -q 'ubuntu:noble@sha256:' "${BASELINE_ROOT}/Dockerfile" \
+            && grep -Fq "snapshot.ubuntu.com/ubuntu/\${APT_SNAPSHOT}" "${BASELINE_ROOT}/Dockerfile" \
+            && grep -q 'apt-archive.postgresql.org' "${BASELINE_ROOT}/Dockerfile" \
+            && grep -q 'UV_EXCLUDE_NEWER' "${BASELINE_ROOT}/Dockerfile"; then
+            resolver_contract="true"
+          fi
+          if [ "${resolver_parity}" = "true" ] \
+            && [ "${resolver_contract}" = "true" ] \
+            && [ "${scanner_parity}" = "true" ]; then
+            comparison_parity="true"
+          fi
+
+          {
+            echo "value=${resolver_parity}"
+            echo "scanner_available=${scanner_available}"
+            echo "scanner_parity=${scanner_parity}"
+            echo "resolver_contract=${resolver_contract}"
+            echo "comparison=${comparison_parity}"
+          } >>"${GITHUB_OUTPUT}"
+          echo "Native base/head resolver parity: ${resolver_parity}"
+          echo "Baseline resolver contract complete: ${resolver_contract}"
+          echo "Trusted baseline scanner available: ${scanner_available}"
+          echo "Base/head scanner parity: ${scanner_parity}"
+          echo "Causal comparison eligible: ${comparison_parity}"
+
+      - name: Download comparison inputs
+        uses: actions/download-artifact@v8
+        with:
+          name: dependency-health-inputs
+          path: ${{ runner.temp }}/dependency-health-inputs
+
+      - name: Restore scanner database
+        run: |
+          set -euo pipefail
+          cache_root="${RUNNER_TEMP}/trivy-cache-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.suffix }}"
+          mkdir -p "${cache_root}"
+          tar -C "${cache_root}" --strip-components=1 -xzf \
+            "${RUNNER_TEMP}/dependency-health-inputs/trivy-cache.tar.gz"
+          actual_db_sha256="$(cd "${cache_root}" \
+            && find . -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              | sha256sum \
+              | awk '{print $1}')"
+          if [ "${actual_db_sha256}" != "${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}" ]; then
+            echo "Restored Trivy database digest does not match resolved inputs" >&2
+            exit 1
+          fi
+          actual_configuration_sha256="$(sha256sum \
+            "${RUNNER_TEMP}/dependency-health-inputs/comparison-inputs.json" \
+            | awk '{print $1}')"
+          if [ "${actual_configuration_sha256}" != "${{ needs.resolve_inputs.outputs.scan_configuration_sha256 }}" ]; then
+            echo "Restored scan configuration digest does not match resolved inputs" >&2
+            exit 1
+          fi
 
       - name: Resolve persistent verify builder name
         id: verify_builder
@@ -133,6 +407,31 @@ jobs:
       - name: Validate odoo-bin wrapper behavior
         run: scripts/test-odoo-bin-wrapper.sh
 
+      - name: Build baseline image
+        if: github.event_name == 'pull_request' && steps.resolver_parity.outputs.comparison == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          builder: ${{ steps.setup_buildx_verify.outputs.name }}
+          context: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+          file: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}/Dockerfile
+          target: ${{ matrix.target }}
+          pull: true
+          load: true
+          platforms: linux/amd64
+          tags: odoo-docker:baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+          provenance: false
+          sbom: false
+          build-args: |
+            ODOO_SOURCE_REF=19.0
+            ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
+            APT_REFRESH_EPOCH=${{ github.run_id }}
+            APT_SNAPSHOT=${{ needs.resolve_inputs.outputs.apt_snapshot }}
+            POSTGRESQL_CLIENT_COMMON_VERSION=${{ needs.resolve_inputs.outputs.postgresql_client_common_version }}
+            POSTGRESQL_CLIENT_VERSION=${{ needs.resolve_inputs.outputs.postgresql_client_version }}
+            POSTGRESQL_LIBPQ_VERSION=${{ needs.resolve_inputs.outputs.postgresql_libpq_version }}
+            PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+            RESOLVER_CUTOFF=${{ needs.resolve_inputs.outputs.resolver_cutoff }}
+
       - name: Build verification image (attempt 1)
         id: verify_build_attempt_1
         continue-on-error: true
@@ -145,13 +444,19 @@ jobs:
           pull: true
           load: true
           platforms: linux/amd64
-          tags: odoo-docker:verify-${{ matrix.suffix }}
+          tags: odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
           provenance: false
           sbom: false
           build-args: |
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
             APT_REFRESH_EPOCH=${{ github.run_id }}
+            APT_SNAPSHOT=${{ needs.resolve_inputs.outputs.apt_snapshot }}
+            POSTGRESQL_CLIENT_COMMON_VERSION=${{ needs.resolve_inputs.outputs.postgresql_client_common_version }}
+            POSTGRESQL_CLIENT_VERSION=${{ needs.resolve_inputs.outputs.postgresql_client_version }}
+            POSTGRESQL_LIBPQ_VERSION=${{ needs.resolve_inputs.outputs.postgresql_libpq_version }}
+            PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+            RESOLVER_CUTOFF=${{ needs.resolve_inputs.outputs.resolver_cutoff }}
 
       - name: Build verification image (attempt 2, no cache import)
         id: verify_build_attempt_2
@@ -167,13 +472,19 @@ jobs:
           load: true
           no-cache: true
           platforms: linux/amd64
-          tags: odoo-docker:verify-${{ matrix.suffix }}
+          tags: odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
           provenance: false
           sbom: false
           build-args: |
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
             APT_REFRESH_EPOCH=${{ github.run_id }}
+            APT_SNAPSHOT=${{ needs.resolve_inputs.outputs.apt_snapshot }}
+            POSTGRESQL_CLIENT_COMMON_VERSION=${{ needs.resolve_inputs.outputs.postgresql_client_common_version }}
+            POSTGRESQL_CLIENT_VERSION=${{ needs.resolve_inputs.outputs.postgresql_client_version }}
+            POSTGRESQL_LIBPQ_VERSION=${{ needs.resolve_inputs.outputs.postgresql_libpq_version }}
+            PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+            RESOLVER_CUTOFF=${{ needs.resolve_inputs.outputs.resolver_cutoff }}
 
       - name: Fail verification build after retries
         if: steps.verify_build_attempt_1.outcome == 'failure' && steps.verify_build_attempt_2.outcome == 'failure'
@@ -182,32 +493,144 @@ jobs:
           exit 1
 
       - name: Smoke test verification image
-        run: ${{ matrix.smoke_script }} odoo-docker:verify-${{ matrix.suffix }}
+        run: ${{ matrix.smoke_script }} odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
 
       - name: Smoke test database initialization
         if: matrix.target == 'runtime'
-        run: scripts/smoke-db-init.sh odoo-docker:verify-runtime
+        run: scripts/smoke-db-init.sh odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-runtime
 
       - name: Validate downstream helper contract
         if: matrix.target == 'runtime'
-        run: scripts/test-downstream-helpers.sh odoo-docker:verify-runtime
+        run: scripts/test-downstream-helpers.sh odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-runtime
 
-      - name: Scan verification image
+      - name: Record verification build provenance
+        env:
+          BASELINE_COMMIT: ${{ github.event.pull_request.base.sha || '' }}
+          BASELINE_ROOT: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+          COMPARISON_PARITY: ${{ steps.resolver_parity.outputs.comparison || 'false' }}
+          RESOLVER_PARITY: ${{ steps.resolver_parity.outputs.value || 'false' }}
+          SCANNER_PARITY: ${{ steps.resolver_parity.outputs.scanner_parity || 'false' }}
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${RUNNER_TEMP}/trivy-cache:/root/.cache" \
-            aquasec/trivy:0.70.0 image \
-            --scanners vulnerability \
-            --ignore-unfixed \
-            --severity HIGH,CRITICAL \
-            --exit-code 1 \
-            odoo-docker:verify-${{ matrix.suffix }}
+          set -euo pipefail
+          evidence_root="${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}"
+          mkdir -p "${evidence_root}"
+          baseline_dockerfile_sha256=""
+          if [ "${RESOLVER_PARITY}" = "true" ]; then
+            baseline_dockerfile_sha256="$(sha256sum "${BASELINE_ROOT}/Dockerfile" | awk '{print $1}')"
+          fi
+          jq -cn \
+            --slurpfile inputs "${RUNNER_TEMP}/dependency-health-inputs/comparison-inputs.json" \
+            --arg baseline_commit "${BASELINE_COMMIT}" \
+            --arg baseline_dockerfile_sha256 "${baseline_dockerfile_sha256}" \
+            --arg buildx_version "$(docker buildx version)" \
+            --arg comparison_parity "${COMPARISON_PARITY}" \
+            --arg docker_server_version "$(docker version --format '{{.Server.Version}}')" \
+            --arg platform "linux/amd64" \
+            --arg resolver_parity "${RESOLVER_PARITY}" \
+            --arg scanner_parity "${SCANNER_PARITY}" \
+            --arg source_commit "${SOURCE_COMMIT}" \
+            --arg source_dockerfile_sha256 "$(sha256sum Dockerfile | awk '{print $1}')" \
+            --arg target "${{ matrix.target }}" \
+            '{
+              source_commit: $source_commit,
+              baseline_commit: $baseline_commit,
+              target: $target,
+              platform: $platform,
+              source_dockerfile_sha256: $source_dockerfile_sha256,
+              baseline_dockerfile_sha256: $baseline_dockerfile_sha256,
+              buildx_version: $buildx_version,
+              docker_server_version: $docker_server_version,
+              comparison_parity: ($comparison_parity == "true"),
+              resolver_parity: ($resolver_parity == "true"),
+              scanner_parity: ($scanner_parity == "true"),
+              resolved_inputs: $inputs[0]
+            }' >"${evidence_root}/build-provenance.json"
+
+      - name: Scan candidate verification image
+        env:
+          BASELINE_COMMIT: ${{ github.event.pull_request.base.sha || '' }}
+          BASELINE_ROOT: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+          DEPENDENCY_HEALTH_REPOSITORY: ${{ github.repository }}
+          SCAN_CONFIGURATION_SHA256: ${{ needs.resolve_inputs.outputs.scan_configuration_sha256 }}
+          SCANNER_AVAILABLE: ${{ steps.resolver_parity.outputs.scanner_available || 'false' }}
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+          TRIVY_DB_SHA256: ${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}
+          TRIVY_IMAGE: ${{ needs.resolve_inputs.outputs.trivy_image }}
+          TRIVY_VERSION: ${{ needs.resolve_inputs.outputs.trivy_version }}
+        run: |
+          tooling_root="${GITHUB_WORKSPACE}"
+          if [ "${SCANNER_AVAILABLE}" = "true" ]; then
+            tooling_root="${BASELINE_ROOT}"
+          fi
+          bash "${tooling_root}/scripts/scan-image-dependencies.sh" \
+            "odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}" \
+            "${SOURCE_COMMIT}" \
+            "${BASELINE_COMMIT}" \
+            "image:${{ matrix.suffix }}:linux/amd64" \
+            docker \
+            "${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}/candidate"
+
+      - name: Scan baseline verification image
+        if: github.event_name == 'pull_request' && steps.resolver_parity.outputs.comparison == 'true'
+        env:
+          BASELINE_COMMIT: ${{ github.event.pull_request.base.sha }}
+          BASELINE_ROOT: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+          DEPENDENCY_HEALTH_REPOSITORY: ${{ github.repository }}
+          SCAN_CONFIGURATION_SHA256: ${{ needs.resolve_inputs.outputs.scan_configuration_sha256 }}
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+          TRIVY_DB_SHA256: ${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}
+          TRIVY_IMAGE: ${{ needs.resolve_inputs.outputs.trivy_image }}
+          TRIVY_VERSION: ${{ needs.resolve_inputs.outputs.trivy_version }}
+        run: |
+          bash "${BASELINE_ROOT}/scripts/scan-image-dependencies.sh" \
+            "odoo-docker:baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}" \
+            "${BASELINE_COMMIT}" \
+            "" \
+            "image:${{ matrix.suffix }}:linux/amd64" \
+            docker \
+            "${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}/baseline"
+
+      - name: Evaluate causal dependency regression
+        if: github.event_name == 'pull_request' && steps.resolver_parity.outputs.comparison == 'true'
+        env:
+          BASELINE_ROOT: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+        run: |
+          python3 "${BASELINE_ROOT}/scripts/image-dependency-health.py" compare \
+            --baseline "${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}/baseline/snapshot.json" \
+            --candidate "${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}/candidate/snapshot.json" \
+            --output "${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}/comparison.json"
+
+      - name: Preserve absolute gate without trusted comparison parity
+        if: github.event_name != 'pull_request' || steps.resolver_parity.outputs.comparison != 'true'
+        env:
+          BASELINE_ROOT: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+          SCANNER_AVAILABLE: ${{ steps.resolver_parity.outputs.scanner_available || 'false' }}
+        run: |
+          tooling_root="${GITHUB_WORKSPACE}"
+          if [ "${SCANNER_AVAILABLE}" = "true" ]; then
+            tooling_root="${BASELINE_ROOT}"
+          fi
+          python3 "${tooling_root}/scripts/image-dependency-health.py" absolute \
+            --snapshot "${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}/candidate/snapshot.json" \
+            --output "${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}/absolute.json"
+
+      - name: Upload verification dependency evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dependency-health-verify-${{ matrix.suffix }}
+          path: ${{ runner.temp }}/dependency-health-${{ matrix.suffix }}
+          if-no-files-found: error
 
       - name: Prune stale persistent verify builder cache
         if: always()
+        env:
+          BASELINE_ROOT: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
         run: |
           set -euo pipefail
+          rm -rf "${BASELINE_ROOT}"
           docker buildx prune \
             --builder "${{ steps.setup_buildx_verify.outputs.name }}" \
             --force \
@@ -219,7 +642,7 @@ jobs:
     name: image-verification
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [dockerfile-lint, resolve_source, check_overrides, verify]
+    needs: [dockerfile-lint, resolve_source, resolve_inputs, check_overrides, verify]
     if: always() && github.event_name == 'pull_request'
     permissions:
       contents: read
@@ -230,6 +653,7 @@ jobs:
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           DOCKERFILE_LINT_RESULT: ${{ needs.dockerfile-lint.result }}
           RESOLVE_SOURCE_RESULT: ${{ needs.resolve_source.result }}
+          RESOLVE_INPUTS_RESULT: ${{ needs.resolve_inputs.result }}
           CHECK_OVERRIDES_RESULT: ${{ needs.check_overrides.result }}
           VERIFY_RESULT: ${{ needs.verify.result }}
         run: |
@@ -243,6 +667,7 @@ jobs:
           for result in \
             "${DOCKERFILE_LINT_RESULT}" \
             "${RESOLVE_SOURCE_RESULT}" \
+            "${RESOLVE_INPUTS_RESULT}" \
             "${CHECK_OVERRIDES_RESULT}" \
             "${VERIFY_RESULT}"
           do
@@ -255,7 +680,10 @@ jobs:
   publish:
     runs-on: [self-hosted, linux, x64, chris-testing-publish-cache]
     timeout-minutes: 240
-    needs: [resolve_source, verify]
+    concurrency:
+      group: odoo-docker-publish
+      cancel-in-progress: false
+    needs: [resolve_source, resolve_inputs, verify]
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
@@ -271,6 +699,37 @@ jobs:
             suffix: devtools
     steps:
       - uses: actions/checkout@v7
+
+      - name: Download comparison inputs
+        uses: actions/download-artifact@v8
+        with:
+          name: dependency-health-inputs
+          path: ${{ runner.temp }}/dependency-health-inputs
+
+      - name: Restore scanner database
+        run: |
+          set -euo pipefail
+          cache_root="${RUNNER_TEMP}/trivy-cache-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.suffix }}"
+          mkdir -p "${cache_root}"
+          tar -C "${cache_root}" --strip-components=1 -xzf \
+            "${RUNNER_TEMP}/dependency-health-inputs/trivy-cache.tar.gz"
+          actual_db_sha256="$(cd "${cache_root}" \
+            && find . -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              | sha256sum \
+              | awk '{print $1}')"
+          if [ "${actual_db_sha256}" != "${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}" ]; then
+            echo "Restored Trivy database digest does not match resolved inputs" >&2
+            exit 1
+          fi
+          actual_configuration_sha256="$(sha256sum \
+            "${RUNNER_TEMP}/dependency-health-inputs/comparison-inputs.json" \
+            | awk '{print $1}')"
+          if [ "${actual_configuration_sha256}" != "${{ needs.resolve_inputs.outputs.scan_configuration_sha256 }}" ]; then
+            echo "Restored scan configuration digest does not match resolved inputs" >&2
+            exit 1
+          fi
 
       - uses: docker/setup-qemu-action@v4
         with:
@@ -296,7 +755,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build tag set
+      - name: Build candidate and promotion tag sets
         id: tags
         env:
           ODOO_SOURCE_REV: ${{ needs.resolve_source.outputs.odoo_source_rev }}
@@ -304,13 +763,17 @@ jobs:
         run: |
           set -euo pipefail
           source_short_sha="${ODOO_SOURCE_REV::12}"
+          repository_short_sha="${GITHUB_SHA::12}"
           nightly_date="$(date -u +%Y%m%d)"
           image_root="ghcr.io/${GITHUB_REPOSITORY}"
-
-          tags=("${image_root}:sha-${source_short_sha}-${{ matrix.suffix }}")
+          candidate_tag="${image_root}:candidate-${GITHUB_RUN_ID}-${repository_short_sha}-${{ matrix.suffix }}"
+          aliases=(
+            "${image_root}:build-${GITHUB_RUN_ID}-${repository_short_sha}-${{ matrix.suffix }}"
+            "${image_root}:sha-${source_short_sha}-${{ matrix.suffix }}"
+          )
 
           if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
-            tags+=("${image_root}:nightly-${{ matrix.suffix }}" "${image_root}:nightly-${nightly_date}-${{ matrix.suffix }}")
+            aliases+=("${image_root}:nightly-${{ matrix.suffix }}" "${image_root}:nightly-${nightly_date}-${{ matrix.suffix }}")
           fi
 
           publish_stable="false"
@@ -322,12 +785,13 @@ jobs:
           fi
 
           if [ "${publish_stable}" = "true" ]; then
-            tags+=("${image_root}:19.0-${{ matrix.suffix }}")
+            aliases+=("${image_root}:19.0-${{ matrix.suffix }}")
           fi
 
           {
-            echo "value<<EOF"
-            printf '%s\n' "${tags[@]}"
+            echo "candidate=${candidate_tag}"
+            echo "aliases<<EOF"
+            printf '%s\n' "${aliases[@]}"
             echo "EOF"
           } >> "${GITHUB_OUTPUT}"
 
@@ -343,7 +807,7 @@ jobs:
           pull: true
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.tags.outputs.value }}
+          tags: ${{ steps.tags.outputs.candidate }}
           cache-from: |
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }}
           cache-to: |
@@ -354,6 +818,12 @@ jobs:
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
             APT_REFRESH_EPOCH=${{ github.run_id }}
+            APT_SNAPSHOT=${{ needs.resolve_inputs.outputs.apt_snapshot }}
+            POSTGRESQL_CLIENT_COMMON_VERSION=${{ needs.resolve_inputs.outputs.postgresql_client_common_version }}
+            POSTGRESQL_CLIENT_VERSION=${{ needs.resolve_inputs.outputs.postgresql_client_version }}
+            POSTGRESQL_LIBPQ_VERSION=${{ needs.resolve_inputs.outputs.postgresql_libpq_version }}
+            PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+            RESOLVER_CUTOFF=${{ needs.resolve_inputs.outputs.resolver_cutoff }}
 
       - name: Refresh ghcr login before retry
         if: steps.publish_attempt_1.outcome == 'failure'
@@ -376,7 +846,7 @@ jobs:
           pull: true
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.tags.outputs.value }}
+          tags: ${{ steps.tags.outputs.candidate }}
           cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }},mode=max
           provenance: false
           sbom: false
@@ -384,6 +854,12 @@ jobs:
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
             APT_REFRESH_EPOCH=${{ github.run_id }}
+            APT_SNAPSHOT=${{ needs.resolve_inputs.outputs.apt_snapshot }}
+            POSTGRESQL_CLIENT_COMMON_VERSION=${{ needs.resolve_inputs.outputs.postgresql_client_common_version }}
+            POSTGRESQL_CLIENT_VERSION=${{ needs.resolve_inputs.outputs.postgresql_client_version }}
+            POSTGRESQL_LIBPQ_VERSION=${{ needs.resolve_inputs.outputs.postgresql_libpq_version }}
+            PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+            RESOLVER_CUTOFF=${{ needs.resolve_inputs.outputs.resolver_cutoff }}
 
       - name: Refresh ghcr login before final retry
         if: steps.publish_attempt_1.outcome == 'failure' && steps.publish_attempt_2.outcome == 'failure'
@@ -405,7 +881,7 @@ jobs:
           pull: true
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.tags.outputs.value }}
+          tags: ${{ steps.tags.outputs.candidate }}
           cache-from: |
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }}
           provenance: false
@@ -414,33 +890,185 @@ jobs:
             ODOO_SOURCE_REF=19.0
             ODOO_SOURCE_REV=${{ needs.resolve_source.outputs.odoo_source_rev }}
             APT_REFRESH_EPOCH=${{ github.run_id }}
+            APT_SNAPSHOT=${{ needs.resolve_inputs.outputs.apt_snapshot }}
+            POSTGRESQL_CLIENT_COMMON_VERSION=${{ needs.resolve_inputs.outputs.postgresql_client_common_version }}
+            POSTGRESQL_CLIENT_VERSION=${{ needs.resolve_inputs.outputs.postgresql_client_version }}
+            POSTGRESQL_LIBPQ_VERSION=${{ needs.resolve_inputs.outputs.postgresql_libpq_version }}
+            PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+            RESOLVER_CUTOFF=${{ needs.resolve_inputs.outputs.resolver_cutoff }}
 
-      - name: Record published digest
+      - name: Resolve exact published candidate digest
+        id: published
         env:
           DIGEST_ATTEMPT_1: ${{ steps.publish_attempt_1.outputs.digest }}
           DIGEST_ATTEMPT_2: ${{ steps.publish_attempt_2.outputs.digest }}
           DIGEST_ATTEMPT_3: ${{ steps.publish_attempt_3.outputs.digest }}
+          OUTCOME_ATTEMPT_1: ${{ steps.publish_attempt_1.outcome }}
+          OUTCOME_ATTEMPT_2: ${{ steps.publish_attempt_2.outcome }}
+          OUTCOME_ATTEMPT_3: ${{ steps.publish_attempt_3.outcome }}
+          CANDIDATE_IMAGE: ${{ steps.tags.outputs.candidate }}
           SUFFIX: ${{ matrix.suffix }}
         run: |
           set -euo pipefail
 
-          image_digest="${DIGEST_ATTEMPT_1:-}"
-          if [ -z "${image_digest}" ]; then
+          image_digest=""
+          if [ "${OUTCOME_ATTEMPT_1}" = "success" ]; then
+            image_digest="${DIGEST_ATTEMPT_1:-}"
+          elif [ "${OUTCOME_ATTEMPT_2}" = "success" ]; then
             image_digest="${DIGEST_ATTEMPT_2:-}"
-          fi
-          if [ -z "${image_digest}" ]; then
+          elif [ "${OUTCOME_ATTEMPT_3}" = "success" ]; then
             image_digest="${DIGEST_ATTEMPT_3:-}"
           fi
           if [ -z "${image_digest}" ]; then
             echo "Published image digest was not reported by Buildx for ${SUFFIX}" >&2
             exit 1
           fi
+          if [[ ! "${image_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Buildx reported an invalid digest for ${SUFFIX}: ${image_digest}" >&2
+            exit 1
+          fi
+
+          evidence_root="${RUNNER_TEMP}/published-evidence/${SUFFIX}"
+          mkdir -p "${evidence_root}"
+          docker buildx imagetools inspect --raw "${CANDIDATE_IMAGE}" \
+            >"${evidence_root}/manifest.json"
+          registry_digest="sha256:$(sha256sum "${evidence_root}/manifest.json" | awk '{print $1}')"
+          if [ "${registry_digest}" != "${image_digest}" ]; then
+            echo "Registry digest ${registry_digest} does not match Buildx digest ${image_digest}" >&2
+            exit 1
+          fi
+
+          echo "digest=${registry_digest}" >>"${GITHUB_OUTPUT}"
+          echo "evidence_root=${evidence_root}" >>"${GITHUB_OUTPUT}"
+
+      - name: Scan exact published platform digests
+        env:
+          DEPENDENCY_HEALTH_REPOSITORY: ${{ github.repository }}
+          EVIDENCE_ROOT: ${{ steps.published.outputs.evidence_root }}
+          IMAGE_ROOT: ghcr.io/${{ github.repository }}
+          MANIFEST_DIGEST: ${{ steps.published.outputs.digest }}
+          ODOO_SOURCE_REV: ${{ needs.resolve_source.outputs.odoo_source_rev }}
+          SCAN_CONFIGURATION_SHA256: ${{ needs.resolve_inputs.outputs.scan_configuration_sha256 }}
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+          TRIVY_DB_SHA256: ${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}
+          TRIVY_IMAGE: ${{ needs.resolve_inputs.outputs.trivy_image }}
+          TRIVY_VERSION: ${{ needs.resolve_inputs.outputs.trivy_version }}
+        run: |
+          set -euo pipefail
+
+          jq -cn \
+            --slurpfile inputs "${RUNNER_TEMP}/dependency-health-inputs/comparison-inputs.json" \
+            --arg buildx_version "$(docker buildx version)" \
+            --arg docker_server_version "$(docker version --format '{{.Server.Version}}')" \
+            --arg manifest_digest "${MANIFEST_DIGEST}" \
+            --arg odoo_source_revision "${ODOO_SOURCE_REV}" \
+            --arg repository_commit "${GITHUB_SHA}" \
+            --arg source_dockerfile_sha256 "$(sha256sum Dockerfile | awk '{print $1}')" \
+            --arg target "${{ matrix.target }}" \
+            '{
+              repository_commit: $repository_commit,
+              odoo_source_revision: $odoo_source_revision,
+              target: $target,
+              platforms: ["linux/amd64", "linux/arm64"],
+              manifest_digest: $manifest_digest,
+              source_dockerfile_sha256: $source_dockerfile_sha256,
+              buildx_version: $buildx_version,
+              docker_server_version: $docker_server_version,
+              resolved_inputs: $inputs[0]
+            }' >"${EVIDENCE_ROOT}/build-provenance.json"
+
+          mapfile -t platform_rows < <(jq -er '
+            [.manifests[]
+              | select(.platform.os == "linux")
+              | select(.platform.architecture == "amd64" or .platform.architecture == "arm64")
+              | [(.platform.os + "/" + .platform.architecture), .digest]
+              | @tsv]
+            | sort
+            | .[]' "${EVIDENCE_ROOT}/manifest.json")
+          if [ "${#platform_rows[@]}" -ne 2 ]; then
+            echo "Published manifest must contain exactly amd64 and arm64 image manifests" >&2
+            exit 1
+          fi
+
+          platform_snapshot_arguments=()
+          for row in "${platform_rows[@]}"; do
+            IFS=$'\t' read -r platform child_digest <<<"${row}"
+            case "${platform}" in
+              linux/amd64 | linux/arm64) ;;
+              *) echo "Unexpected published platform: ${platform}" >&2; exit 1 ;;
+            esac
+            if [[ ! "${child_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Invalid child digest for ${platform}: ${child_digest}" >&2
+              exit 1
+            fi
+            platform_name="${platform#linux/}"
+            platform_root="${EVIDENCE_ROOT}/${platform_name}"
+            child_reference="${IMAGE_ROOT}@${child_digest}"
+            scripts/scan-image-dependencies.sh \
+              "${child_reference}" \
+              "${GITHUB_SHA}" \
+              "" \
+              "${child_reference}#${platform}" \
+              remote \
+              "${platform_root}"
+            platform_snapshot_arguments+=(
+              --platform-snapshot "${platform}=${platform_root}/snapshot.json"
+            )
+          done
+
+          python3 scripts/image-dependency-health.py artifact-evidence \
+            --repository "${GITHUB_REPOSITORY}" \
+            --image "${IMAGE_ROOT}" \
+            --parent-digest "${MANIFEST_DIGEST}" \
+            --manifest-json "${EVIDENCE_ROOT}/manifest.json" \
+            --build-provenance "${EVIDENCE_ROOT}/build-provenance.json" \
+            "${platform_snapshot_arguments[@]}" \
+            --output "${EVIDENCE_ROOT}/artifact-evidence.json"
+
+      - name: Promote validated aliases
+        env:
+          ALIASES: ${{ steps.tags.outputs.aliases }}
+          IMAGE_ROOT: ghcr.io/${{ github.repository }}
+          MANIFEST_DIGEST: ${{ steps.published.outputs.digest }}
+        run: |
+          set -euo pipefail
+          alias_arguments=()
+          while IFS= read -r alias; do
+            [ -n "${alias}" ] || continue
+            alias_arguments+=(--tag "${alias}")
+          done <<<"${ALIASES}"
+          if [ "${#alias_arguments[@]}" -eq 0 ]; then
+            echo "No validated aliases were selected for promotion" >&2
+            exit 1
+          fi
+          docker buildx imagetools create \
+            "${alias_arguments[@]}" \
+            "${IMAGE_ROOT}@${MANIFEST_DIGEST}"
+
+          while IFS= read -r alias; do
+            [ -n "${alias}" ] || continue
+            alias_digest="$(docker buildx imagetools inspect "${alias}" \
+              | awk '/^Digest:/ {print $2; exit}')"
+            if [ "${alias_digest}" != "${MANIFEST_DIGEST}" ]; then
+              echo "Alias ${alias} resolved to ${alias_digest}, expected ${MANIFEST_DIGEST}" >&2
+              exit 1
+            fi
+          done <<<"${ALIASES}"
+
+      - name: Record published digest
+        env:
+          EVIDENCE_ROOT: ${{ steps.published.outputs.evidence_root }}
+          IMAGE_DIGEST: ${{ steps.published.outputs.digest }}
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          set -euo pipefail
 
           mkdir -p "${RUNNER_TEMP}/published-digests"
           jq -cn \
             --arg suffix "${SUFFIX}" \
-            --arg digest "${image_digest}" \
-            '{suffix: $suffix, digest: $digest}' \
+            --arg digest "${IMAGE_DIGEST}" \
+            --arg evidence_sha256 "$(sha256sum "${EVIDENCE_ROOT}/artifact-evidence.json" | awk '{print $1}')" \
+            '{suffix: $suffix, digest: $digest, absolute_evidence_sha256: $evidence_sha256}' \
             >"${RUNNER_TEMP}/published-digests/${SUFFIX}.json"
 
       - name: Upload published digest
@@ -448,6 +1076,13 @@ jobs:
         with:
           name: published-digest-${{ matrix.suffix }}
           path: ${{ runner.temp }}/published-digests/${{ matrix.suffix }}.json
+          if-no-files-found: error
+
+      - name: Upload published absolute evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: published-absolute-evidence-${{ matrix.suffix }}
+          path: ${{ steps.published.outputs.evidence_root }}
           if-no-files-found: error
 
       - name: Prune stale persistent publish builder cache
