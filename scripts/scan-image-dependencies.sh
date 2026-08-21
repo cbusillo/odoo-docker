@@ -20,6 +20,16 @@ output_directory="$6"
 : "${SCAN_CONFIGURATION_SHA256:?SCAN_CONFIGURATION_SHA256 is required}"
 : "${DEPENDENCY_HEALTH_REPOSITORY:?DEPENDENCY_HEALTH_REPOSITORY is required}"
 
+expected_trivy_image='aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969'
+if [[ "${TRIVY_IMAGE}" != "${expected_trivy_image}" ]]; then
+  echo "TRIVY_IMAGE must use the repository-approved digest pin" >&2
+  exit 64
+fi
+if [[ "${TRIVY_VERSION}" != "0.74.0" ]]; then
+  echo "TRIVY_VERSION must match the repository-approved scanner" >&2
+  exit 64
+fi
+
 case "${image_source}" in
 docker | remote) ;;
 *)

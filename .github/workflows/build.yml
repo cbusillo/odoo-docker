@@ -306,7 +306,21 @@ jobs:
           done
 
           comparison_parity="false"
-          if [ "${resolver_parity}" = "true" ] && [ "${scanner_parity}" = "true" ]; then
+          resolver_contract="false"
+          if [ "$(grep -c '^ARG APT_SNAPSHOT$' "${BASELINE_ROOT}/Dockerfile")" -ge 2 ] \
+            && [ "$(grep -c '^ARG POSTGRESQL_CLIENT_VERSION$' "${BASELINE_ROOT}/Dockerfile")" -ge 2 ] \
+            && [ "$(grep -c '^ARG POSTGRESQL_CLIENT_COMMON_VERSION$' "${BASELINE_ROOT}/Dockerfile")" -ge 2 ] \
+            && [ "$(grep -c '^ARG POSTGRESQL_LIBPQ_VERSION$' "${BASELINE_ROOT}/Dockerfile")" -ge 2 ] \
+            && [ "$(grep -c '^ARG RESOLVER_CUTOFF$' "${BASELINE_ROOT}/Dockerfile")" -ge 2 ] \
+            && grep -q 'ubuntu:noble@sha256:' "${BASELINE_ROOT}/Dockerfile" \
+            && grep -Fq "snapshot.ubuntu.com/ubuntu/\${APT_SNAPSHOT}" "${BASELINE_ROOT}/Dockerfile" \
+            && grep -q 'apt-archive.postgresql.org' "${BASELINE_ROOT}/Dockerfile" \
+            && grep -q 'UV_EXCLUDE_NEWER' "${BASELINE_ROOT}/Dockerfile"; then
+            resolver_contract="true"
+          fi
+          if [ "${resolver_parity}" = "true" ] \
+            && [ "${resolver_contract}" = "true" ] \
+            && [ "${scanner_parity}" = "true" ]; then
             comparison_parity="true"
           fi
 
@@ -314,9 +328,11 @@ jobs:
             echo "value=${resolver_parity}"
             echo "scanner_available=${scanner_available}"
             echo "scanner_parity=${scanner_parity}"
+            echo "resolver_contract=${resolver_contract}"
             echo "comparison=${comparison_parity}"
           } >>"${GITHUB_OUTPUT}"
           echo "Native base/head resolver parity: ${resolver_parity}"
+          echo "Baseline resolver contract complete: ${resolver_contract}"
           echo "Trusted baseline scanner available: ${scanner_available}"
           echo "Base/head scanner parity: ${scanner_parity}"
           echo "Causal comparison eligible: ${comparison_parity}"
@@ -332,6 +348,23 @@ jobs:
           set -euo pipefail
           tar -C "${RUNNER_TEMP}" -xzf \
             "${RUNNER_TEMP}/dependency-health-inputs/trivy-cache.tar.gz"
+          actual_db_sha256="$(cd "${RUNNER_TEMP}/trivy-cache" \
+            && find . -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              | sha256sum \
+              | awk '{print $1}')"
+          if [ "${actual_db_sha256}" != "${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}" ]; then
+            echo "Restored Trivy database digest does not match resolved inputs" >&2
+            exit 1
+          fi
+          actual_configuration_sha256="$(sha256sum \
+            "${RUNNER_TEMP}/dependency-health-inputs/comparison-inputs.json" \
+            | awk '{print $1}')"
+          if [ "${actual_configuration_sha256}" != "${{ needs.resolve_inputs.outputs.scan_configuration_sha256 }}" ]; then
+            echo "Restored scan configuration digest does not match resolved inputs" >&2
+            exit 1
+          fi
 
       - name: Resolve persistent verify builder name
         id: verify_builder
@@ -361,7 +394,7 @@ jobs:
           pull: true
           load: true
           platforms: linux/amd64
-          tags: odoo-docker:baseline-${{ matrix.suffix }}
+          tags: odoo-docker:baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
           provenance: false
           sbom: false
           build-args: |
@@ -387,7 +420,7 @@ jobs:
           pull: true
           load: true
           platforms: linux/amd64
-          tags: odoo-docker:verify-${{ matrix.suffix }}
+          tags: odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
           provenance: false
           sbom: false
           build-args: |
@@ -415,7 +448,7 @@ jobs:
           load: true
           no-cache: true
           platforms: linux/amd64
-          tags: odoo-docker:verify-${{ matrix.suffix }}
+          tags: odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
           provenance: false
           sbom: false
           build-args: |
@@ -436,15 +469,15 @@ jobs:
           exit 1
 
       - name: Smoke test verification image
-        run: ${{ matrix.smoke_script }} odoo-docker:verify-${{ matrix.suffix }}
+        run: ${{ matrix.smoke_script }} odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
 
       - name: Smoke test database initialization
         if: matrix.target == 'runtime'
-        run: scripts/smoke-db-init.sh odoo-docker:verify-runtime
+        run: scripts/smoke-db-init.sh odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-runtime
 
       - name: Validate downstream helper contract
         if: matrix.target == 'runtime'
-        run: scripts/test-downstream-helpers.sh odoo-docker:verify-runtime
+        run: scripts/test-downstream-helpers.sh odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-runtime
 
       - name: Record verification build provenance
         env:
@@ -507,7 +540,7 @@ jobs:
             tooling_root="${BASELINE_ROOT}"
           fi
           bash "${tooling_root}/scripts/scan-image-dependencies.sh" \
-            "odoo-docker:verify-${{ matrix.suffix }}" \
+            "odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}" \
             "${SOURCE_COMMIT}" \
             "${BASELINE_COMMIT}" \
             "image:${{ matrix.suffix }}:linux/amd64" \
@@ -526,7 +559,7 @@ jobs:
           TRIVY_VERSION: ${{ needs.resolve_inputs.outputs.trivy_version }}
         run: |
           bash "${BASELINE_ROOT}/scripts/scan-image-dependencies.sh" \
-            "odoo-docker:baseline-${{ matrix.suffix }}" \
+            "odoo-docker:baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}" \
             "${BASELINE_COMMIT}" \
             "" \
             "image:${{ matrix.suffix }}:linux/amd64" \
@@ -652,6 +685,23 @@ jobs:
           set -euo pipefail
           tar -C "${RUNNER_TEMP}" -xzf \
             "${RUNNER_TEMP}/dependency-health-inputs/trivy-cache.tar.gz"
+          actual_db_sha256="$(cd "${RUNNER_TEMP}/trivy-cache" \
+            && find . -type f -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              | sha256sum \
+              | awk '{print $1}')"
+          if [ "${actual_db_sha256}" != "${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}" ]; then
+            echo "Restored Trivy database digest does not match resolved inputs" >&2
+            exit 1
+          fi
+          actual_configuration_sha256="$(sha256sum \
+            "${RUNNER_TEMP}/dependency-health-inputs/comparison-inputs.json" \
+            | awk '{print $1}')"
+          if [ "${actual_configuration_sha256}" != "${{ needs.resolve_inputs.outputs.scan_configuration_sha256 }}" ]; then
+            echo "Restored scan configuration digest does not match resolved inputs" >&2
+            exit 1
+          fi
 
       - uses: docker/setup-qemu-action@v4
         with:

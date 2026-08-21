@@ -207,9 +207,15 @@ def build_snapshot(trivy_payload: Any, provenance_payload: Any) -> dict[str, Any
     provenance = validate_provenance(provenance_payload)
     if not isinstance(trivy_payload, dict):
         raise ContractError("Trivy report must be an object")
+    metadata = trivy_payload.get("Metadata")
+    operating_system = metadata.get("OS") if isinstance(metadata, dict) else None
+    if not isinstance(operating_system, dict) or not operating_system.get("Family"):
+        raise ContractError("Trivy report must identify the scanned operating system")
     results = trivy_payload.get("Results", [])
     if not isinstance(results, list):
         raise ContractError("Trivy Results must be an array")
+    if not any(isinstance(result, dict) and result.get("Class") == "os-pkgs" for result in results):
+        raise ContractError("Trivy report must contain operating-system package coverage")
     aggregated: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for result in results:
         if not isinstance(result, dict):
@@ -424,14 +430,11 @@ def manifest_platforms(payload: Any) -> dict[str, str]:
             continue
         os_name = platform.get("os")
         architecture = platform.get("architecture")
-        variant = platform.get("variant")
         if os_name != "linux" or not isinstance(architecture, str):
             continue
         if architecture not in {"amd64", "arm64"}:
             continue
         key = f"{os_name}/{architecture}"
-        if isinstance(variant, str) and variant:
-            key += f"/{variant}"
         if not DIGEST_PATTERN.fullmatch(digest):
             raise ContractError(f"manifest has invalid digest for {key}: {digest}")
         if key in platforms:

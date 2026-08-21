@@ -51,13 +51,14 @@ write_report() {
   local target="${5:-candidate-image (ubuntu 24.04)}"
   if [[ -z "${vulnerability_id}" ]]; then
     cat >"${path}" <<'EOF'
-{"CreatedAt":"2026-08-20T00:00:00Z","Results":[]}
+{"CreatedAt":"2026-08-20T00:00:00Z","Metadata":{"OS":{"Family":"ubuntu","Name":"24.04"}},"Results":[{"Target":"candidate-image (ubuntu 24.04)","Class":"os-pkgs","Type":"ubuntu","Vulnerabilities":[]}]}
 EOF
     return
   fi
   cat >"${path}" <<EOF
 {
   "CreatedAt": "2026-08-20T00:00:00Z",
+  "Metadata": {"OS": {"Family": "ubuntu", "Name": "24.04"}},
   "Results": [{
     "Target": "${target}",
     "Class": "os-pkgs",
@@ -75,6 +76,17 @@ EOF
 
 write_provenance "${test_root}/baseline-provenance.json" "${baseline_commit}" ""
 write_provenance "${test_root}/candidate-provenance.json" "${candidate_commit}" "${baseline_commit}"
+
+cat >"${test_root}/empty-trivy.json" <<'EOF'
+{"Metadata":{"OS":{"Family":"ubuntu","Name":"24.04"}},"Results":[]}
+EOF
+if python3 "${tool}" snapshot \
+  --trivy-json "${test_root}/empty-trivy.json" \
+  --provenance "${test_root}/candidate-provenance.json" \
+  --output "${test_root}/empty-snapshot.json"; then
+  echo "empty scanner coverage unexpectedly passed" >&2
+  exit 1
+fi
 write_report "${test_root}/baseline-trivy.json" "CVE-2026-1000" "HIGH" "1.0" \
   "baseline-image (ubuntu 24.04)"
 write_report "${test_root}/candidate-trivy.json" "CVE-2026-1000" "HIGH" "1.0" \
