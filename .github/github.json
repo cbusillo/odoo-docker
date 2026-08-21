@@ -16,6 +16,7 @@
       "devtools": "bash scripts/smoke-devtools.sh <image-reference>",
       "smokeDbInit": "bash scripts/smoke-db-init.sh <image-reference>",
       "downstreamHelpers": "bash scripts/test-downstream-helpers.sh <image-reference>",
+      "dependencyHealth": "bash scripts/test-image-dependency-health.sh",
       "odooBinWrapper": "bash scripts/test-odoo-bin-wrapper.sh",
       "requirementsOverrides": "bash scripts/test-check-requirements-overrides.sh"
     },

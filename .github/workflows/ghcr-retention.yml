@@ -65,6 +65,7 @@ jobs:
               /^19\.0-(runtime|devtools)$/,
               /^nightly-(runtime|devtools)$/,
               /^nightly-\d{8}-(runtime|devtools)$/,
+              /^buildcache-(runtime|devtools)$/,
             ];
 
             const shouldKeepByTag = (tags) =>
@@ -78,12 +79,16 @@ jobs:
             }
 
             for (const suffix of ["runtime", "devtools"]) {
-              const shaRegex = new RegExp(`^sha-[0-9a-f]+-${suffix}$`);
-              const recentShaVersions = taggedVersions.filter((version) =>
-                version.metadata.container.tags.some((tag) => shaRegex.test(tag)),
-              );
-              for (const version of recentShaVersions.slice(0, keepShaCount)) {
-                keepIds.add(version.id);
+              for (const prefix of ["sha", "build", "candidate"]) {
+                const immutableRegex = prefix === "sha"
+                  ? new RegExp(`^sha-[0-9a-f]+-${suffix}$`)
+                  : new RegExp(`^${prefix}-[0-9]+-[0-9a-f]+-${suffix}$`);
+                const recentVersions = taggedVersions.filter((version) =>
+                  version.metadata.container.tags.some((tag) => immutableRegex.test(tag)),
+                );
+                for (const version of recentVersions.slice(0, keepShaCount)) {
+                  keepIds.add(version.id);
+                }
               }
             }
 

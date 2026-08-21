@@ -2,12 +2,17 @@
 ARG ODOO_SOURCE_REPOSITORY=https://github.com/odoo/odoo.git
 ARG ODOO_SOURCE_REF=19.0
 ARG ODOO_SOURCE_REV
-ARG PYTHON_VERSION=3.13
+ARG PYTHON_VERSION=3.13.15
+ARG APT_SNAPSHOT
+ARG POSTGRESQL_CLIENT_VERSION
+ARG POSTGRESQL_CLIENT_COMMON_VERSION
+ARG POSTGRESQL_LIBPQ_VERSION
+ARG RESOLVER_CUTOFF
 
 # Keep the official uv image first so Dependabot tracks it for Docker updates.
 FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.12.3@sha256:2d890623d310b57771ce840f0da5eed5fc6d657da05ffaa45d82797b53fa3abc AS uv-binary
 
-FROM --platform=$BUILDPLATFORM alpine/git:v2.54.0 AS odoo-source
+FROM --platform=$BUILDPLATFORM alpine/git:v2.54.0@sha256:a299a963fbe31628ab481ca42907bcf0691d004f86734c02638abdf513691d42 AS odoo-source
 ARG ODOO_SOURCE_REPOSITORY
 ARG ODOO_SOURCE_REF
 ARG ODOO_SOURCE_REV
@@ -23,7 +28,7 @@ RUN set -eux; \
     git -C odoo checkout --detach FETCH_HEAD; \
     rm -rf odoo/.git
 
-FROM --platform=$BUILDPLATFORM alpine/curl:8.21.0 AS wkhtmltox
+FROM --platform=$BUILDPLATFORM alpine/curl:8.21.0@sha256:f10470711a007af40e9f215b576a725be6f82e030e68cb1a7083782f3bb2cab8 AS wkhtmltox
 ARG TARGETARCH
 ARG WKHTMLTOPDF_VERSION=0.12.6.1-3
 ARG WKHTMLTOPDF_TARGET=jammy
@@ -45,9 +50,14 @@ RUN set -eux; \
       "https://github.com/wkhtmltopdf/packaging/releases/download/${WKHTMLTOPDF_VERSION}/wkhtmltox_${WKHTMLTOPDF_VERSION}.${WKHTMLTOPDF_TARGET}_${package_arch}.deb"; \
     echo "${checksum}  wkhtmltox.deb" | sha1sum -c -
 
-FROM ubuntu:noble AS runtime-system
+FROM ubuntu:noble@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 AS runtime-system
 ARG PYTHON_VERSION
 ARG APT_REFRESH_EPOCH=0
+ARG APT_SNAPSHOT
+ARG POSTGRESQL_CLIENT_VERSION
+ARG POSTGRESQL_CLIENT_COMMON_VERSION
+ARG POSTGRESQL_LIBPQ_VERSION
+ARG RESOLVER_CUTOFF
 ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -55,16 +65,24 @@ COPY --from=wkhtmltox /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certi
 
 RUN set -eux; \
     sed -i \
-      -e 's|http://archive.ubuntu.com/ubuntu/|https://archive.ubuntu.com/ubuntu/|g' \
-      -e 's|http://security.ubuntu.com/ubuntu/|https://security.ubuntu.com/ubuntu/|g' \
-      -e 's|http://ports.ubuntu.com/ubuntu-ports/|https://ports.ubuntu.com/ubuntu-ports/|g' \
+      -e 's|http:/[/]archive.ubuntu.com/ubuntu/|https://archive.ubuntu.com/ubuntu/|g' \
+      -e 's|http:/[/]security.ubuntu.com/ubuntu/|https://security.ubuntu.com/ubuntu/|g' \
+      -e 's|http:/[/]ports.ubuntu.com/ubuntu-ports/|https://ports.ubuntu.com/ubuntu-ports/|g' \
       /etc/apt/sources.list.d/ubuntu.sources; \
     printf '%s\n' \
       'Acquire::Retries "5";' \
       'Acquire::http::Timeout "30";' \
       'Acquire::https::Timeout "30";' \
       'APT::Update::Error-Mode "any";' \
-      > /etc/apt/apt.conf.d/80odoo-network-hardening
+      > /etc/apt/apt.conf.d/80odoo-network-hardening; \
+    if [ -n "${APT_SNAPSHOT:-}" ]; then \
+      snapshot_url="https://snapshot.ubuntu.com/ubuntu/${APT_SNAPSHOT}/"; \
+      sed -i \
+        -e "s|https://archive.ubuntu.com/ubuntu/|${snapshot_url}|g" \
+        -e "s|https://security.ubuntu.com/ubuntu/|${snapshot_url}|g" \
+        -e "s|https://ports.ubuntu.com/ubuntu-ports/|${snapshot_url}|g" \
+        /etc/apt/sources.list.d/ubuntu.sources; \
+    fi
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
@@ -118,13 +136,22 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
     | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+    && echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt-archive.postgresql.org/pub/repos/apt noble-pgdg-archive main" \
       > /etc/apt/sources.list.d/pgdg.list
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-client-17 \
+    && if [ -n "${POSTGRESQL_CLIENT_VERSION:-}" ] \
+      && [ -n "${POSTGRESQL_CLIENT_COMMON_VERSION:-}" ] \
+      && [ -n "${POSTGRESQL_LIBPQ_VERSION:-}" ]; then \
+      apt-get install -y --no-install-recommends \
+        "postgresql-client-17=${POSTGRESQL_CLIENT_VERSION}" \
+        "postgresql-client-common=${POSTGRESQL_CLIENT_COMMON_VERSION}" \
+        "libpq5=${POSTGRESQL_LIBPQ_VERSION}"; \
+    else \
+      apt-get install -y --no-install-recommends postgresql-client-17; \
+    fi \
     && rm -f /etc/apt/sources.list.d/pgdg.list \
     && rm -rf /var/lib/apt/lists/*
 
@@ -136,7 +163,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -f /tmp/wkhtmltox.deb \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install --global rtlcss@4.3.0
+RUN if [ -n "${RESOLVER_CUTOFF:-}" ]; then \
+      npm install --global --before="${RESOLVER_CUTOFF}" rtlcss@4.3.0; \
+    else \
+      npm install --global rtlcss@4.3.0; \
+    fi
 
 RUN if ! id -u ubuntu >/dev/null 2>&1; then useradd --create-home --shell /bin/bash ubuntu; fi
 
@@ -152,6 +183,7 @@ ENV UV_PROJECT_ENVIRONMENT=/venv
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
 
 FROM runtime-system AS runtime-pythondeps
+ARG RESOLVER_CUTOFF
 
 RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=locked \
     install -d -o ubuntu -g ubuntu /opt/uv/python /venv /home/ubuntu/.cache/uv \
@@ -175,9 +207,10 @@ RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=l
     && test -z "$(find "${base_site_packages}" -maxdepth 1 -name 'pip-*.dist-info' -print -quit)" \
     && test -z "$(find "${base_scripts}" -maxdepth 1 -name 'pip*' -print -quit)" \
     && env -u VIRTUAL_ENV PYTHONDONTWRITEBYTECODE=1 "${base_python}" -c 'import importlib.util; assert importlib.util.find_spec("pip") is None; assert importlib.util.find_spec("ensurepip") is None' \
+    && if [ -n "${RESOLVER_CUTOFF:-}" ]; then export UV_EXCLUDE_NEWER="${RESOLVER_CUTOFF}"; fi \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements.txt" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements-overrides.txt" \
-    && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python rlpycairo" \
+    && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python rlpycairo==0.4.0" \
     && su -s /bin/bash ubuntu -c "uv pip check --python /venv/bin/python"
 
 FROM runtime-pythondeps AS runtime
@@ -218,6 +251,7 @@ USER ubuntu
 FROM runtime AS runtime-devtools
 USER root
 ARG PLAYWRIGHT_VERSION=1.59.1
+ARG RESOLVER_CUTOFF
 
 RUN chmod +x /usr/local/bin/configure-dev-addon-paths.sh \
     && /usr/local/bin/configure-dev-addon-paths.sh
@@ -250,7 +284,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libxkbcommon0 \
       libxrandr2 \
       npm \
-    && PLAYWRIGHT_BROWSERS_PATH=/ms-playwright npx --yes "playwright@${PLAYWRIGHT_VERSION}" install chromium --no-shell \
+    && if [ -n "${RESOLVER_CUTOFF:-}" ]; then \
+      PLAYWRIGHT_BROWSERS_PATH=/ms-playwright npx --yes --before="${RESOLVER_CUTOFF}" "playwright@${PLAYWRIGHT_VERSION}" install chromium --no-shell; \
+    else \
+      PLAYWRIGHT_BROWSERS_PATH=/ms-playwright npx --yes "playwright@${PLAYWRIGHT_VERSION}" install chromium --no-shell; \
+    fi \
     && chromium_path="$(find /ms-playwright -path '*/chrome-linux*/chrome' -type f | sort | head -n 1)" \
     && test -x "${chromium_path}" \
     && ln -sfn "${chromium_path}" /usr/local/bin/chromium-playwright \

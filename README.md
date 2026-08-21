@@ -136,12 +136,32 @@ those image-owned defaults present.
 ## CI Release Model
 
 - Every run builds test images first and executes smoke checks.
-- Publish only happens after smoke checks pass.
-- `schedule` (weekly) publishes `nightly-*` tags and immutable `sha-*` tags.
-- `push` to `main` publishes stable `19.0-*` tags and immutable `sha-*` tags.
+- Pull-request builds resolve one Ubuntu snapshot, exact PostgreSQL package set,
+  Python/npm cutoff, scanner image, and Trivy database for the comparison.
+  Exact base and head commits use those same inputs. The merge gate blocks
+  introduced or worsened high/critical findings without blaming a pull request
+  for unchanged inherited findings. Causal comparison runs only when the base
+  has native resolver support and its workflow, scanner, and evaluator match
+  the head. The comparison uses the base copies of that tooling. Otherwise,
+  verification retains the stricter candidate absolute gate, using base scanner
+  tooling when available.
+- Default-branch, scheduled, and dispatch runs retain absolute high/critical
+  health. Multi-architecture images are pushed first under a unique
+  `candidate-<run>-<repository-sha>-*` tag, then the exact registry manifest and
+  its `linux/amd64` and `linux/arm64` child digests are scanned. Stable, nightly,
+  source `sha-*`, and validated `build-*` aliases move only after that evidence
+  passes and each alias is verified against the scanned manifest digest.
+- Trivy skips only `/usr/share/java/gettext.jar` and
+  `/usr/share/java/libintl-0.21.jar`, which are owned by Ubuntu's gettext
+  packages, so comparison scans do not require a separate mutable Java
+  database; the installed gettext packages remain covered by the Ubuntu OS
+  advisory scan.
+- `schedule` (weekly) promotes `nightly-*`, `sha-*`, and `build-*` tags.
+- `push` to `main` promotes stable `19.0-*`, `sha-*`, and `build-*` tags.
 - `pull_request` runs verify-only (no image publishing) and reports one stable
   `image-verification` merge gate after lint, source resolution, override
-  validation, both image builds, smoke tests, and vulnerability scans pass.
+  validation, both image builds when resolver parity is available, smoke tests,
+  and dependency-health evaluation pass.
 - Fork pull requests fail closed before using trusted self-hosted runners. A
   maintainer must recreate an accepted fork change on a branch in this
   repository before it can pass the image-verification merge gate.
@@ -164,9 +184,9 @@ same verification gate.
 This keeps the expensive multi-arch publish path warm on the self-hosted runner
 while still giving us a recoverable remote cache when a builder is recreated.
 
-The GHCR retention workflow keeps stable and nightly tags, preserves the newest
-10 immutable `sha-*` tags per image suffix, and prunes untagged versions older
-than 7 days.
+The GHCR retention workflow keeps stable, nightly, and registry-cache tags,
+preserves the newest 10 `sha-*`, validated `build-*`, and `candidate-*` tags per
+image suffix, and prunes untagged versions older than 7 days.
 
 GHCR retention is repo-local package hygiene. This repo owns the package tags it
 publishes, so the retention workflow may delete only this repo's old package
@@ -193,6 +213,13 @@ The workflow resolves the current `odoo/odoo` `19.0` commit and pins that exact
 revision into the build. This gives repeatable artifacts per run and makes
 scheduled updates explicit.
 
+The Dockerfile pins artifact-affecting base and build images by digest, uses an
+exact uv-managed Python patch release, and accepts workflow-resolved Ubuntu
+snapshot, PostgreSQL package, and package-index cutoff inputs. Trivy snapshots
+record repository/source identity, producer and database revisions, scan scope,
+configuration hash, and platform. Publication evidence additionally records the
+exact manifest-list digest, platform child digests, and snapshot hashes.
+
 `uv` is copied from Astral's official container image and pinned by tag+digest
 in the Dockerfile. A GitHub-native Dependabot config watches that image
 reference and opens update PRs whenever a new `uv` release is available.
@@ -215,6 +242,9 @@ docker build \
 - `bash scripts/test-check-requirements-overrides.sh` checks exact pins,
   explicitly allowed unpinned requirements, non-exact constraints, and removed
   requirements for the override freshness gate.
+- `bash scripts/test-image-dependency-health.sh` checks deterministic Trivy
+  normalization, fail-closed provenance matching, regression policy, target
+  advisory handling, and multi-architecture artifact binding.
 - `scripts/test-odoo-bin-wrapper.sh` checks wrapper argument handling without a
   container build.
 - `scripts/smoke-runtime.sh <image-reference>` checks the runtime image helper
