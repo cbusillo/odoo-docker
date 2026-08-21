@@ -368,9 +368,11 @@ jobs:
       - name: Restore scanner database
         run: |
           set -euo pipefail
-          tar -C "${RUNNER_TEMP}" -xzf \
+          cache_root="${RUNNER_TEMP}/trivy-cache-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.suffix }}"
+          mkdir -p "${cache_root}"
+          tar -C "${cache_root}" --strip-components=1 -xzf \
             "${RUNNER_TEMP}/dependency-health-inputs/trivy-cache.tar.gz"
-          actual_db_sha256="$(cd "${RUNNER_TEMP}/trivy-cache" \
+          actual_db_sha256="$(cd "${cache_root}" \
             && find . -type f -print0 \
               | sort -z \
               | xargs -0 sha256sum \
@@ -553,7 +555,7 @@ jobs:
           SCAN_CONFIGURATION_SHA256: ${{ needs.resolve_inputs.outputs.scan_configuration_sha256 }}
           SCANNER_AVAILABLE: ${{ steps.resolver_parity.outputs.scanner_available || 'false' }}
           SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
           TRIVY_DB_SHA256: ${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}
           TRIVY_IMAGE: ${{ needs.resolve_inputs.outputs.trivy_image }}
           TRIVY_VERSION: ${{ needs.resolve_inputs.outputs.trivy_version }}
@@ -577,7 +579,7 @@ jobs:
           BASELINE_ROOT: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
           DEPENDENCY_HEALTH_REPOSITORY: ${{ github.repository }}
           SCAN_CONFIGURATION_SHA256: ${{ needs.resolve_inputs.outputs.scan_configuration_sha256 }}
-          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
           TRIVY_DB_SHA256: ${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}
           TRIVY_IMAGE: ${{ needs.resolve_inputs.outputs.trivy_image }}
           TRIVY_VERSION: ${{ needs.resolve_inputs.outputs.trivy_version }}
@@ -707,9 +709,11 @@ jobs:
       - name: Restore scanner database
         run: |
           set -euo pipefail
-          tar -C "${RUNNER_TEMP}" -xzf \
+          cache_root="${RUNNER_TEMP}/trivy-cache-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.suffix }}"
+          mkdir -p "${cache_root}"
+          tar -C "${cache_root}" --strip-components=1 -xzf \
             "${RUNNER_TEMP}/dependency-health-inputs/trivy-cache.tar.gz"
-          actual_db_sha256="$(cd "${RUNNER_TEMP}/trivy-cache" \
+          actual_db_sha256="$(cd "${cache_root}" \
             && find . -type f -print0 \
               | sort -z \
               | xargs -0 sha256sum \
@@ -945,7 +949,7 @@ jobs:
           MANIFEST_DIGEST: ${{ steps.published.outputs.digest }}
           ODOO_SOURCE_REV: ${{ needs.resolve_source.outputs.odoo_source_rev }}
           SCAN_CONFIGURATION_SHA256: ${{ needs.resolve_inputs.outputs.scan_configuration_sha256 }}
-          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
           TRIVY_DB_SHA256: ${{ needs.resolve_inputs.outputs.trivy_db_sha256 }}
           TRIVY_IMAGE: ${{ needs.resolve_inputs.outputs.trivy_image }}
           TRIVY_VERSION: ${{ needs.resolve_inputs.outputs.trivy_version }}
