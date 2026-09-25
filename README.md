@@ -36,7 +36,7 @@ source to this worktree's interpreter before running the inspection helper:
 
 ```bash
 ODOO_IDE_SOURCE=/absolute/path/to/odoo \
-ODOO_IDE_COMMIT=<full-40-character-commit> \
+ODOO_IDE_COMMIT='<full-40-character-commit>' \
 uv run --locked python - <<'PY'
 import os
 from pathlib import Path

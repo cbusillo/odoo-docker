@@ -853,7 +853,7 @@ def installed_file_owners() -> dict[Path, set[str]]:
         if not name or files is None:
             continue
         for package_path in files:
-            installed_path = Path(distribution.locate_file(package_path)).resolve()
+            installed_path = Path(str(distribution.locate_file(package_path))).resolve()
             if installed_path != venv_root and venv_root not in installed_path.parents:
                 raise SyncError(
                     f"Installed package {name} records a file outside /venv: {package_path}"
@@ -883,7 +883,7 @@ def validate_installed_distribution_files(names: set[str]) -> None:
         if files is None:
             raise SyncError(f"Installed package {name} lacks RECORD file evidence")
         for package_path in files:
-            installed_path = Path(distribution.locate_file(package_path))
+            installed_path = Path(str(distribution.locate_file(package_path)))
             if not installed_path.is_file():
                 raise SyncError(
                     f"Installed package {name} is missing recorded file: {package_path}"
