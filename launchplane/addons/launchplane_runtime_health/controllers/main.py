@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 
@@ -17,7 +19,7 @@ class LaunchplaneRuntimeHealthController(http.Controller):
         save_session=False,
         csrf=False,
     )
-    def launchplane_health(self):
+    def launchplane_health(self) -> http.Response:
         body: dict[str, object] = {"status": "pass", "runtime_identity": None}
         raw_runtime_identity = os.environ.get(RUNTIME_IDENTITY_ENV_KEY, "").strip()
         status = 200

@@ -10,9 +10,9 @@ ARG POSTGRESQL_LIBPQ_VERSION
 ARG RESOLVER_CUTOFF
 
 # Keep the official uv image first so Dependabot tracks it for Docker updates.
-FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.12.16@sha256:adc68cd785ca65ea25c0611043b0a00b4ea3a22e1b54102fc084406d888082ee AS uv-binary
+FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.12.19@sha256:04d046b13e60d6bcec73cbc5e1cad25d680dea90c8573340950a0ac2d1aef424 AS uv-binary
 
-FROM --platform=$BUILDPLATFORM alpine/git:v2.54.0@sha256:0b5f57d22181e8b8fbe8ac5ca8754faa0d577f101b9857418f1acc43955ad464 AS odoo-source
+FROM --platform=$BUILDPLATFORM alpine/git:v2.54.0@sha256:ae0f6f4bce38d2b8c40becc0d6241a08d9f57186ea03029de2189a2b5e722d94 AS odoo-source
 ARG ODOO_SOURCE_REPOSITORY
 ARG ODOO_SOURCE_REF
 ARG ODOO_SOURCE_REV
@@ -28,7 +28,7 @@ RUN set -eux; \
     git -C odoo checkout --detach FETCH_HEAD; \
     rm -rf odoo/.git
 
-FROM --platform=$BUILDPLATFORM alpine/curl:8.22.0@sha256:d7720f8cffb47e7a80d01fb2c1b38562fab0e436948537e9b77dc312d29d12d6 AS wkhtmltox
+FROM --platform=$BUILDPLATFORM alpine/curl:8.22.0@sha256:a39f52cab21d7e283448a9f73032dfb578ffcea9edaaa90c1d637117149b337f AS wkhtmltox
 ARG TARGETARCH
 ARG WKHTMLTOPDF_VERSION=0.12.6.1-3
 ARG WKHTMLTOPDF_TARGET=jammy
@@ -50,7 +50,7 @@ RUN set -eux; \
       "https://github.com/wkhtmltopdf/packaging/releases/download/${WKHTMLTOPDF_VERSION}/wkhtmltox_${WKHTMLTOPDF_VERSION}.${WKHTMLTOPDF_TARGET}_${package_arch}.deb"; \
     echo "${checksum}  wkhtmltox.deb" | sha1sum -c -
 
-FROM ubuntu:noble@sha256:b3cc40b72b93588182b5410f723c7aaf142363311c2aa993d8a453ddcbb3ae15 AS runtime-system
+FROM ubuntu:noble@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3 AS runtime-system
 ARG PYTHON_VERSION
 ARG APT_REFRESH_EPOCH=0
 ARG APT_SNAPSHOT

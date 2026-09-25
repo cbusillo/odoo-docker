@@ -36,15 +36,15 @@ PACKAGE_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 PACKAGE_VERSION_PATTERN = re.compile(r"^(?=.*[0-9])[A-Za-z0-9][A-Za-z0-9.!+_-]*$")
 EXACT_BUILD_REQUIREMENT_PATTERN = re.compile(
     r"^(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)"
-    r"(?:\[[A-Za-z0-9._,-]+\])?\s*==\s*"
+    r"(?:\[[A-Za-z0-9._,-]+])?\s*==\s*"
     r"(?P<version>[A-Za-z0-9][A-Za-z0-9.!+_-]*)$"
 )
 VCS_REFERENCE_PATTERN = re.compile(
-    r"git\+(?:https|ssh)://[^\s]+@([^#\s]+)", re.IGNORECASE
+    r"git\+(?:https|ssh)://\S+@([^#\s]+)", re.IGNORECASE
 )
 DIRECT_REFERENCE_PATTERN = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?"
-    r"(?:\[[A-Za-z0-9._,-]+\])?\s*@\s*(?P<url>\S+)",
+    r"(?:\[[A-Za-z0-9._,-]+])?\s*@\s*(?P<url>\S+)",
     re.IGNORECASE,
 )
 SSH_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -186,7 +186,7 @@ def validate_git_references(value: str, *, label: str) -> None:
             raise SyncError(
                 f"{label} VCS dependencies must use exact lowercase git commits"
             )
-        normalize_vcs_repository(match.group(0).rsplit("@", 1)[0])
+        normalize_vcs_repository(match.group().rsplit("@", 1)[0])
     if "git+" in stripped.lower() and VCS_REFERENCE_PATTERN.search(stripped) is None:
         raise SyncError(f"{label} contains an invalid VCS dependency")
 
@@ -274,7 +274,9 @@ def validate_uv_sources(
         for source in source_values:
             if not isinstance(source, dict):
                 raise SyncError(f"{path} source for {package_name} must be a table")
-            if source.get("workspace") is True:
+            # Require a TOML boolean; truthy strings and integers are invalid.
+            workspace = source.get("workspace")
+            if isinstance(workspace, bool) and workspace:
                 if allow_workspace and set(source) == {"workspace"}:
                     continue
                 raise SyncError(
@@ -488,10 +490,11 @@ def validate_requirements(path: Path, *, generated: bool = False) -> None:
             raise SyncError(f"{path} contains an orphaned hash directive")
         if line.startswith("--"):
             raise SyncError(f"{path} contains an unsupported requirement directive")
-        requirement = re.sub(r"(?:\s+--hash=[^\s]+)+$", "", line).strip()
+        requirement = re.sub(r"(?:\s+--hash=\S+)+$", "", line).strip()
         lowered = requirement.lower()
-        if lowered.startswith(
-            ("http://", "https://", "file:", "git://", "ssh://", "/", "./", "../", "~")
+        scheme, separator, _ = lowered.partition("://")
+        if (separator and scheme in {"http", "https", "git", "ssh"}) or lowered.startswith(
+            ("file:", "/", "./", "../", "~")
         ):
             raise SyncError(f"{path} cannot contain a bare path or archive URL")
         first_token = requirement.split(maxsplit=1)[0]
@@ -654,7 +657,7 @@ def exported_package_names(paths: list[Path]) -> set[str]:
         for line in requirement_lines(path):
             if line.startswith("--"):
                 continue
-            requirement = re.sub(r"(?:\s+--hash=[^\s]+)+$", "", line).strip()
+            requirement = re.sub(r"(?:\s+--hash=\S+)+$", "", line).strip()
             match = re.match(
                 r"^(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)",
                 requirement,
@@ -759,7 +762,7 @@ def normalize_vcs_repository(value: str) -> str:
 
 def marker_for_local_path(path: Path, roots: dict[Path, SourceMarker]) -> SourceMarker:
     resolved = path.resolve()
-    candidates = sorted(roots, key=lambda root: len(root.parts), reverse=True)
+    candidates = sorted(roots, key=lambda candidate: len(candidate.parts), reverse=True)
     for root in candidates:
         if resolved == root or root in resolved.parents:
             return roots[root]
@@ -809,7 +812,7 @@ def distribution_content_sha256(distribution: metadata.Distribution) -> str:
         raise SyncError(
             f"Installed package {distribution.metadata.get('Name', '')} lacks metadata evidence"
         )
-    return hashlib.sha256("\0".join(contents).encode("utf-8")).hexdigest()
+    return hashlib.sha256("\0".join(contents).encode()).hexdigest()
 
 
 def installed_package_identities(
@@ -853,7 +856,7 @@ def installed_file_owners() -> dict[Path, set[str]]:
         if not name or files is None:
             continue
         for package_path in files:
-            installed_path = Path(distribution.locate_file(package_path)).resolve()
+            installed_path = Path(str(distribution.locate_file(package_path))).resolve()
             if installed_path != venv_root and venv_root not in installed_path.parents:
                 raise SyncError(
                     f"Installed package {name} records a file outside /venv: {package_path}"
@@ -883,7 +886,7 @@ def validate_installed_distribution_files(names: set[str]) -> None:
         if files is None:
             raise SyncError(f"Installed package {name} lacks RECORD file evidence")
         for package_path in files:
-            installed_path = Path(distribution.locate_file(package_path))
+            installed_path = Path(str(distribution.locate_file(package_path)))
             if not installed_path.is_file():
                 raise SyncError(
                     f"Installed package {name} is missing recorded file: {package_path}"
@@ -960,7 +963,6 @@ def python_environment(roots: dict[Path, SourceMarker]) -> dict[str, Any]:
     packages.sort(key=lambda package: package["name"])
     canonical_json = json.dumps(
         packages,
-        ensure_ascii=True,
         separators=(",", ":"),
         sort_keys=True,
     )
@@ -968,7 +970,7 @@ def python_environment(roots: dict[Path, SourceMarker]) -> dict[str, Any]:
         "python_version": platform.python_version().lower(),
         "packages": packages,
         "package_count": len(packages),
-        "packages_sha256": hashlib.sha256(canonical_json.encode("utf-8")).hexdigest(),
+        "packages_sha256": hashlib.sha256(canonical_json.encode()).hexdigest(),
     }
 
 
@@ -979,7 +981,7 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     )
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(payload, stream, ensure_ascii=True, indent=2, sort_keys=True)
+            json.dump(payload, stream, indent=2, sort_keys=True)
             stream.write("\n")
         os.chmod(temporary_name, 0o644)
         os.replace(temporary_name, path)
