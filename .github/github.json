@@ -30,7 +30,18 @@
         "changed_files",
         "directory",
         "whole_project"
-      ]
+      ],
+      "prepare": {
+        "python": {
+          "version": "3.13",
+          "moduleName": "odoo-docker",
+          "sync": true,
+          "requiredGeneratedState": [
+            ".venv",
+            ".idea"
+          ]
+        }
+      }
     },
     "docsRequiredWhen": [
       "behavior changes",
@@ -53,7 +64,9 @@
     "Dependency Graph",
     "Dependabot Updates"
   ],
-  "requiredStatusChecks": ["image-verification"],
+  "requiredStatusChecks": [
+    "image-verification"
+  ],
   "codeScanningMergeProtection": {
     "ruleset": "Require code scanning results",
     "tool": "CodeQL",

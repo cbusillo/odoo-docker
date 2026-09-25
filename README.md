@@ -18,6 +18,52 @@ This repository provides a stable base runtime for downstream project images.
 Both images default to the `ubuntu` user for compatibility with existing
 restore and SSH mount workflows.
 
+## Local Python Inspections
+
+`uv sync --locked` installs the development-only dependencies for the Python
+helpers and native PyCharm inspections. This environment does not determine
+image dependencies. The Docker build excludes `.venv`, `pyproject.toml`, and
+`uv.lock` from its context.
+
+The inspection helper prepares an ignored project model and interpreter for
+each worktree using `.github/github.json`. Shared inspection profiles, scopes,
+and repository-local VCS mappings remain versioned; sibling checkouts and SDK
+paths do not.
+
+The runtime health addon also needs real Odoo 19 source for import resolution.
+Choose a clean external checkout at an exact reviewed commit, then expose that
+source to this worktree's interpreter before running the inspection helper:
+
+```bash
+ODOO_IDE_SOURCE=/absolute/path/to/odoo \
+ODOO_IDE_COMMIT=<full-40-character-commit> \
+uv run --locked python - <<'PY'
+import os
+from pathlib import Path
+import subprocess
+import sysconfig
+
+source = Path(os.environ["ODOO_IDE_SOURCE"]).resolve()
+expected = os.environ["ODOO_IDE_COMMIT"]
+assert len(expected) == 40 and all(c in "0123456789abcdef" for c in expected)
+assert not source.is_relative_to(Path.cwd().resolve())
+assert (source / "odoo/http.py").is_file()
+assert subprocess.check_output(
+    ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
+).strip() == expected
+assert not subprocess.check_output(
+    ["git", "-C", str(source), "status", "--porcelain"], text=True
+)
+Path(sysconfig.get_path("purelib"), "odoo-ide-source.pth").write_text(
+    str(source) + "\n", encoding="utf-8"
+)
+PY
+```
+
+Keep the source checkout outside the inspected project. This supplies the
+actual framework API without copying upstream source or adding import stubs to
+the image repository.
+
 ## Devtools Addon Paths
 
 - `runtime` stays runtime-first and does not write IDE-oriented Python path

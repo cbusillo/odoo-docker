@@ -4,6 +4,10 @@
 *.md
 .DS_Store
 .idea
+.venv
+__pycache__
+pyproject.toml
+uv.lock
 tmp
 *.log
 *.override.*

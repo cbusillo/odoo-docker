@@ -42,3 +42,7 @@ tmp/
 id_rsa
 id_ed25519
 /handoff*.md
+
+# Local Python development environment
+.venv/
+__pycache__/
