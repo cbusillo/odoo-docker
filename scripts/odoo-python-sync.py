@@ -509,6 +509,14 @@ def validate_requirements(path: Path, *, generated: bool = False) -> None:
         validate_git_references(requirement, label=str(path))
 
 
+def is_whool_addon_metadata(payload: dict[str, Any], *, path: Path) -> bool:
+    return (
+        payload
+        == {"build-system": {"requires": ["whool"], "build-backend": "whool.buildapi"}}
+        and (path.parent / "__manifest__.py").is_file()
+    )
+
+
 def discover_external_inputs(sync_mode: str) -> tuple[list[ExternalInput], list[str]]:
     inputs: list[ExternalInput] = []
     install_args: list[str] = []
@@ -537,6 +545,29 @@ def discover_external_inputs(sync_mode: str) -> tuple[list[ExternalInput], list[
             relative_path = resolved.relative_to(source_root).as_posix()
             if candidate.name == "pyproject.toml":
                 payload = validate_pyproject(resolved, allow_workspace_sources=False)
+                if is_whool_addon_metadata(payload, path=resolved):
+                    requirements_path = source_root / "requirements.txt"
+                    if not requirements_path.is_file():
+                        raise SyncError(
+                            f"Whool addon {resolved.parent} requires repository-level requirements.txt"
+                        )
+                    # Odoo loads this addon directly from the verified source tree.
+                    # Record its packaging metadata, but do not execute Whool or
+                    # invent an unlocked Python distribution for the addon.
+                    inputs.append(
+                        ExternalInput(
+                            path=resolved,
+                            project_root=resolved.parent,
+                            source=source,
+                            dependency_file_path=relative_path,
+                            dependency_file_sha256=sha256_file(resolved),
+                            format="pyproject_toml",
+                        )
+                    )
+                    candidates.append(requirements_path)
+                    if sync_mode == "dev":
+                        candidates.append(source_root / "requirements-dev.txt")
+                    continue
                 package_name = project_name(payload, path=resolved)
                 validate_build_system(payload, path=resolved)
                 inputs.append(
@@ -1057,13 +1088,13 @@ def strict_sync(sync_mode: str) -> None:
         {
             item.project_root.resolve()
             for item in external_inputs
-            if item.format == "pyproject_toml"
+            if item.format == "pyproject_toml" and item.package_name
         }
     )
     external_package_roots = {
         item.project_root.resolve(): item.source
         for item in external_inputs
-        if item.format == "pyproject_toml"
+        if item.format == "pyproject_toml" and item.package_name
     }
     owned_package_roots = (
         {

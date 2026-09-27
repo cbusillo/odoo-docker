@@ -577,6 +577,99 @@ assert_external_conflict_fails() {
 		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
 }
 
+assert_manifest_backed_external_addons() {
+	local external_root="${test_root}/whool-external"
+	local checkout="${external_root}/_checkouts/manifest-addons"
+	local addon_name sync_mode
+	mkdir -p "${checkout}"
+	write_external_source_marker "${checkout}" "example/manifest-addons" "${external_ref}"
+	printf 'humanfriendly==10.0\n' >"${checkout}/requirements.txt"
+	printf 'more-itertools==10.7.0\n' >"${checkout}/requirements-dev.txt"
+	for addon_name in manifest_first manifest_second; do
+		mkdir -p "${checkout}/${addon_name}"
+		printf '{}\n' >"${checkout}/${addon_name}/__manifest__.py"
+		cat >"${checkout}/${addon_name}/pyproject.toml" <<'EOF'
+[build-system]
+requires = ["whool"]
+build-backend = "whool.buildapi"
+EOF
+		ln -s "_checkouts/manifest-addons/${addon_name}" "${external_root}/${addon_name}"
+	done
+	chmod -R a+rX "${external_root}"
+
+	for sync_mode in prod dev; do
+		docker run --rm \
+			-v "${strict_support_root}:/opt/runtime" \
+			-v "${strict_tenant_root}:/opt/project" \
+			-v "${external_root}:/opt/extra_addons:ro" \
+			-e EXPECTED_EXTERNAL_REF="${external_ref}" \
+			-e SYNC_MODE="${sync_mode}" \
+			--entrypoint /bin/bash \
+			"${image_reference}" -lc '
+set -euo pipefail
+/venv/bin/python - <<'"'"'PY'"'"' > /tmp/whool-before.json
+from importlib import metadata
+import json
+print(json.dumps(sorted(d.metadata["Name"].lower() for d in metadata.distributions())))
+PY
+odoo-python-sync.sh "$SYNC_MODE"
+/venv/bin/python - <<'"'"'PY'"'"'
+import hashlib
+from importlib import metadata, util
+import json
+import os
+from pathlib import Path
+
+from humanfriendly import parse_size
+
+assert parse_size("1 KB") == 1000
+root = Path("/opt/extra_addons/_checkouts/manifest-addons")
+evidence = json.loads(Path("/opt/launchplane/evidence/dependency-provenance.json").read_text())
+inputs = evidence["external_compatibility_inputs"]
+expected = {"manifest_first/pyproject.toml", "manifest_second/pyproject.toml", "requirements.txt"}
+if os.environ["SYNC_MODE"] == "dev":
+    expected.add("requirements-dev.txt")
+    from more_itertools import chunked
+
+    assert list(chunked([1, 2, 3], 2)) == [[1, 2], [3]]
+else:
+    assert util.find_spec("more_itertools") is None
+assert len(inputs) == len(expected), inputs
+assert {item["dependency_file_path"] for item in inputs} == expected
+for item in inputs:
+    assert item["source_repository"] == "example/manifest-addons"
+    assert item["source_ref"] == os.environ["EXPECTED_EXTERNAL_REF"]
+    assert item["dependency_file_sha256"] == hashlib.sha256(
+        (root / item["dependency_file_path"]).read_bytes()
+    ).hexdigest()
+names = {distribution.metadata["Name"].lower() for distribution in metadata.distributions()}
+before = set(json.loads(Path("/tmp/whool-before.json").read_text()))
+assert "whool" not in names - before
+assert not any(name.startswith("odoo-addon-manifest-") for name in names)
+PY
+'
+	done
+
+	rm "${checkout}/requirements.txt"
+	assert_command_fails "Whool addon missing repository requirements" \
+		docker run --rm \
+		-v "${strict_support_root}:/opt/runtime" \
+		-v "${strict_tenant_root}:/opt/project" \
+		-v "${external_root}:/opt/extra_addons:ro" \
+		--entrypoint /bin/bash \
+		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+
+	printf 'python-slugify==7.0.0\n' >"${checkout}/requirements.txt"
+	chmod a+r "${checkout}/requirements.txt"
+	assert_command_fails "Whool repository requirements conflict with locked package" \
+		docker run --rm \
+		-v "${strict_support_root}:/opt/runtime" \
+		-v "${strict_tenant_root}:/opt/project" \
+		-v "${external_root}:/opt/extra_addons:ro" \
+		--entrypoint /bin/bash \
+		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+}
+
 assert_external_same_version_replacement_fails() {
 	local conflict_root="${test_root}/external-source-replacement"
 	mkdir -p "${conflict_root}/test_external"
@@ -1001,6 +1094,7 @@ run_partial_strict_check "${strict_support_root}" "${empty_project_root}" suppor
 run_partial_strict_check "${layout_only_root}" "${strict_tenant_root}" tenant
 run_strict_sync_check prod "${strict_external_root}"
 run_strict_sync_check dev "${test_root}/empty-external"
+assert_manifest_backed_external_addons
 assert_base_package_override_fails
 assert_layered_lock_conflict_fails
 assert_external_conflict_fails
