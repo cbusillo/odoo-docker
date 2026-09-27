@@ -584,7 +584,7 @@ assert_manifest_backed_external_addons() {
 	mkdir -p "${checkout}"
 	write_external_source_marker "${checkout}" "example/manifest-addons" "${external_ref}"
 	printf 'humanfriendly==10.0\n' >"${checkout}/requirements.txt"
-	printf 'python-slugify\n' >"${checkout}/requirements-dev.txt"
+	printf 'more-itertools==10.7.0\n' >"${checkout}/requirements-dev.txt"
 	for addon_name in manifest_first manifest_second; do
 		mkdir -p "${checkout}/${addon_name}"
 		printf '{}\n' >"${checkout}/${addon_name}/__manifest__.py"
@@ -615,7 +615,7 @@ PY
 odoo-python-sync.sh "$SYNC_MODE"
 /venv/bin/python - <<'"'"'PY'"'"'
 import hashlib
-from importlib import metadata
+from importlib import metadata, util
 import json
 import os
 from pathlib import Path
@@ -629,6 +629,11 @@ inputs = evidence["external_compatibility_inputs"]
 expected = {"manifest_first/pyproject.toml", "manifest_second/pyproject.toml", "requirements.txt"}
 if os.environ["SYNC_MODE"] == "dev":
     expected.add("requirements-dev.txt")
+    from more_itertools import chunked
+
+    assert list(chunked([1, 2, 3], 2)) == [[1, 2], [3]]
+else:
+    assert util.find_spec("more_itertools") is None
 assert len(inputs) == len(expected), inputs
 assert {item["dependency_file_path"] for item in inputs} == expected
 for item in inputs:

@@ -167,8 +167,8 @@ those image-owned defaults present.
   Their repository commit, repo-relative path, format, and SHA-256 are recorded;
   they may add compatible packages but cannot replace base- or lock-owned
   package identities.
-- External Odoo addons with only Whool's `build-system` metadata and an
-  `__manifest__.py` are loaded directly from their verified source tree. Their
+- In layout 2, external Odoo addons with only Whool's `build-system` metadata
+  and an `__manifest__.py` are loaded directly from their verified source tree. Their
   repository must provide `requirements.txt`; layout 2 installs that file under
   the same compatibility constraints and records it alongside each addon's
   packaging metadata. Development sync also includes repository-level
