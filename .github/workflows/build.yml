@@ -11,14 +11,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
-    paths:
-      - Dockerfile
-      - .hadolint.yaml
-      - requirements-overrides.txt
-      - scripts/**
-      - .github/workflows/build.yml
-      - README.md
+    branches: [main, "launchplane/train/**"]
   schedule:
     - cron: "17 4 * * 1"
 
@@ -643,14 +636,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [dockerfile-lint, resolve_source, resolve_inputs, check_overrides, verify]
-    if: always() && github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/launchplane/train/'))
     permissions:
       contents: read
     steps:
       - name: Require successful image verification
         env:
           BASE_REPOSITORY: ${{ github.repository }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           DOCKERFILE_LINT_RESULT: ${{ needs.dockerfile-lint.result }}
           RESOLVE_SOURCE_RESULT: ${{ needs.resolve_source.result }}
           RESOLVE_INPUTS_RESULT: ${{ needs.resolve_inputs.result }}
@@ -684,7 +677,7 @@ jobs:
       group: odoo-docker-publish
       cancel-in-progress: false
     needs: [resolve_source, resolve_inputs, verify]
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/launchplane/train/')
     permissions:
       contents: read
       packages: write
@@ -1100,7 +1093,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [resolve_source, publish]
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/launchplane/train/')
     permissions:
       contents: read
       packages: read
