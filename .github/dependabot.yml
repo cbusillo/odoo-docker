@@ -10,6 +10,8 @@ multi-ecosystem-groups:
 updates:
   - package-ecosystem: github-actions
     directory: "/"
+    cooldown:
+      default-days: 7
     patterns:
       - "*"
     multi-ecosystem-group: infrastructure
@@ -21,6 +23,8 @@ updates:
 
   - package-ecosystem: docker
     directory: "/"
+    cooldown:
+      default-days: 7
     patterns:
       - "*"
     multi-ecosystem-group: infrastructure
