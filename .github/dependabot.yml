@@ -10,6 +10,8 @@ multi-ecosystem-groups:
 updates:
   - package-ecosystem: github-actions
     directory: "/"
+    cooldown:
+      semver-major-days: 30
     patterns:
       - "*"
     multi-ecosystem-group: infrastructure
@@ -21,6 +23,8 @@ updates:
 
   - package-ecosystem: docker
     directory: "/"
+    cooldown:
+      semver-major-days: 30
     patterns:
       - "*"
     multi-ecosystem-group: infrastructure
