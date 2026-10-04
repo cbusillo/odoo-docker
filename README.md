@@ -214,6 +214,13 @@ those image-owned defaults present.
   advisory scan.
 - `schedule` (weekly) promotes `nightly-*`, `sha-*`, and `build-*` tags.
 - `push` to `main` promotes stable `19.0-*`, `sha-*`, and `build-*` tags.
+- Manual `workflow_dispatch` runs promote `sha-*` and `build-*` tags, and also
+  stable `19.0-*` tags unless `publish_stable` is turned off (it defaults on).
+- Pushes to `launchplane/train/**` merge-train branches verify only, like pull
+  requests: they report `image-verification` and publish nothing.
+- After a publishing run, the workflow dispatches the `odoo-enterprise-docker`
+  build with the exact published runtime and devtools digests. It passes on
+  the same stable decision, and asks for nightly tags only on scheduled runs.
 - `pull_request` runs verify-only (no image publishing) and reports one stable
   `image-verification` merge gate after lint, source resolution, override
   validation, both image builds when resolver parity is available, smoke tests,
@@ -234,8 +241,9 @@ same verification gate.
 - Publish jobs run on the `chris-testing-publish-cache` self-hosted lane and
   reuse a persistent per-runner Buildx builder, with GHCR registry cache as
   the portable fallback.
-- The publish workflow prunes cache entries older than 14 days after each run
-  so local BuildKit state stays warm without growing forever.
+- After each run, the verify and publish jobs each prune builder cache older
+  than 7 days while their builder holds more than 60 GB, so local BuildKit
+  state stays warm without growing forever.
 
 This keeps the expensive multi-arch publish path warm on the self-hosted runner
 while still giving us a recoverable remote cache when a builder is recreated.
@@ -277,8 +285,9 @@ configuration hash, and platform. Publication evidence additionally records the
 exact manifest-list digest, platform child digests, and snapshot hashes.
 
 `uv` is copied from Astral's official container image and pinned by tag+digest
-in the Dockerfile. A GitHub-native Dependabot config watches that image
-reference and opens update PRs whenever a new `uv` release is available.
+in the Dockerfile. Dependabot checks that image reference and the workflow
+actions weekly, waits 7 days after a release, and groups version updates into one
+`infrastructure` pull request.
 
 ## Build
 
