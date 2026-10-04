@@ -12,12 +12,6 @@ baseline_commit="1111111111111111111111111111111111111111"
 candidate_commit="2222222222222222222222222222222222222222"
 configuration_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
-grep -F -- '--skip-files /usr/share/java/gettext.jar' "${scan_tool}" >/dev/null
-grep -F -- '--skip-files /usr/share/java/libintl-0.21.jar' "${scan_tool}" >/dev/null
-if grep -F -- '/usr/share/java/*.jar' "${scan_tool}" >/dev/null; then
-  echo "scanner must not skip unrelated Java archives" >&2
-  exit 1
-fi
 grep -F -- 'group: odoo-docker-publish' "${workflow}" >/dev/null
 grep -F -- '.github/workflows/build.yml' "${workflow}" >/dev/null
 grep -F -- "bash \"\${BASELINE_ROOT}/scripts/scan-image-dependencies.sh\"" "${workflow}" >/dev/null
@@ -73,6 +67,56 @@ EOF
 }
 EOF
 }
+
+# Exercise the scanner command so comments and shell formatting cannot stand
+# in for the two intentional gettext exclusions. No Docker daemon is needed.
+mkdir -p "${test_root}/bin" "${test_root}/cache"
+cat >"${test_root}/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\0' "$@" >"${SCANNER_CAPTURE_FILE:?}"
+cp "${SCANNER_REPORT_FILE:?}" "${SCANNER_OUTPUT_DIRECTORY:?}/trivy.json"
+EOF
+chmod +x "${test_root}/bin/docker"
+write_report "${test_root}/scanner-report.json"
+trivy_image="$(sed -n 's/^  TRIVY_IMAGE: //p' "${workflow}")"
+trivy_version="${trivy_image#*:}"
+trivy_version="${trivy_version%%@*}"
+for image_source in docker remote; do
+  mkdir -p "${test_root}/scan-${image_source}"
+  PATH="${test_root}/bin:${PATH}" \
+  SCANNER_CAPTURE_FILE="${test_root}/scanner-arguments.txt" \
+  SCANNER_REPORT_FILE="${test_root}/scanner-report.json" \
+  SCANNER_OUTPUT_DIRECTORY="${test_root}/scan-${image_source}" \
+  TRIVY_IMAGE="${trivy_image}" \
+  TRIVY_VERSION="${trivy_version}" \
+  TRIVY_CACHE_DIR="${test_root}/cache" \
+  TRIVY_DB_SHA256="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" \
+  SCAN_CONFIGURATION_SHA256="${configuration_sha}" \
+  DEPENDENCY_HEALTH_REPOSITORY="cbusillo/odoo-docker" \
+  bash "${scan_tool}" candidate-image "${candidate_commit}" "${baseline_commit}" \
+    image:runtime:linux/amd64 "${image_source}" "${test_root}/scan-${image_source}"
+
+  python3 - "${test_root}/scanner-arguments.txt" "${trivy_image}" <<'PY'
+from pathlib import Path
+import sys
+
+arguments = Path(sys.argv[1]).read_bytes().decode().split("\0")[:-1]
+image_index = arguments.index(sys.argv[2])
+assert arguments[image_index + 1] == "image", arguments
+scanner_arguments = arguments[image_index + 2:]
+skipped_files = []
+for index, argument in enumerate(scanner_arguments):
+    if argument == "--skip-files":
+        skipped_files.extend(scanner_arguments[index + 1].split(","))
+    elif argument.startswith("--skip-files="):
+        skipped_files.extend(argument.split("=", 1)[1].split(","))
+assert sorted(skipped_files) == [
+    "/usr/share/java/gettext.jar",
+    "/usr/share/java/libintl-0.21.jar",
+], f"unexpected scanner file exclusions: {skipped_files}"
+PY
+done
 
 write_provenance "${test_root}/baseline-provenance.json" "${baseline_commit}" ""
 write_provenance "${test_root}/candidate-provenance.json" "${candidate_commit}" "${baseline_commit}"
