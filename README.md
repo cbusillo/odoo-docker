@@ -307,7 +307,8 @@ docker build \
 - `bash scripts/test-check-requirements-overrides.sh` checks exact pins,
   explicitly allowed unpinned requirements, non-exact constraints, and removed
   requirements for the override freshness gate.
-- `bash scripts/test-image-dependency-health.sh` checks deterministic Trivy
+- `bash scripts/test-image-dependency-health.sh` checks the scanner's actual
+  file exclusions without a Docker daemon, deterministic Trivy
   normalization, fail-closed provenance matching, regression policy, target
   advisory handling, and multi-architecture artifact binding.
 - `scripts/test-odoo-bin-wrapper.sh` checks wrapper argument handling without a
