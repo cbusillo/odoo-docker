@@ -3,10 +3,20 @@
   "projectType": "odoo-base-runtime-image",
   "docs": {
     "index": "README.md",
+    "agents": "AGENTS.md",
     "dockerfile": "Dockerfile",
-    "scripts": "scripts"
+    "scripts": "scripts",
+    "overallDirection": "https://github.com/cbusillo/direction/blob/HEAD/DIRECTION.md",
+    "githubConfigSchema": "https://github.com/cbusillo/codex-skills/blob/main/skills/github/references/config-schema.md",
+    "executingLoop": "https://github.com/cbusillo/codex-skills/blob/main/skills/references/executing-loop.md",
+    "modelReview": "https://github.com/cbusillo/codex-skills/blob/main/skills/references/model-review.md",
+    "launchplaneBoundary": "https://github.com/cbusillo/codex-skills/blob/main/skills/launchplane/SKILL.md#runtime-authority-boundary",
+    "mergeTrain": "https://github.com/cbusillo/codex-skills/blob/main/skills/launchplane/references/merge-train.md"
   },
   "qualityGate": {
+    "json": {
+      "metadata": "jq empty .github/github.json"
+    },
     "build": {
       "runtime": "docker build -t ghcr.io/cbusillo/odoo-docker:19.0-runtime --target runtime .",
       "devtools": "docker build -t ghcr.io/cbusillo/odoo-docker:19.0-devtools --target runtime-devtools ."
@@ -24,7 +34,6 @@
       "dockerfile": "docker run --rm -v \"$PWD:/work:ro\" -w /work hadolint/hadolint:v2.14.0 hadolint Dockerfile"
     },
     "inspection": {
-      "tool": "jetbrains",
       "ide": "PyCharm",
       "scopePreference": [
         "changed_files",
@@ -64,24 +73,58 @@
     "Dependency Graph",
     "Dependabot Updates"
   ],
-  "requiredStatusChecks": [
-    "image-verification"
-  ],
-  "codeScanningMergeProtection": {
-    "ruleset": "Require code scanning results",
-    "tool": "CodeQL",
-    "alertsThreshold": "errors",
-    "securityAlertsThreshold": "high_or_higher",
-    "dependabotDefaultSetupException": true
+  "prWorkflow": {
+    "mergePath": "launchplane-merge-train",
+    "handoffComment": "Ready for the merge train",
+    "handoff": "When the execution brief assigns a direction-session handoff, leave labeling and train driving to that session; otherwise follow the merge-train workflow.",
+    "watchSkill": "babysit-pr",
+    "modelReviewIsAdvisory": true,
+    "requiredStatusChecks": [
+      "image-verification"
+    ],
+    "branchProtection": {
+      "strictStatusChecks": true,
+      "requiredApprovingReviewCount": 0,
+      "enforceAdmins": true
+    },
+    "codeScanningMergeProtection": {
+      "ruleset": "Require code scanning results",
+      "tool": "CodeQL",
+      "alertsThreshold": "errors",
+      "securityAlertsThreshold": "high_or_higher"
+    }
   },
-  "qaLabels": [],
-  "deployLabels": [],
   "relatedRepos": [
     "odoo-enterprise-docker",
     "odoo-devkit",
     "odoo-shared-addons",
     "launchplane"
   ],
+  "launchplane": {
+    "enabled": true,
+    "service": {
+      "contextUrlEnv": "LAUNCHPLANE_CONTEXT_URL",
+      "operatorUrlEnv": "LAUNCHPLANE_OPERATOR_URL"
+    },
+    "mergeTrain": {
+      "enabled": true,
+      "controller": true,
+      "readyLabel": "ready-to-merge",
+      "baseBranch": "main",
+      "githubActionsRunner": {
+        "repo": "cbusillo/launchplane",
+        "workflow": "merge-train-runner.yml",
+        "ref": "main",
+        "runnerMode": "controller",
+        "mutateDefault": false,
+        "revisionEvidenceFields": {
+          "runnerWorkflow": "workflow_run.head_sha",
+          "candidate": "result.candidate.candidate_sha",
+          "landing": "result.landing_plan.entries[].merge_commit_sha"
+        }
+      }
+    }
+  },
   "githubSignals": {
     "postMerge": {
       "waitForActions": true,
@@ -104,6 +147,11 @@
     "deleteMergedLocalBranches": true,
     "removeMergedCleanWorktrees": true
   },
+  "githubSettings": {
+    "expected": {
+      "deleteBranchOnMerge": true
+    }
+  },
   "metadataFreshness": {
     "updateWhen": [
       "docs routing changes",
@@ -111,6 +159,9 @@
       "primary commands change",
       "important workflows change",
       "repo relationship changes",
+      "Launchplane routing changes",
+      "merge path changes",
+      "branch protection or rulesets change",
       "cleanup policy changes",
       "ownership boundaries change",
       "Dockerfile changes",
