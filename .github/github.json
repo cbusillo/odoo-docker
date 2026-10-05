@@ -75,7 +75,6 @@
   ],
   "prWorkflow": {
     "mergePath": "launchplane-merge-train",
-    "mergeMethod": "merge",
     "handoffComment": "Ready for the merge train",
     "handoff": "When the execution brief assigns a direction-session handoff, leave labeling and train driving to that session; otherwise follow the merge-train workflow.",
     "watchSkill": "babysit-pr",
@@ -103,11 +102,27 @@
   ],
   "launchplane": {
     "enabled": true,
+    "service": {
+      "contextUrlEnv": "LAUNCHPLANE_CONTEXT_URL",
+      "operatorUrlEnv": "LAUNCHPLANE_OPERATOR_URL"
+    },
     "mergeTrain": {
       "enabled": true,
       "controller": true,
       "readyLabel": "ready-to-merge",
-      "baseBranch": "main"
+      "baseBranch": "main",
+      "githubActionsRunner": {
+        "repo": "cbusillo/launchplane",
+        "workflow": "merge-train-runner.yml",
+        "ref": "main",
+        "runnerMode": "controller",
+        "mutateDefault": false,
+        "revisionEvidenceFields": {
+          "runnerWorkflow": "workflow_run.head_sha",
+          "candidate": "result.candidate.candidate_sha",
+          "landing": "result.landing_plan.entries[].merge_commit_sha"
+        }
+      }
     }
   },
   "githubSignals": {
