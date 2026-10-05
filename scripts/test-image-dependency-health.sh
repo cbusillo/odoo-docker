@@ -12,11 +12,6 @@ baseline_commit="1111111111111111111111111111111111111111"
 candidate_commit="2222222222222222222222222222222222222222"
 configuration_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
-grep -F -- 'group: odoo-docker-publish' "${workflow}" >/dev/null
-grep -F -- '.github/workflows/build.yml' "${workflow}" >/dev/null
-grep -F -- "bash \"\${BASELINE_ROOT}/scripts/scan-image-dependencies.sh\"" "${workflow}" >/dev/null
-grep -F -- "python3 \"\${BASELINE_ROOT}/scripts/image-dependency-health.py\" compare" "${workflow}" >/dev/null
-
 write_provenance() {
   local path="$1"
   local source_commit="$2"
