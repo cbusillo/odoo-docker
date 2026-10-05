@@ -28,7 +28,8 @@ Keep it short; defer deeper detail to the README and scripts.
   for claims, isolated worktrees, bot-authored changes, reviews, and closeout.
 - Hand green, reviewed PRs to Launchplane's merge train using the
   [merge-train workflow](https://github.com/cbusillo/codex-skills/blob/main/skills/launchplane/references/merge-train.md).
-  Do not merge by hand.
+  The executing loop's `land` step here means a merge-train handoff; never call
+  `gh-pr.py merge` or merge by hand.
 
 ## Release Gate
 
