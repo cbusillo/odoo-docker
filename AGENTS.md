@@ -5,6 +5,10 @@ Keep it short; defer deeper detail to the README and scripts.
 
 ## Start Here
 
+- Read the Director's [overall DIRECTION.md](https://github.com/cbusillo/direction/blob/HEAD/DIRECTION.md)
+  first. This repository has no separate DIRECTION.md.
+- Keep agent instructions in AGENTS.md; nested AGENTS.md files may describe
+  path-specific guidance.
 - Read [README.md](README.md) before changing build or release behavior.
 - Treat this repo as the base image contract for Launchplane-managed Odoo
   runtimes. Keep tenant/business policy downstream, but image-owned
@@ -20,6 +24,12 @@ Keep it short; defer deeper detail to the README and scripts.
 
 - Use [`.github/github.json`](.github/github.json)
   for primary commands, validation gates, workflow routing, and cleanup policy.
+- Follow the maintained [executing loop](https://github.com/cbusillo/codex-skills/blob/main/skills/references/executing-loop.md)
+  for claims, isolated worktrees, bot-authored changes, reviews, and closeout.
+- Hand green, reviewed PRs to Launchplane's merge train using the
+  [merge-train workflow](https://github.com/cbusillo/codex-skills/blob/main/skills/launchplane/references/merge-train.md).
+  The executing loop's `land` step here means a merge-train handoff; never call
+  `gh-pr.py merge` or merge by hand.
 
 ## Release Gate
 

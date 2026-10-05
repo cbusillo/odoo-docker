@@ -10,6 +10,20 @@ by Launchplane-managed Odoo lanes.
 
 This repository provides a stable base runtime for downstream project images.
 
+## Direction and Contributions
+
+The Director's [overall DIRECTION.md](https://github.com/cbusillo/direction/blob/HEAD/DIRECTION.md)
+sets priorities and stop boundaries. This repository has no separate
+DIRECTION.md. [AGENTS.md](AGENTS.md) is the agent-instruction entry point;
+[`.github/github.json`](.github/github.json) records validation commands and
+repository workflow metadata.
+
+Use the maintained [executing loop](https://github.com/cbusillo/codex-skills/blob/main/skills/references/executing-loop.md)
+for issue-backed work. Changes land through
+[Launchplane's merge train](https://github.com/cbusillo/codex-skills/blob/main/skills/launchplane/references/merge-train.md)
+after required checks and reviews. Image publishing follows the CI release
+model below; tenant runtime deployment is owned by Launchplane.
+
 ## Images
 
 - `runtime`: base Odoo runtime + PostgreSQL client + uv tooling
