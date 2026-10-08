@@ -30,6 +30,7 @@ Keep it short; defer deeper detail to the README and scripts.
   [merge-train workflow](https://github.com/cbusillo/codex-skills/blob/main/skills/launchplane/references/merge-train.md).
   The executing loop's `land` step here means a merge-train handoff; never call
   `gh-pr.py merge` or merge by hand.
+- Agents must not dispatch publishing workflows or push tags by hand; reruns go through the merge train or the agent asks Chris.
 
 ## Release Gate
 
