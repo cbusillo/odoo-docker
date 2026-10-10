@@ -22,7 +22,9 @@ def check_registry(env: Environment) -> None:
     req.db, req.env, req.registry = env.cr.dbname, env, env.registry
     controller = controller_module.LaunchplaneRuntimeHealthController()
     with patch.dict(vars(controller_module), {"request": req}):
-        assert controller.launchplane_readiness().status_code == 200
+        # Positive admission is tested over HTTP with fresh browser evidence.
+        # These faults occur before observation validation; assert their exact
+        # reasons so elapsed time cannot masquerade as the planted fault.
         for field in ("ready", "loaded"):
             previous = getattr(env.registry, field)
             try:

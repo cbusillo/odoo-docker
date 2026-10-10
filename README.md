@@ -119,8 +119,11 @@ those image-owned defaults present.
 ### Private database readiness
 
 `POST /launchplane/readiness` is distinct from liveness. It accepts only direct
-loopback probes inside the candidate; forwarded requests and network peers
-receive 403. Run the image-owned `launchplane-readiness` helper through the
+loopback probes inside the candidate; forwarded requests and peers in separate
+network namespaces receive 403. A proxy sharing the candidate's network namespace
+must exclude this route from public ingress or preserve forwarded headers; a
+loopback peer alone cannot identify an unmarked local relay. Run the image-owned
+`launchplane-readiness` helper through the
 candidate's existing private execution channel. No new credential is needed.
 Responses contain only `status` and a fixed failure reason, use `no-store`, and
 never enumerate databases, configurations or credentials.
@@ -135,7 +138,10 @@ receipt, and representative homepage/login/public paths with content assertions.
 There are no tenant route or content defaults. The request sends both the real
 Host and `X-Odoo-Database`; database filtering and Website selection must agree,
 with no Website fallback or session cookie. All pending install/update/removal
-states and Odoo's partially-updated marker fail readiness.
+states and Odoo's [partially-updated marker](https://github.com/odoo/odoo/blob/e55c653b4dbafba45de5434c8da96db5952b42cb/odoo/modules/loading.py#L604)
+fail readiness. Odoo writes that marker when module actions remain pending after
+an update, and [registry startup](https://github.com/odoo/odoo/blob/e55c653b4dbafba45de5434c8da96db5952b42cb/odoo/orm/registry.py#L174)
+consumes it to force another update.
 
 The maintenance producer records `launchplane.readiness.release` in
 `ir.config_parameter` **after** successful exact-release updates and the committed

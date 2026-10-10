@@ -25,13 +25,14 @@ mkdir "${fixture_dir}/data"
 chmod 777 "${fixture_dir}/data"
 # Install only the test driver into disposable mounted storage, before it can
 # reach a candidate. Chromium itself is supplied by the existing devtools image.
-uv export --project "${repo_root}" --frozen --only-group dev --no-hashes --no-emit-project > "${fixture_dir}/browser-requirements.txt"
+docker run --rm -v "${repo_root}:/source:ro" --entrypoint uv "${browser_image}" \
+    export --project /source --frozen --only-group dev --no-hashes --no-emit-project > "${fixture_dir}/browser-requirements.txt"
 docker run --rm -v "${fixture_dir}:/fixture" --entrypoint uv "${browser_image}" \
     pip install --target /fixture/browser-driver -r /fixture/browser-requirements.txt >/dev/null
 docker network create --internal "${network}" >/dev/null
 docker run -d --name "${postgres}" --network "${network}" \
     -e POSTGRES_USER=odoo -e POSTGRES_PASSWORD=isolated-fixture \
-    ghcr.io/baosystems/postgis:17-3.5 >/dev/null
+    ghcr.io/baosystems/postgis:17-3.5@sha256:75e3391d48e13538928fd26141b30f12c7587d937919c6656f3967f176af7701 >/dev/null
 for _ in {1..60}; do
     if docker exec "${postgres}" pg_isready -h 127.0.0.1 -U odoo >/dev/null 2>&1; then break; fi
     sleep 1
@@ -55,8 +56,19 @@ for _ in {1..90}; do
     sleep 1
 done
 docker exec "${candidate}" /venv/bin/python /fixture-scripts/assets.py
+
+refresh_observations() {
+    docker run --rm "${common[@]}" -e PYTHONPATH=/fixture/browser-driver --entrypoint /venv/bin/python "${browser_image}" \
+        /fixture-scripts/browser.py
+    docker exec "${candidate}" /usr/local/bin/launchplane-readiness prepare \
+        --contract /fixture/contract.json --evidence /fixture/browser.json > "${fixture_dir}/observations.json"
+}
+
+# Warm cold bundles first, then collect new evidence. Production freshness stays
+# strict; unrelated fixture stages never renew an old receipt's timestamp.
 docker run --rm "${common[@]}" -e PYTHONPATH=/fixture/browser-driver --entrypoint /venv/bin/python "${browser_image}" \
     /fixture-scripts/browser.py
+refresh_observations
 docker exec "${candidate}" /venv/bin/python /fixture-scripts/check.py
 docker exec -i "${candidate}" odoo-bin shell -d readiness_fixture \
     --db_host="${postgres}" --db_user=odoo --db_password=isolated-fixture \
@@ -64,6 +76,7 @@ docker exec -i "${candidate}" odoo-bin shell -d readiness_fixture \
 
 # Database state faults, observed by the running registry rather than a mock.
 for fault in install update removal stale-update partial-update; do
+    refresh_observations
     docker exec "${candidate}" /usr/local/bin/launchplane-readiness check \
         --contract /fixture/contract.json --evidence /fixture/observations.json >/dev/null
     case "${fault}" in
@@ -92,8 +105,8 @@ for fault in install update removal stale-update partial-update; do
     esac
     docker exec "${postgres}" psql -U odoo -d readiness_fixture -c "${restore}" >/dev/null
 done
-# The readiness surface is unavailable from a private-network peer as well as public proxies.
-status="$(docker run --rm --network "${network}" curlimages/curl:8.16.0 \
+# A separate-container network peer cannot access the loopback-only surface.
+status="$(docker run --rm --network "${network}" --entrypoint curl "${image_reference}" \
     -s -o /dev/null -w '%{http_code}' -X POST "http://${candidate}:8069/launchplane/readiness" \
     -H 'Host: fixture.invalid:8069' -H 'X-Odoo-Database: readiness_fixture' -H 'Content-Type: application/json' -d '{}')"
 test "${status}" = 403
