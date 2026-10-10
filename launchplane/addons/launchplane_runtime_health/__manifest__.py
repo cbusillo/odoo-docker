@@ -1,6 +1,6 @@
 {
     "name": "Launchplane Runtime Health",
-    "version": "19.0.0.1",
+    "version": "19.0.0.2",
     "category": "Technical",
     "summary": "Expose Launchplane runtime identity health evidence",
     "description": "Server-wide health endpoint for Launchplane-managed Odoo runtimes.",

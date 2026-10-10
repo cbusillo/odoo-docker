@@ -116,6 +116,73 @@ effective addons path and `base,web,launchplane_runtime_health` in the effective
 server-wide modules. `/odoo/odoo-bin` normalizes server-mode invocations to keep
 those image-owned defaults present.
 
+### Private database readiness
+
+`POST /launchplane/readiness` is distinct from liveness. It accepts only direct
+loopback probes inside the candidate; forwarded requests and network peers
+receive 403. Run the image-owned `launchplane-readiness` helper through the
+candidate's existing private execution channel. No new credential is needed.
+Responses contain only `status` and a fixed failure reason, use `no-store`, and
+never enumerate databases, configurations or credentials.
+
+The versioned contract and validation are owned by
+[`controllers/readiness.py`](launchplane/addons/launchplane_runtime_health/controllers/readiness.py).
+[`scripts/fixtures/readiness/setup.py`](scripts/fixtures/readiness/setup.py)
+provides a complete isolated example. Launchplane supplies the intended Host,
+database and UUID, Website, expected installed/loaded modules, immutable runtime
+identity (artifact, image digest, source commit, slot and release), exact update
+receipt, and representative homepage/login/public paths with content assertions.
+There are no tenant route or content defaults. The request sends both the real
+Host and `X-Odoo-Database`; database filtering and Website selection must agree,
+with no Website fallback or session cookie. All pending install/update/removal
+states and Odoo's partially-updated marker fail readiness.
+
+The maintenance producer records `launchplane.readiness.release` in
+`ir.config_parameter` **after** successful exact-release updates and the committed
+credential boundary. Its receipt binds the full expected runtime identity and
+resolved update list, and attests the mail/integration fences and committed
+credential sanitizing. An empty update list is valid for a compatible release,
+but still needs a fresh release receipt. This endpoint never strips keys, updates
+modules, loads a registry deliberately, or changes a fence. Odoo startup/request
+dispatch can load the registry before any controller runs: the candidate must
+start only after the existing pre-registry credential boundary is committed.
+Launchplane owns proving those fences and starting the candidate with crons
+disabled (`--max-cron-threads=0`), isolated outbound networking and one writer
+owner. A receipt is an attestation by that trusted coordinator, not independent
+proof of host networking or arbitrary addon side effects.
+
+Preparation and readiness are separate commands:
+
+```bash
+# Controlled preparation: can render and generate bundles/attachments.
+launchplane-readiness prepare --contract /private/contract.json \
+  --evidence /private/browser.json > /private/observations.json
+# Observational readiness: no page fetches, warming or database writes.
+launchplane-readiness check --contract /private/contract.json \
+  --evidence /private/observations.json
+```
+
+Launchplane's controlled browser smoke provides the browser receipt, bound to
+the contract hash and every configured path, after successful navigation,
+expected content, script and response checks. The fixture's
+[`browser.py`](scripts/fixtures/readiness/browser.py) demonstrates the receipt
+with Chromium. Preparation first checks the candidate's database/release/fence
+state through readiness; only its missing-observation response permits warming.
+It then renders the configured pages, asserts content, and
+fetches referenced CSS, JS and media, including CSS resources. Redirects,
+missing/empty resources and unexpected asset content types fail preparation.
+Cross-origin assets require explicit HTTPS `asset_origins` from runtime records
+or scoped input. There are no origin defaults. Their requests carry no candidate
+Host/database headers, cookies or credentials; redirects and ambient proxy
+settings remain disabled. The coordinator must permit only the required public
+asset destinations through its outbound fence. The isolated fixture uses local
+system fonts and an internal Docker network; it never contacts a public CDN.
+Readiness requires successful render/asset/browser evidence no older than 30
+seconds, bound to the exact contract. Re-run preparation immediately before a
+switch. These are observations at their recorded times, not a promise that a
+later request will succeed. Launchplane coordinates the final switch and public
+post-switch verification; HTTP 200 from liveness or `/web/health` is insufficient.
+
 ## CLI Contract
 
 - `/odoo/odoo-bin` is a compatibility wrapper over upstream
@@ -333,6 +400,10 @@ docker build \
   before checking the devtools image browser tooling and addon path setup.
 - `scripts/smoke-db-init.sh <image-reference>` checks database-backed Odoo
   initialization.
+- `scripts/smoke-readiness.sh <runtime-image> [browser-image]` creates a fresh
+  Website database on a private internal Docker network, exercises Chromium and
+  real page/asset preparation, and proves readiness failures. All database keys
+  and runtime identities in this fixture are inert, and no ports are published.
 - `scripts/test-downstream-helpers.sh <image-reference>` checks downstream
   Python sync and external addon fetch behavior, including legacy compatibility,
   strict partial and layered locks, stale and incomplete lock failures, owned

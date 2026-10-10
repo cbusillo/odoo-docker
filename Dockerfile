@@ -222,6 +222,7 @@ COPY scripts/configure-dev-addon-paths.sh /usr/local/bin/configure-dev-addon-pat
 COPY scripts/odoo-python-sync.sh /usr/local/bin/odoo-python-sync.sh
 COPY scripts/odoo-python-sync.py /usr/local/lib/odoo-python-sync.py
 COPY scripts/odoo-fetch-addons.sh /usr/local/bin/odoo-fetch-addons.sh
+COPY --chmod=0755 scripts/launchplane-readiness.py /usr/local/bin/launchplane-readiness
 
 RUN mv /odoo/odoo-bin /odoo/odoo-bin.source \
     && install -m 0755 /usr/local/bin/odoo-bin-wrapper.sh /odoo/odoo-bin \
