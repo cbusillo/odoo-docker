@@ -12,4 +12,4 @@ pyopenssl==26.4.0  # Required for cryptography>=49 compatibility.
 pypdf==6.19.0  # Fixes CVE-2026-102993 through CVE-2026-103000.
 requests==2.34.2
 urllib3==2.8.0  # Fixes CVE-2026-97687, CVE-2026-97688, and CVE-2026-97689.
-Werkzeug==3.1.6
+Werkzeug==3.1.9
