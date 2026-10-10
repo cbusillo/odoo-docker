@@ -25,6 +25,7 @@
       "runtime": "bash scripts/smoke-runtime.sh <image-reference>",
       "devtools": "bash scripts/smoke-devtools.sh <image-reference>",
       "smokeDbInit": "bash scripts/smoke-db-init.sh <image-reference>",
+      "readiness": "bash scripts/smoke-readiness.sh <runtime-image> [browser-image]",
       "downstreamHelpers": "bash scripts/test-downstream-helpers.sh <image-reference>",
       "dependencyHealth": "bash scripts/test-image-dependency-health.sh",
       "odooBinWrapper": "bash scripts/test-odoo-bin-wrapper.sh",
@@ -105,24 +106,6 @@
     "service": {
       "contextUrlEnv": "LAUNCHPLANE_CONTEXT_URL",
       "operatorUrlEnv": "LAUNCHPLANE_OPERATOR_URL"
-    },
-    "mergeTrain": {
-      "enabled": true,
-      "controller": true,
-      "readyLabel": "ready-to-merge",
-      "baseBranch": "main",
-      "githubActionsRunner": {
-        "repo": "cbusillo/launchplane",
-        "workflow": "merge-train-runner.yml",
-        "ref": "main",
-        "runnerMode": "controller",
-        "mutateDefault": false,
-        "revisionEvidenceFields": {
-          "runnerWorkflow": "workflow_run.head_sha",
-          "candidate": "result.candidate.candidate_sha",
-          "landing": "result.landing_plan.entries[].merge_commit_sha"
-        }
-      }
     }
   },
   "githubSignals": {

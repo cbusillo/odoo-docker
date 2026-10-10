@@ -492,6 +492,10 @@ jobs:
         if: matrix.target == 'runtime'
         run: scripts/smoke-db-init.sh odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-runtime
 
+      - name: Smoke test database-bound readiness and Chromium
+        if: matrix.target == 'runtime-devtools'
+        run: bash scripts/smoke-readiness.sh odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-devtools odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-devtools
+
       - name: Validate downstream helper contract
         if: matrix.target == 'runtime'
         run: scripts/test-downstream-helpers.sh odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-runtime
