@@ -201,7 +201,8 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   effective addons path and `launchplane_runtime_health` in the server-wide
   module list while preserving `base,web`.
 - A nonempty `ODOO_DB_PASSWORD` is forwarded as `PGPASSWORD` for every
-  subcommand. Odoo reads it ahead of config-file passwords; the wrapper never
+  subcommand, overriding an inherited `PGPASSWORD`. Odoo reads it ahead of
+  config-file passwords; the wrapper never
   generates a password argument. When it is empty or absent, an existing
   `PGPASSWORD` or config-file password keeps upstream behavior. Downstream
   callers should use these environment/config paths instead of password flags.

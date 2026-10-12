@@ -46,7 +46,7 @@ docker run --rm "${common[@]}" "${image_reference}" \
     odoo-bin -d readiness_fixture --init website --without-demo --stop-after-init --max-cron-threads=0 --log-level=warn
 docker run --rm -i "${common[@]}" "${image_reference}" \
     odoo-bin shell -d readiness_fixture --db_host="${postgres}" --db_user=odoo \
-    --db_password=isolated-fixture --max-cron-threads=0 --log-level=warn < "${repo_root}/scripts/fixtures/readiness/setup.py"
+    --max-cron-threads=0 --log-level=warn < "${repo_root}/scripts/fixtures/readiness/setup.py"
 identity="$(jq -c '.runtime_identity' "${fixture_dir}/contract.json")"
 docker run -d --name "${candidate}" --network-alias fixture.invalid "${common[@]}" \
     -e LAUNCHPLANE_RUNTIME_IDENTITY_JSON="${identity}" "${image_reference}" \
@@ -71,7 +71,7 @@ docker run --rm "${common[@]}" -e PYTHONPATH=/fixture/browser-driver --entrypoin
 refresh_observations
 docker exec "${candidate}" /venv/bin/python /fixture-scripts/check.py
 docker exec -i "${candidate}" odoo-bin shell -d readiness_fixture \
-    --db_host="${postgres}" --db_user=odoo --db_password=isolated-fixture \
+    --db_host="${postgres}" --db_user=odoo \
     --max-cron-threads=0 --log-level=warn < "${repo_root}/scripts/fixtures/readiness/registry.py"
 
 # Database state faults, observed by the running registry rather than a mock.

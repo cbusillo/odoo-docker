@@ -19,7 +19,12 @@ chmod +x "${fake_source_bin}"
 cat > "${fake_python_bin}" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${PGPASSWORD:-}" != "${WRAPPER_EXPECTED_PASSWORD:?missing expected password}" ]]; then
+if [[ "${WRAPPER_EXPECT_PASSWORD_UNSET:-}" == "true" ]]; then
+  if [[ "${PGPASSWORD+x}" == "x" ]]; then
+    echo "Wrapper replaced a config-only password with an environment value" >&2
+    exit 1
+  fi
+elif [[ "${PGPASSWORD:-}" != "${WRAPPER_EXPECTED_PASSWORD:?missing expected password}" ]]; then
   echo "Wrapper did not forward the password through the environment" >&2
   exit 1
 fi
@@ -85,6 +90,12 @@ for password_state in empty absent; do
   ODOO_SOURCE_BIN="${fake_source_bin}" \
   ODOO_WRAPPER_PYTHON="${fake_python_bin}" \
   "${wrapper_path}" shell --no-http
+
+  WRAPPER_CAPTURE_FILE="${captured_arguments_file}" \
+  WRAPPER_EXPECT_PASSWORD_UNSET=true \
+  ODOO_SOURCE_BIN="${fake_source_bin}" \
+  ODOO_WRAPPER_PYTHON="${fake_python_bin}" \
+  env -u PGPASSWORD "${wrapper_path}" shell --no-http
 done
 
 run_wrapper -d shell --stop-after-init

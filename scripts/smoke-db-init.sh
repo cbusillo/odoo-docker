@@ -132,6 +132,7 @@ for _ in {1..60}; do
 	sleep 1
 done
 if [[ "${shell_ready}" != "true" ]]; then
+	docker logs "${shell_container}" >&2 || true
 	echo "Authenticated Odoo shell did not become ready" >&2
 	exit 1
 fi
