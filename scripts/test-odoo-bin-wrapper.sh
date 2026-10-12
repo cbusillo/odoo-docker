@@ -19,6 +19,10 @@ chmod +x "${fake_source_bin}"
 cat > "${fake_python_bin}" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${PGPASSWORD:-}" != "${WRAPPER_EXPECTED_PASSWORD:?missing expected password}" ]]; then
+  echo "Wrapper did not forward the password through the environment" >&2
+  exit 1
+fi
 printf '%s\n' "$@" > "${WRAPPER_CAPTURE_FILE:?missing WRAPPER_CAPTURE_FILE}"
 exit 0
 EOF
@@ -26,23 +30,30 @@ chmod +x "${fake_python_bin}"
 
 run_wrapper() {
   WRAPPER_CAPTURE_FILE="${captured_arguments_file}" \
+  WRAPPER_EXPECTED_PASSWORD="${test_password}" \
   ODOO_SOURCE_BIN="${fake_source_bin}" \
   ODOO_WRAPPER_PYTHON="${fake_python_bin}" \
   ODOO_DB_HOST="database" \
   ODOO_DB_PORT="5432" \
   ODOO_DB_USER="odoo" \
-  ODOO_DB_PASSWORD="secret" \
+  ODOO_DB_PASSWORD="${test_password}" \
+  PGPASSWORD="stale-password" \
   ODOO_ADDONS_PATH="/opt/project/addons" \
   ODOO_DATA_DIR="/volumes/data" \
   "${wrapper_path}" "$@"
+  if grep -Eq -- '^--db_password(=|$)|^-w' "${captured_arguments_file}" || \
+    grep -Fq -- "${test_password}" "${captured_arguments_file}"; then
+    echo "Wrapper exposed a database password in process arguments" >&2
+    exit 1
+  fi
 }
 
+test_password=$'synthetic password $ # \\ quote\'\"\nsecond line'
 run_wrapper --stop-after-init
 grep -Fx -- "${fake_source_bin}" "${captured_arguments_file}" >/dev/null
 grep -Fx -- "--db_host=database" "${captured_arguments_file}" >/dev/null
 grep -Fx -- "--db_port=5432" "${captured_arguments_file}" >/dev/null
 grep -Fx -- "--db_user=odoo" "${captured_arguments_file}" >/dev/null
-grep -Fx -- "--db_password=secret" "${captured_arguments_file}" >/dev/null
 grep -Fx -- "--addons-path=/opt/launchplane/addons,/opt/project/addons" "${captured_arguments_file}" >/dev/null
 grep -Fx -- "--load=base,web,launchplane_runtime_health" "${captured_arguments_file}" >/dev/null
 
@@ -56,6 +67,25 @@ if grep -q -- "--db_host=" "${captured_arguments_file}"; then
   echo "Wrapper injected server defaults for shell subcommand" >&2
   exit 1
 fi
+
+run_wrapper db dump fixture /tmp/fixture.dump --format dump
+grep -Fx -- "db" "${captured_arguments_file}" >/dev/null
+
+# Native PGPASSWORD and config-only callers retain upstream behavior when the
+# image-specific variable is empty or absent.
+for password_state in empty absent; do
+  if [[ "${password_state}" == "empty" ]]; then
+    export ODOO_DB_PASSWORD=""
+  else
+    unset ODOO_DB_PASSWORD
+  fi
+  WRAPPER_CAPTURE_FILE="${captured_arguments_file}" \
+  WRAPPER_EXPECTED_PASSWORD="native-password" \
+  PGPASSWORD="native-password" \
+  ODOO_SOURCE_BIN="${fake_source_bin}" \
+  ODOO_WRAPPER_PYTHON="${fake_python_bin}" \
+  "${wrapper_path}" shell --no-http
+done
 
 run_wrapper -d shell --stop-after-init
 if ! grep -q -- "--db_host=database" "${captured_arguments_file}"; then

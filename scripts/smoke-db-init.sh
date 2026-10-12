@@ -7,17 +7,31 @@ suffix="${RANDOM:-0}-$$"
 network_name="odoo-db-smoke-${suffix}"
 postgres_container="${network_name}-postgres"
 odoo_container="${network_name}-odoo"
+shell_container="${network_name}-shell"
 db_name="odoo_smoke_${suffix//[^[:alnum:]]/_}"
 health_db_name="odoo_health_${suffix//[^[:alnum:]]/_}"
 db_user="odoo"
-db_password="odoo"
+db_password=$'synthetic smoke password $ # \\ \' " %'
 
 cleanup() {
 	docker rm -f "${odoo_container}" >/dev/null 2>&1 || true
+	docker rm -f "${shell_container}" >/dev/null 2>&1 || true
 	docker rm -f "${postgres_container}" >/dev/null 2>&1 || true
 	docker network rm "${network_name}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+
+assert_password_absent_from_processes() {
+	local container="$1"
+	local listing
+	listing="$(docker top "${container}" -eo pid,args)"
+	if [[ "${listing}" == *"${db_password}"* ]] || \
+		grep -Eq -- '(^|[[:space:]])(--db_password(=|[[:space:]]|$)|-w([^[:space:]]*|$))' <<<"${listing}"; then
+		echo "Database password appeared in disposable-container process arguments" >&2
+		return 1
+	fi
+	printf '%s\n' "${listing}"
+}
 
 docker network create "${network_name}" >/dev/null
 
@@ -59,6 +73,8 @@ docker run --rm \
 	--entrypoint /bin/bash \
 	"${image_reference}" -lc "
 set -euo pipefail
+# Check that the environment password still overrides a stale config value.
+printf '[options]\ndb_password = stale-config-password\n' > /volumes/config/_generated.conf
 odoo-bin \
   -d '${db_name}' \
   --init base \
@@ -73,6 +89,53 @@ if [[ "${base_state}" != "installed" ]]; then
 	echo "Expected Odoo base module to be installed, got: ${base_state}" >&2
 	exit 1
 fi
+
+# Authenticate a non-server data command through the same image wrapper.
+docker run --rm \
+	--network "${network_name}" \
+	-e PGHOST="${postgres_container}" \
+	-e PGPORT=5432 \
+	-e PGUSER="${db_user}" \
+	-e ODOO_DB_PASSWORD="${db_password}" \
+	--entrypoint /bin/bash \
+	"${image_reference}" -lc "
+set -euo pipefail
+odoo-bin db dump '${db_name}' /tmp/smoke.dump --format dump
+test -s /tmp/smoke.dump
+"
+
+# Keep an authenticated script-runner shell alive for process-list evidence.
+docker run -d \
+	--name "${shell_container}" \
+	--network "${network_name}" \
+	-e PGHOST="${postgres_container}" \
+	-e PGPORT=5432 \
+	-e PGUSER="${db_user}" \
+	-e ODOO_DB_PASSWORD="${db_password}" \
+	--entrypoint /bin/bash \
+	"${image_reference}" -lc "
+set -euo pipefail
+printf '%s\n' \
+  'env.cr.execute(\"SELECT 1\")' \
+  'assert env.cr.fetchone() == (1,)' \
+  'print(\"authenticated shell ready\", flush=True)' \
+  'import time; time.sleep(120)' \
+  | odoo-bin shell -d '${db_name}' --no-http --log-level=error
+" >/dev/null
+
+shell_ready=false
+for _ in {1..60}; do
+	if docker logs "${shell_container}" 2>&1 | grep -Fq 'authenticated shell ready'; then
+		shell_ready=true
+		break
+	fi
+	sleep 1
+done
+if [[ "${shell_ready}" != "true" ]]; then
+	echo "Authenticated Odoo shell did not become ready" >&2
+	exit 1
+fi
+assert_password_absent_from_processes "${shell_container}"
 
 runtime_identity_json="{\"schema_version\":1,\"product\":\"odoo-smoke\",\"context\":\"smoke\",\"instance\":\"testing\",\"artifact_id\":\"artifact-smoke\"}"
 
@@ -107,6 +170,8 @@ if [[ "${health_ready}" != "true" ]]; then
 	echo "Launchplane health endpoint did not become ready" >&2
 	exit 1
 fi
+
+assert_password_absent_from_processes "${odoo_container}"
 
 docker run --rm \
 	--network "${network_name}" \

@@ -126,6 +126,12 @@ normalize_addons_path() {
   normalize_comma_list_with_first_item "$launchplane_addons_path" "$1"
 }
 
+# Odoo 19 reads PGPASSWORD for every subcommand, ahead of config-file values.
+# Keep the image's environment contract without exposing it in process argv.
+if [[ -n "${ODOO_DB_PASSWORD:-}" ]]; then
+  export PGPASSWORD="${ODOO_DB_PASSWORD}"
+fi
+
 if [[ "$inject_runtime_defaults" == "true" ]]; then
   if ! argument_present "-c" && ! argument_present "--config"; then
     if [[ -f "/volumes/config/_generated.conf" ]]; then
@@ -144,10 +150,6 @@ if [[ "$inject_runtime_defaults" == "true" ]]; then
 
   if [[ -n "${ODOO_DB_USER:-}" ]] && ! argument_present "--db_user"; then
     arguments=("--db_user=${ODOO_DB_USER}" "${arguments[@]}")
-  fi
-
-  if [[ -n "${ODOO_DB_PASSWORD:-}" ]] && ! argument_present "--db_password"; then
-    arguments=("--db_password=${ODOO_DB_PASSWORD}" "${arguments[@]}")
   fi
 
   ensure_option_value "--addons-path" "${ODOO_ADDONS_PATH:-$default_odoo_addons_path}" normalize_addons_path
