@@ -200,6 +200,12 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
 - Server-style invocations always include `/opt/launchplane/addons` in the
   effective addons path and `launchplane_runtime_health` in the server-wide
   module list while preserving `base,web`.
+- A nonempty `ODOO_DB_PASSWORD` is forwarded as `PGPASSWORD` for every
+  subcommand, overriding an inherited `PGPASSWORD`. Odoo reads it ahead of
+  config-file passwords; the wrapper never
+  generates a password argument. When it is empty or absent, an existing
+  `PGPASSWORD` or config-file password keeps upstream behavior. Downstream
+  callers should use these environment/config paths instead of password flags.
 
 ## Downstream Build Contract
 
@@ -405,7 +411,8 @@ docker build \
 - `scripts/smoke-devtools.sh <image-reference>` checks the runtime contract
   before checking the devtools image browser tooling and addon path setup.
 - `scripts/smoke-db-init.sh <image-reference>` checks database-backed Odoo
-  initialization.
+  initialization, authenticated shell and database dump commands, and that
+  disposable Odoo process listings omit database password values and flags.
 - `scripts/smoke-readiness.sh <runtime-image> [browser-image]` creates a fresh
   Website database on a private internal Docker network, exercises Chromium and
   real page/asset preparation, and proves readiness failures. All database keys
