@@ -413,8 +413,8 @@ docker build \
 - `scripts/smoke-db-init.sh <image-reference>` checks database-backed Odoo
   initialization, authenticated shell and database dump commands, and that
   disposable Odoo process listings omit database password values and flags.
-  It also runs upstream Odoo's `base:TestImage` suite against the installed
-  Pillow, including format conversion, resizing and EXIF orientation.
+  It also requires a successful, nonempty run of upstream Odoo's
+  `base:TestImage` suite against the installed Pillow.
 - `scripts/smoke-readiness.sh <runtime-image> [browser-image]` creates a fresh
   Website database on a private internal Docker network, exercises Chromium and
   real page/asset preparation, and proves readiness failures. All database keys
