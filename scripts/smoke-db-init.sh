@@ -84,7 +84,7 @@ odoo-bin \
   --stop-after-init \
   --log-level=warn \
   --log-handler=odoo.tests:INFO 2>&1 | tee /tmp/odoo-image-tests.log
-if ! grep -Eq \"odoo[.]tests[.]result: 0 failed, 0 error[(]s[)] of [1-9][0-9]* tests when loading database '${db_name}'$\" /tmp/odoo-image-tests.log; then
+if ! grep -Eq \"odoo[.]tests[.]result: 0 failed, 0 error[(]s[)] of [1-9][0-9]* tests when loading database '${db_name}'[[:space:]]*$\" /tmp/odoo-image-tests.log; then
   echo 'Expected a successful, nonempty upstream Odoo image test run' >&2
   exit 1
 fi
