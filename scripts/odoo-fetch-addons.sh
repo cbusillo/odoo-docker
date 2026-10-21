@@ -99,8 +99,6 @@ publish_single_addon_repository() {
 
 link_modules() {
 	local repository_root="$1"
-	local module_root="$2"
-	local repository_name="$3"
 	local scan_roots=()
 	local scan_root
 	local module_dir
@@ -109,27 +107,8 @@ link_modules() {
 	local resolved_repository_root
 	local link_path
 	local link_target
-	local single_link_path
 
 	resolved_repository_root="$(realpath -e "${repository_root}")"
-
-	if repository_root_is_addon "${repository_root}"; then
-		single_link_path="${module_root}/${repository_name}"
-
-		if [[ -L "${single_link_path}" ]]; then
-			if [[ "$(readlink "${single_link_path}")" == "${repository_root}" ]]; then
-				return
-			fi
-		fi
-
-		if [[ -e "${single_link_path}" ]]; then
-			echo "Addon path collision for ${repository_name} in ${module_root}; resolve duplicate repositories before building." >&2
-			exit 1
-		fi
-
-		ln -s "${repository_root}" "${single_link_path}"
-		return
-	fi
 
 	if [[ -d "${repository_root}/enterprise" ]]; then
 		scan_roots+=("${repository_root}/enterprise")
@@ -158,7 +137,7 @@ link_modules() {
 			fi
 
 			module_name="$(basename "${module_dir}")"
-			link_path="${module_root}/${module_name}"
+			link_path="${target_root}/${module_name}"
 			if [[ -L "${link_path}" ]]; then
 				link_target="$(readlink "${link_path}")"
 				if [[ "${link_target}" == "${module_dir}" ]]; then
@@ -166,7 +145,7 @@ link_modules() {
 				fi
 			fi
 			if [[ -e "${link_path}" ]]; then
-				echo "Addon path collision for ${module_name} in ${module_root}; resolve duplicate repositories before building." >&2
+				echo "Addon path collision for ${module_name} in ${target_root}; resolve duplicate repositories before building." >&2
 				exit 1
 			fi
 
@@ -233,7 +212,7 @@ for repository_entry in "${repositories_to_fetch[@]}"; do
 	if repository_root_is_addon "${repository_target}"; then
 		publish_single_addon_repository "${repository_target}" "${repository_name}"
 	else
-		link_modules "${repository_target}" "${target_root}" "${repository_name}"
+		link_modules "${repository_target}"
 	fi
 done
 
