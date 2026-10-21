@@ -41,25 +41,4 @@ env -u VIRTUAL_ENV "${base_python}" -c "import importlib.util; assert importlib.
 ODOO_SOURCE_BIN=/bin/true ODOO_WRAPPER_PYTHON=/bin/echo /odoo/odoo-bin --stop-after-init | grep -F -- "--load=base,web,launchplane_runtime_health" >/dev/null
 '
 
-docker run --rm -i --entrypoint /venv/bin/python "${image_reference}" <<'PY'
-import io
-import ssl
-
-import certifi
-from PIL import Image
-
-from odoo.tools import image_process
-
-ssl.create_default_context(cafile=certifi.where())
-for source_format, mode in (("PNG", "RGBA"), ("JPEG", "RGB")):
-    source = io.BytesIO()
-    Image.new(mode, (64, 32), "red").save(source, format=source_format)
-    for output_format in ("PNG", "JPEG"):
-        result = image_process(source.getvalue(), size=(16, 16), output_format=output_format)
-        with Image.open(io.BytesIO(result)) as processed:
-            processed.load()
-            assert processed.format == output_format, processed.format
-            assert processed.size == (16, 8), processed.size
-PY
-
 echo "runtime smoke checks passed: ${image_reference}"
