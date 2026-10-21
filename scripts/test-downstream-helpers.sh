@@ -286,12 +286,24 @@ assert_command_fails() {
 	fi
 }
 
-assert_missing_legacy_lock_fails() {
-	assert_command_fails "legacy pyproject without lock" \
-		docker run --rm \
-		-v "${legacy_root}:/opt/project" \
+assert_sync_fails() {
+	local label="$1"
+	shift
+	assert_command_fails "${label}" \
+		docker run --rm "$@" \
 		--entrypoint /bin/bash \
 		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+}
+
+assert_tenant_sync_fails() {
+	assert_sync_fails "$1" \
+		-v "${strict_support_root}:/opt/runtime" \
+		-v "$2:/opt/project"
+}
+
+assert_missing_legacy_lock_fails() {
+	assert_sync_fails "legacy pyproject without lock" \
+		-v "${legacy_root}:/opt/project"
 }
 
 assert_strict_pair_mismatch_fails() {
@@ -302,12 +314,9 @@ assert_strict_pair_mismatch_fails() {
 	cp "${strict_support_root}/.odoo-python-source.json" "${incomplete_root}/.odoo-python-source.json"
 	chmod -R a+rX "${incomplete_root}"
 
-	assert_command_fails "strict support pyproject without lock" \
-		docker run --rm \
+	assert_sync_fails "strict support pyproject without lock" \
 		-v "${incomplete_root}:/opt/runtime" \
-		-v "${empty_project_root}:/opt/project" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+		-v "${empty_project_root}:/opt/project"
 }
 
 assert_stale_tenant_lock_fails() {
@@ -320,12 +329,7 @@ stale = ["requests==2.32.5"]
 EOF
 	chmod -R a+rX "${stale_root}"
 
-	assert_command_fails "stale tenant lock" \
-		docker run --rm \
-		-v "${strict_support_root}:/opt/runtime" \
-		-v "${stale_root}:/opt/project" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+	assert_tenant_sync_fails "stale tenant lock" "${stale_root}"
 }
 
 assert_tampered_tenant_lock_fails() {
@@ -337,12 +341,7 @@ assert_tampered_tenant_lock_fails() {
 	grep -q 'version = "4.12.0"' "${tampered_root}/uv.lock"
 	chmod -R a+rX "${tampered_root}"
 
-	assert_command_fails "tampered tenant lock" \
-		docker run --rm \
-		-v "${strict_support_root}:/opt/runtime" \
-		-v "${tampered_root}:/opt/project" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+	assert_tenant_sync_fails "tampered tenant lock" "${tampered_root}"
 }
 
 assert_owned_requirements_fail() {
@@ -351,12 +350,7 @@ assert_owned_requirements_fail() {
 	printf 'requests==2.32.5\n' >"${invalid_root}/addons/test_local_pkg/requirements.txt"
 	chmod -R a+rX "${invalid_root}"
 
-	assert_command_fails "owned addon requirements outside workspace metadata" \
-		docker run --rm \
-		-v "${strict_support_root}:/opt/runtime" \
-		-v "${invalid_root}:/opt/project" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+	assert_tenant_sync_fails "owned addon requirements outside workspace metadata" "${invalid_root}"
 }
 
 assert_local_source_fails() {
@@ -369,12 +363,7 @@ assert_local_source_fails() {
 	rm -f "${invalid_root}/addons/test_local_pkg/pyproject.toml.bak"
 	chmod -R a+rX "${invalid_root}"
 
-	assert_command_fails "tenant local dependency source" \
-		docker run --rm \
-		-v "${strict_support_root}:/opt/runtime" \
-		-v "${invalid_root}:/opt/project" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+	assert_tenant_sync_fails "tenant local dependency source" "${invalid_root}"
 }
 
 assert_compact_direct_source_fails() {
@@ -387,12 +376,7 @@ assert_compact_direct_source_fails() {
 	rm -f "${invalid_root}/addons/test_local_pkg/pyproject.toml.bak"
 	chmod -R a+rX "${invalid_root}"
 
-	assert_command_fails "compact tenant local dependency source" \
-		docker run --rm \
-		-v "${strict_support_root}:/opt/runtime" \
-		-v "${invalid_root}:/opt/project" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+	assert_tenant_sync_fails "compact tenant local dependency source" "${invalid_root}"
 }
 
 assert_mutable_build_requirement_fails() {
@@ -403,12 +387,7 @@ assert_mutable_build_requirement_fails() {
 	rm -f "${invalid_root}/addons/test_local_pkg/pyproject.toml.bak"
 	chmod -R a+rX "${invalid_root}"
 
-	assert_command_fails "mutable owned build requirement" \
-		docker run --rm \
-		-v "${strict_support_root}:/opt/runtime" \
-		-v "${invalid_root}:/opt/project" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+	assert_tenant_sync_fails "mutable owned build requirement" "${invalid_root}"
 }
 
 assert_bare_external_archive_fails() {
@@ -422,13 +401,10 @@ assert_bare_external_archive_fails() {
 		"${external_ref}"
 	chmod -R a+rX "${invalid_root}"
 
-	assert_command_fails "bare external archive requirement" \
-		docker run --rm \
+	assert_sync_fails "bare external archive requirement" \
 		-v "${strict_support_root}:/opt/runtime" \
 		-v "${strict_tenant_root}:/opt/project" \
-		-v "${invalid_root}:/opt/extra_addons" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+		-v "${invalid_root}:/opt/extra_addons"
 }
 
 assert_mutable_external_ref_fails() {
@@ -462,12 +438,9 @@ assert_invalid_source_lock_path_fails() {
 			"${support_ref}" \
 			"${lock_path}"
 
-		assert_command_fails "source marker lock path ${label}" \
-			docker run --rm \
+		assert_sync_fails "source marker lock path ${label}" \
 			-v "${invalid_root}:/opt/runtime" \
-			-v "${strict_tenant_root}:/opt/project" \
-			--entrypoint /bin/bash \
-			"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+			-v "${strict_tenant_root}:/opt/project"
 	done
 }
 
@@ -539,23 +512,17 @@ EOF
 }
 
 assert_strict_skip_addons_fails() {
-	assert_command_fails "strict skip addon ambiguity" \
-		docker run --rm \
+	assert_sync_fails "strict skip addon ambiguity" \
 		-e ODOO_PYTHON_SYNC_SKIP_ADDONS=test_local_pkg \
 		-v "${strict_support_root}:/opt/runtime" \
-		-v "${strict_tenant_root}:/opt/project" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+		-v "${strict_tenant_root}:/opt/project"
 }
 
 assert_target_platform_mismatch_fails() {
-	assert_command_fails "target platform mismatch" \
-		docker run --rm \
+	assert_sync_fails "target platform mismatch" \
 		-e TARGETPLATFORM=windows/amd64 \
 		-v "${strict_support_root}:/opt/runtime" \
-		-v "${strict_tenant_root}:/opt/project" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+		-v "${strict_tenant_root}:/opt/project"
 }
 
 assert_external_conflict_fails() {
@@ -568,13 +535,10 @@ assert_external_conflict_fails() {
 		"${external_ref}"
 	chmod -R a+rX "${conflict_root}"
 
-	assert_command_fails "external compatibility changed locked package" \
-		docker run --rm \
+	assert_sync_fails "external compatibility changed locked package" \
 		-v "${strict_support_root}:/opt/runtime" \
 		-v "${strict_tenant_root}:/opt/project" \
-		-v "${conflict_root}:/opt/extra_addons" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+		-v "${conflict_root}:/opt/extra_addons"
 }
 
 assert_manifest_backed_external_addons() {
@@ -651,23 +615,17 @@ PY
 	done
 
 	rm "${checkout}/requirements.txt"
-	assert_command_fails "Whool addon missing repository requirements" \
-		docker run --rm \
+	assert_sync_fails "Whool addon missing repository requirements" \
 		-v "${strict_support_root}:/opt/runtime" \
 		-v "${strict_tenant_root}:/opt/project" \
-		-v "${external_root}:/opt/extra_addons:ro" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+		-v "${external_root}:/opt/extra_addons:ro"
 
 	printf 'python-slugify==7.0.0\n' >"${checkout}/requirements.txt"
 	chmod a+r "${checkout}/requirements.txt"
-	assert_command_fails "Whool repository requirements conflict with locked package" \
-		docker run --rm \
+	assert_sync_fails "Whool repository requirements conflict with locked package" \
 		-v "${strict_support_root}:/opt/runtime" \
 		-v "${strict_tenant_root}:/opt/project" \
-		-v "${external_root}:/opt/extra_addons:ro" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+		-v "${external_root}:/opt/extra_addons:ro"
 }
 
 assert_external_same_version_replacement_fails() {
@@ -688,13 +646,10 @@ EOF
 		"${external_ref}"
 	chmod -R a+rX "${conflict_root}"
 
-	assert_command_fails "external same-version source replacement" \
-		docker run --rm \
+	assert_sync_fails "external same-version source replacement" \
 		-v "${strict_support_root}:/opt/runtime" \
 		-v "${strict_tenant_root}:/opt/project" \
-		-v "${conflict_root}:/opt/extra_addons" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+		-v "${conflict_root}:/opt/extra_addons"
 }
 
 assert_cross_distribution_file_overlap_fails() {
@@ -721,13 +676,10 @@ EOF
 		"${external_ref}"
 	chmod -R a+rX "${conflict_root}"
 
-	assert_command_fails "cross-distribution file overlap" \
-		docker run --rm \
+	assert_sync_fails "cross-distribution file overlap" \
 		-v "${strict_support_root}:/opt/runtime" \
 		-v "${strict_tenant_root}:/opt/project" \
-		-v "${conflict_root}:/opt/extra_addons" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+		-v "${conflict_root}:/opt/extra_addons"
 }
 
 assert_nested_external_marker_is_ignored() {
@@ -781,12 +733,9 @@ assert_base_package_override_fails() {
 	chmod -R a+rX "${conflict_root}"
 	generate_lockfile "${conflict_root}" /opt/runtime
 
-	assert_command_fails "locked layer changed base package" \
-		docker run --rm \
+	assert_sync_fails "locked layer changed base package" \
 		-v "${conflict_root}:/opt/runtime" \
-		-v "${strict_tenant_root}:/opt/project" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+		-v "${strict_tenant_root}:/opt/project"
 }
 
 assert_layered_lock_conflict_fails() {
@@ -798,12 +747,7 @@ assert_layered_lock_conflict_fails() {
 	chmod -R a+rX "${conflict_root}"
 	generate_lockfile "${conflict_root}" /opt/project
 
-	assert_command_fails "support and tenant lock conflict" \
-		docker run --rm \
-		-v "${strict_support_root}:/opt/runtime" \
-		-v "${conflict_root}:/opt/project" \
-		--entrypoint /bin/bash \
-		"${image_reference}" -lc "set -euo pipefail; odoo-python-sync.sh prod"
+	assert_tenant_sync_fails "support and tenant lock conflict" "${conflict_root}"
 }
 
 assert_final_environment_incompatibility_fails() {
