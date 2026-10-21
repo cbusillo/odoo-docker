@@ -407,7 +407,8 @@ docker build \
 - `scripts/test-odoo-bin-wrapper.sh` checks wrapper argument handling without a
   container build.
 - `scripts/smoke-runtime.sh <image-reference>` checks the runtime image helper
-  contract and Odoo CLI availability.
+  contract, Odoo CLI availability, certifi's loadable CA bundle, and Odoo's
+  PNG/JPEG conversion and resize behavior against the installed Pillow.
 - `scripts/smoke-devtools.sh <image-reference>` checks the runtime contract
   before checking the devtools image browser tooling and addon path setup.
 - `scripts/smoke-db-init.sh <image-reference>` checks database-backed Odoo
@@ -426,6 +427,17 @@ docker build \
 ## Security Notes
 
 - Do not add credentials or access tokens in this repo.
+- Published runtime and devtools images must pass absolute high/critical
+  dependency health with the current advisory database, including inherited
+  Python dependencies. PR comparison success alone does not establish that
+  publishing is safe. New advisories can invalidate an unchanged image after
+  its last successful scan; the existing scheduled and publish scans enforce
+  this invariant. A blocked base publish also blocks the enterprise rebuild
+  and fresh OPW/CM builds that require its patched published digest.
+- certifi is a transitive Requests dependency, resolved during the base build.
+  Rebuild the base to pick up its patched release; enterprise images inherit
+  `/venv` without reinstalling Python dependencies. A successful base publish
+  dispatches the enterprise build with the scanned base digests.
 - Proprietary addons should be fetched by downstream builds using BuildKit
   secrets via `odoo-fetch-addons.sh`.
 - `requirements-overrides.txt` carries reviewed secure or shared downstream
