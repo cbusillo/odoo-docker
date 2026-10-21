@@ -10,6 +10,8 @@ Keep it short; defer deeper detail to the README and scripts.
 - Keep agent instructions in AGENTS.md; nested AGENTS.md files may describe
   path-specific guidance.
 - Read [README.md](README.md) before changing build or release behavior.
+- Write Python and Odoo JavaScript in the shared
+  [Python and Odoo style](https://github.com/cbusillo/codex-skills/blob/HEAD/skills/references/python-odoo-style.md).
 - Treat this repo as the base image contract for Launchplane-managed Odoo
   runtimes. Keep tenant/business policy downstream, but image-owned
   Launchplane runtime substrate belongs here.
