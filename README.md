@@ -212,6 +212,21 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
 - Downstream images inherit a single shared Python environment at `/venv`.
 - `/venv` is not configurable; downstream images must extend it additively and
   must not recreate it.
+- `/opt/launchplane/base-python-constraints.txt` is the base-owned Python
+  package catalog: sorted canonical `name==version` lines for every distribution
+  installed in `/venv` when the base is built. The image digest and target
+  platform identify this catalog. Runtime, devtools and enterprise images
+  inherit it unchanged; downstream images must not replace it. It is generated
+  by the existing Python sync helper's `export-base-constraints` command before
+  downstream installation. That command reports the current interpreter's
+  environment; consumers read the baked file instead of regenerating it after
+  extending `/venv`.
+- Consumers read the catalog from the exact image digest and target platform
+  used to build. The catalog does not authorize inherited-package replacement;
+  the installer retains its independent checks against the live environment.
+  Consumer adoption is tracked in
+  [devkit #246](https://github.com/cbusillo/odoo-devkit/issues/246) and
+  [OPW #258](https://github.com/cbusillo/odoo-tenant-opw/issues/258).
 - The image reserves these downstream layout paths:
   - `/opt/runtime`
   - `/opt/project`
