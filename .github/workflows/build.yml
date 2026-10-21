@@ -96,7 +96,7 @@ jobs:
 
           resolver_cutoff="$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:00:00Z')"
           apt_snapshot="$(date -u -d '24 hours ago' '+%Y%m%dT%H0000Z')"
-          ubuntu_image='ubuntu:noble@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517'
+          ubuntu_image="$(sed -n 's/^FROM \(ubuntu:noble@sha256:[0-9a-f]\{64\}\) AS runtime-system$/\1/p' Dockerfile)"
           trivy_image="${TRIVY_IMAGE}"
 
           if [ -n "${BASELINE_COMMIT}" ]; then
@@ -383,17 +383,11 @@ jobs:
             exit 1
           fi
 
-      - name: Resolve persistent verify builder name
-        id: verify_builder
-        run: |
-          set -euo pipefail
-          echo "name=odoo-docker-chris-testing" >> "${GITHUB_OUTPUT}"
-
       - id: setup_buildx_verify
         uses: docker/setup-buildx-action@v4
         with:
           driver: docker-container
-          name: ${{ steps.verify_builder.outputs.name }}
+          name: odoo-docker-chris-testing
           cleanup: false
           keep-state: true
 
@@ -732,17 +726,11 @@ jobs:
         with:
           image: docker.io/tonistiigi/binfmt@sha256:d3b963f787999e6c0219a48dba02978769286ff61a5f4d26245cb6a6e5567ea3
 
-      - name: Resolve persistent publish builder name
-        id: publish_builder
-        run: |
-          set -euo pipefail
-          echo "name=odoo-docker-chris-testing" >> "${GITHUB_OUTPUT}"
-
       - id: setup_buildx_publish
         uses: docker/setup-buildx-action@v4
         with:
           driver: docker-container
-          name: ${{ steps.publish_builder.outputs.name }}
+          name: odoo-docker-chris-testing
           cleanup: false
           keep-state: true
 
