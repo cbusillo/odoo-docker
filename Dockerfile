@@ -224,6 +224,10 @@ COPY scripts/odoo-python-sync.py /usr/local/lib/odoo-python-sync.py
 COPY scripts/odoo-fetch-addons.sh /usr/local/bin/odoo-fetch-addons.sh
 COPY --chmod=0755 scripts/launchplane-readiness.py /usr/local/bin/launchplane-readiness
 
+RUN /venv/bin/python /usr/local/lib/odoo-python-sync.py export-base-constraints \
+      > /opt/launchplane/base-python-constraints.txt \
+    && chmod 0644 /opt/launchplane/base-python-constraints.txt
+
 RUN mv /odoo/odoo-bin /odoo/odoo-bin.source \
     && install -m 0755 /usr/local/bin/odoo-bin-wrapper.sh /odoo/odoo-bin \
     && ln -sfn /odoo/odoo-bin.source /usr/local/bin/odoo-source-bin \

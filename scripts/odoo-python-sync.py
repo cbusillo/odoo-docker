@@ -718,10 +718,11 @@ def installed_versions() -> dict[str, str]:
 
 
 def write_constraints(path: Path, versions: dict[str, str]) -> None:
-    path.write_text(
-        "".join(f"{name}=={version}\n" for name, version in versions.items()),
-        encoding="utf-8",
-    )
+    path.write_text(render_constraints(versions), encoding="utf-8")
+
+
+def render_constraints(versions: dict[str, str]) -> str:
+    return "".join(f"{name}=={version}\n" for name, version in sorted(versions.items()))
 
 
 def target_platform() -> str:
@@ -1331,12 +1332,16 @@ def legacy_evidence() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("strict-sync", "legacy-evidence"))
+    parser.add_argument(
+        "command", choices=("strict-sync", "legacy-evidence", "export-base-constraints")
+    )
     parser.add_argument("--mode", choices=("prod", "dev"), default="prod")
     arguments = parser.parse_args()
     try:
         if arguments.command == "strict-sync":
             strict_sync(arguments.mode)
+        elif arguments.command == "export-base-constraints":
+            print(render_constraints(installed_versions()), end="")
         else:
             legacy_evidence()
     except (SyncError, OSError, UnicodeError, subprocess.CalledProcessError) as error:
