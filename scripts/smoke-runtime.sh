@@ -17,6 +17,27 @@ test -d /opt/extra_addons
 test -d /opt/launchplane/addons
 test -f /opt/launchplane/addons/launchplane_runtime_health/__manifest__.py
 test -f /volumes/config/_generated.conf
+/venv/bin/python - <<"PY"
+from importlib import metadata
+from pathlib import Path
+import re
+import subprocess
+
+catalog = Path("/opt/launchplane/base-python-constraints.txt")
+versions = {
+    re.sub(r"[-_.]+", "-", distribution.metadata["Name"]).lower(): distribution.version
+    for distribution in metadata.distributions()
+}
+expected = "".join(f"{name}=={version}\n" for name, version in sorted(versions.items()))
+assert versions, "Base Python environment is empty"
+assert catalog.read_text() == expected, "Base package catalog differs from /venv"
+assert catalog.stat().st_uid == 0, "Base catalog must be root-owned"
+assert catalog.stat().st_mode & 0o022 == 0, "Base catalog must not be writable by downstream users"
+exported = subprocess.check_output(
+    ["/venv/bin/python", "/usr/local/lib/odoo-python-sync.py", "export-base-constraints"], text=True
+)
+assert exported == expected, "Exported constraints differ from installed metadata"
+PY
 /venv/bin/python -c "import sys; assert sys.version_info[:2] == (3, 13), sys.version"
 /venv/bin/python -c "import cryptography, OpenSSL"
 test ! -e /venv/bin/pip

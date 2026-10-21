@@ -212,6 +212,29 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
 - Downstream images inherit a single shared Python environment at `/venv`.
 - `/venv` is not configurable; downstream images must extend it additively and
   must not recreate it.
+- `/opt/launchplane/base-python-constraints.txt` is the base-owned Python
+  package catalog: sorted canonical `name==version` lines for every distribution
+  installed in `/venv` when the base is built. The image digest and target
+  platform identify this catalog. Runtime, devtools and enterprise images
+  inherit it unchanged; downstream images must not replace it. It is generated
+  by the existing Python sync helper's `export-base-constraints` command before
+  downstream installation. That command reports the current interpreter's
+  environment; consumers read the baked file instead of regenerating it after
+  extending `/venv`.
+- Consumer tooling must resolve the configured base to an immutable digest,
+  read the catalog from that image for the target platform, and use the same
+  digest for the build. Merge its constraints into the staged dependency
+  workspace's `tool.uv.constraint-dependencies`, preserving tenant requirements
+  and constraints, then derive support and tenant locks without broad upgrades.
+  Use the same staged locks for local setup and CI, and record their exact bytes
+  in existing dependency provenance. Recompute derived locks when the base
+  changes; do not commit another copy of base versions. Constraints do not add
+  dependencies or override incompatible tenant requirements. Missing catalogs
+  and genuine conflicts must fail clearly. The installer retains its independent
+  inherited-package checks; the catalog does not authorize replacement.
+- The base catalog producer lives here. Consumer adoption is separate work in
+  devkit and tenant repositories; until adopted, existing frozen locks must
+  still agree with the inherited environment.
 - The image reserves these downstream layout paths:
   - `/opt/runtime`
   - `/opt/project`
