@@ -221,20 +221,12 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   downstream installation. That command reports the current interpreter's
   environment; consumers read the baked file instead of regenerating it after
   extending `/venv`.
-- Consumer tooling must resolve the configured base to an immutable digest,
-  read the catalog from that image for the target platform, and use the same
-  digest for the build. Merge its constraints into the staged dependency
-  workspace's `tool.uv.constraint-dependencies`, preserving tenant requirements
-  and constraints, then derive support and tenant locks without broad upgrades.
-  Use the same staged locks for local setup and CI, and record their exact bytes
-  in existing dependency provenance. Recompute derived locks when the base
-  changes; do not commit another copy of base versions. Constraints do not add
-  dependencies or override incompatible tenant requirements. Missing catalogs
-  and genuine conflicts must fail clearly. The installer retains its independent
-  inherited-package checks; the catalog does not authorize replacement.
-- The base catalog producer lives here. Consumer adoption is separate work in
-  devkit and tenant repositories; until adopted, existing frozen locks must
-  still agree with the inherited environment.
+- Consumers read the catalog from the exact image digest and target platform
+  used to build. The catalog does not authorize inherited-package replacement;
+  the installer retains its independent checks against the live environment.
+  Consumer adoption is tracked in
+  [devkit #246](https://github.com/cbusillo/odoo-devkit/issues/246) and
+  [OPW #258](https://github.com/cbusillo/odoo-tenant-opw/issues/258).
 - The image reserves these downstream layout paths:
   - `/opt/runtime`
   - `/opt/project`
