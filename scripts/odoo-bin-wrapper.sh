@@ -4,7 +4,6 @@ set -euo pipefail
 odoo_script="${ODOO_SOURCE_BIN:-/odoo/odoo-bin.source}"
 python_executable="${ODOO_WRAPPER_PYTHON:-/venv/bin/python}"
 arguments=("$@")
-inject_runtime_defaults=true
 launchplane_addons_path="/opt/launchplane/addons"
 launchplane_runtime_module="launchplane_runtime_health"
 default_odoo_addons_path="/opt/project/addons,/opt/extra_addons,/opt/launchplane/addons,/odoo/addons,/odoo/odoo/addons"

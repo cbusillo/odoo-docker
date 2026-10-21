@@ -126,7 +126,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       pkg-config \
       python3 \
       ripgrep \
-      rsync \
       tini \
       xfonts-75dpi \
       xfonts-base \
@@ -266,7 +265,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/root/.npm,sharing=locked \
     apt-get update \
     && apt-get install -y --no-install-recommends \
-      ca-certificates \
       fonts-liberation \
       libasound2t64 \
       libatk-bridge2.0-0t64 \
@@ -280,15 +278,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libnss3 \
       libpango-1.0-0 \
       libu2f-udev \
-      libx11-6 \
-      libxcb1 \
       libxcomposite1 \
       libxdamage1 \
-      libxext6 \
       libxfixes3 \
       libxkbcommon0 \
       libxrandr2 \
-      npm \
     && if [ -n "${RESOLVER_CUTOFF:-}" ]; then \
       PLAYWRIGHT_BROWSERS_PATH=/ms-playwright npx --yes --before="${RESOLVER_CUTOFF}" "playwright@${PLAYWRIGHT_VERSION}" install chromium --no-shell; \
     else \
