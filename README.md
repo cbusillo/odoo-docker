@@ -413,6 +413,8 @@ docker build \
 - `scripts/smoke-db-init.sh <image-reference>` checks database-backed Odoo
   initialization, authenticated shell and database dump commands, and that
   disposable Odoo process listings omit database password values and flags.
+  It also requires a successful, nonempty run of upstream Odoo's
+  `base:TestImage` suite against the installed Pillow.
 - `scripts/smoke-readiness.sh <runtime-image> [browser-image]` creates a fresh
   Website database on a private internal Docker network, exercises Chromium and
   real page/asset preparation, and proves readiness failures. All database keys
@@ -426,6 +428,10 @@ docker build \
 ## Security Notes
 
 - Do not add credentials or access tokens in this repo.
+- certifi is a transitive Requests dependency, resolved during the base build.
+  Rebuild the base to pick up its patched release; enterprise images inherit
+  `/venv` without reinstalling Python dependencies. See the
+  [CI release model](#ci-release-model) for scan and downstream publish gates.
 - Proprietary addons should be fetched by downstream builds using BuildKit
   secrets via `odoo-fetch-addons.sh`.
 - `requirements-overrides.txt` carries reviewed secure or shared downstream

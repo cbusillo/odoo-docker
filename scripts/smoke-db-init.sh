@@ -78,10 +78,16 @@ printf '[options]\ndb_password = stale-config-password\n' > /volumes/config/_gen
 odoo-bin \
   -d '${db_name}' \
   --init base \
+  --test-tags /base:TestImage \
   --without-demo \
   --http-interface=127.0.0.1 \
   --stop-after-init \
-  --log-level=warn
+  --log-level=warn \
+  --log-handler=odoo.tests:INFO 2>&1 | tee /tmp/odoo-image-tests.log
+if ! grep -Eq \"odoo[.]tests[.]result: 0 failed, 0 error[(]s[)] of [1-9][0-9]* tests when loading database '${db_name}'[[:space:]]*$\" /tmp/odoo-image-tests.log; then
+  echo 'Expected a successful, nonempty upstream Odoo image test run' >&2
+  exit 1
+fi
 "
 
 base_state="$(docker exec "${postgres_container}" psql -U "${db_user}" -d "${db_name}" -Atc "select state from ir_module_module where name = 'base';")"
