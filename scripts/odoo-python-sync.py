@@ -120,6 +120,17 @@ def validate_pair(root: Path, *, label: str) -> bool:
     return has_pyproject
 
 
+def validate_source_identity(repository: str, ref: str, *, label: str) -> None:
+    if not REPOSITORY_SLUG_PATTERN.fullmatch(repository):
+        raise SyncError(f"{label} source repository must use owner/repository syntax")
+    if any(part in {".", ".."} for part in repository.split("/")):
+        raise SyncError(f"{label} source repository cannot contain path traversal")
+    if not GIT_COMMIT_PATTERN.fullmatch(ref):
+        raise SyncError(
+            f"{label} source ref must be an exact lowercase 40-character git commit"
+        )
+
+
 def load_source_marker(root: Path, *, label: str) -> SourceMarker:
     marker_path = root / SOURCE_MARKER
     try:
@@ -135,14 +146,7 @@ def load_source_marker(root: Path, *, label: str) -> SourceMarker:
         raise SyncError(f"{label} source marker must contain repository/ref and optional lock_path")
     repository = str(payload["repository"]).strip()
     ref = str(payload["ref"]).strip()
-    if not REPOSITORY_SLUG_PATTERN.fullmatch(repository):
-        raise SyncError(f"{label} source repository must use owner/repository syntax")
-    if any(part in {".", ".."} for part in repository.split("/")):
-        raise SyncError(f"{label} source repository cannot contain path traversal")
-    if not GIT_COMMIT_PATTERN.fullmatch(ref):
-        raise SyncError(
-            f"{label} source ref must be an exact lowercase 40-character git commit"
-        )
+    validate_source_identity(repository, ref, label=label)
     lock_path = str(payload.get("lock_path", "uv.lock")).strip()
     normalized_lock_path = PurePosixPath(lock_path)
     if (
@@ -260,13 +264,7 @@ def validate_build_system(pyproject: dict[str, Any], *, path: Path) -> dict[str,
 def validate_uv_sources(
     pyproject: dict[str, Any], *, path: Path, allow_workspace: bool
 ) -> None:
-    tool = pyproject.get("tool")
-    if not isinstance(tool, dict):
-        return
-    uv = tool.get("uv")
-    if not isinstance(uv, dict):
-        return
-    sources = uv.get("sources", {})
+    sources = uv_config(pyproject).get("sources", {})
     if not isinstance(sources, dict):
         raise SyncError(f"{path} tool.uv.sources must be a table")
     for package_name, raw_source in sources.items():
@@ -428,14 +426,9 @@ def owned_projects(tenant_payload: dict[str, Any]) -> list[Path]:
 def parse_external_source_marker(path: Path) -> SourceMarker:
     raw_value = path.read_text(encoding="utf-8").strip()
     repository, separator, ref = raw_value.rpartition("@")
-    if not separator or not REPOSITORY_SLUG_PATTERN.fullmatch(repository):
+    if not separator:
         raise SyncError(f"Invalid external addon source marker: {path}")
-    if any(part in {".", ".."} for part in repository.split("/")):
-        raise SyncError(f"External addon source marker contains path traversal: {path}")
-    if not GIT_COMMIT_PATTERN.fullmatch(ref):
-        raise SyncError(
-            f"External addon source marker must use an exact git commit: {path}"
-        )
+    validate_source_identity(repository, ref, label=f"External addon marker {path}")
     return SourceMarker(repository=repository, ref=ref)
 
 
@@ -584,14 +577,7 @@ def discover_external_inputs(sync_mode: str) -> tuple[list[ExternalInput], list[
                 if resolved.parent not in seen_projects:
                     seen_projects.add(resolved.parent)
                     install_spec = str(resolved.parent)
-                    optional = payload.get("project", {}).get(
-                        "optional-dependencies", {}
-                    )
-                    if (
-                        sync_mode == "dev"
-                        and isinstance(optional, dict)
-                        and "dev" in optional
-                    ):
+                    if sync_mode == "dev" and declares_dev_extra(payload):
                         install_spec += "[dev]"
                     install_args.append(install_spec)
                 continue
@@ -617,16 +603,10 @@ def discover_external_inputs(sync_mode: str) -> tuple[list[ExternalInput], list[
     return inputs, install_args
 
 
-def ensure_external_inputs_unchanged(inputs: list[ExternalInput]) -> None:
-    changed = sorted(
-        item.dependency_file_path
-        for item in inputs
-        if sha256_file(item.path) != item.dependency_file_sha256
-    )
-    if changed:
-        raise SyncError(
-            f"External dependency inputs changed during installation: {changed}"
-        )
+def declares_dev_extra(pyproject: dict[str, Any]) -> bool:
+    project = pyproject.get("project")
+    optional = project.get("optional-dependencies", {}) if isinstance(project, dict) else {}
+    return isinstance(optional, dict) and "dev" in optional
 
 
 def has_dev_extra(root: Path, *, include_workspace: bool) -> bool:
@@ -636,17 +616,7 @@ def has_dev_extra(root: Path, *, include_workspace: bool) -> bool:
         paths.extend(
             path / "pyproject.toml" for path in workspace_members(root, payload)
         )
-    for path in paths:
-        payload = load_toml(path)
-        project = payload.get("project")
-        optional = (
-            project.get("optional-dependencies", {})
-            if isinstance(project, dict)
-            else {}
-        )
-        if isinstance(optional, dict) and "dev" in optional:
-            return True
-    return False
+    return any(declares_dev_extra(load_toml(path)) for path in paths)
 
 
 def export_lock(
@@ -948,6 +918,36 @@ def validate_installed_distribution_files(names: set[str]) -> None:
                 )
 
 
+def verify_installed_environment(
+    identities: dict[str, dict[str, Any]], external_inputs: list[ExternalInput]
+) -> None:
+    validate_installed_distribution_files(set(identities))
+    ensure_no_file_owner_collisions()
+    ensure_file_hashes_unchanged(
+        {item.path: item.dependency_file_sha256 for item in external_inputs},
+        label="External dependency inputs",
+    )
+
+
+def uv_pip(subcommand: str, *options: str) -> None:
+    run(["uv", "pip", subcommand, "--python", PYTHON_EXECUTABLE, *options])
+
+
+def install_preserving_packages(
+    install_arguments: list[str],
+    *,
+    before: dict[str, dict[str, Any]],
+    package_roots: dict[Path, SourceMarker],
+    external_inputs: list[ExternalInput],
+    label: str,
+) -> dict[str, dict[str, Any]]:
+    uv_pip("install", *install_arguments)
+    after = installed_package_identities(package_roots)
+    ensure_packages_preserved(before, after, label=label)
+    verify_installed_environment(after, external_inputs)
+    return after
+
+
 def ensure_build_requirements(
     project_roots: list[Path], locked_package_names: set[str]
 ) -> None:
@@ -1110,8 +1110,7 @@ def strict_sync(sync_mode: str) -> None:
     )
     package_roots = {**external_package_roots, **owned_package_roots}
     base_identities = installed_package_identities({})
-    validate_installed_distribution_files(set(base_identities))
-    ensure_no_file_owner_collisions()
+    verify_installed_environment(base_identities, external_inputs)
     base_versions = {
         name: identity["version"] for name, identity in base_identities.items()
     }
@@ -1141,28 +1140,18 @@ def strict_sync(sync_mode: str) -> None:
             )
         locked_package_names = exported_package_names(exports)
 
-        locked_install = [
-            "uv",
-            "pip",
-            "install",
-            "--python",
-            PYTHON_EXECUTABLE,
-            "--no-deps",
-        ]
         base_constraints_path = temporary_root / "base-constraints.txt"
         write_constraints(base_constraints_path, base_versions)
-        locked_install.extend(["--constraint", str(base_constraints_path)])
+        locked_install = ["--no-deps", "--constraint", str(base_constraints_path)]
         for export_path in exports:
             locked_install.extend(["-r", str(export_path)])
-        run(locked_install)
-        locked_identities = installed_package_identities({})
-        ensure_packages_preserved(
-            base_identities,
-            locked_identities,
+        locked_identities = install_preserving_packages(
+            locked_install,
+            before=base_identities,
+            package_roots={},
+            external_inputs=external_inputs,
             label="Locked dependency installation",
         )
-        validate_installed_distribution_files(set(locked_identities))
-        ensure_no_file_owner_collisions()
 
         ensure_build_requirements([*external_projects, *owned], locked_package_names)
 
@@ -1192,28 +1181,18 @@ def strict_sync(sync_mode: str) -> None:
                     for name, identity in before_external.items()
                 },
             )
-            run(
+            after_external = install_preserving_packages(
                 [
-                    "uv",
-                    "pip",
-                    "install",
-                    "--python",
-                    PYTHON_EXECUTABLE,
                     "--constraint",
                     str(constraints_path),
                     "--no-build-isolation",
                     *external_install_args,
-                ]
-            )
-            after_external = installed_package_identities(external_package_roots)
-            ensure_packages_preserved(
-                before_external,
-                after_external,
+                ],
+                before=before_external,
+                package_roots=external_package_roots,
+                external_inputs=external_inputs,
                 label="External compatibility installation",
             )
-            validate_installed_distribution_files(set(after_external))
-            ensure_no_file_owner_collisions()
-            ensure_external_inputs_unchanged(external_inputs)
         else:
             after_external = before_external
 
@@ -1231,33 +1210,16 @@ def strict_sync(sync_mode: str) -> None:
                 raise SyncError(
                     f"Owned addon package names collide with installed packages: {collisions}"
                 )
-            run(
-                [
-                    "uv",
-                    "pip",
-                    "install",
-                    "--python",
-                    PYTHON_EXECUTABLE,
-                    "--no-deps",
-                    "--no-build-isolation",
-                    *(str(path) for path in owned),
-                ]
-            )
-            after_owned = installed_package_identities(package_roots)
-            ensure_packages_preserved(
-                after_external,
-                after_owned,
+            install_preserving_packages(
+                ["--no-deps", "--no-build-isolation", *(str(path) for path in owned)],
+                before=after_external,
+                package_roots=package_roots,
+                external_inputs=external_inputs,
                 label="Owned addon metadata installation",
             )
-            validate_installed_distribution_files(set(after_owned))
-            ensure_no_file_owner_collisions()
-            ensure_external_inputs_unchanged(external_inputs)
 
-    run(["uv", "pip", "check", "--python", PYTHON_EXECUTABLE])
-    final_identities = installed_package_identities(package_roots)
-    validate_installed_distribution_files(set(final_identities))
-    ensure_no_file_owner_collisions()
-    ensure_external_inputs_unchanged(external_inputs)
+    uv_pip("check")
+    verify_installed_environment(installed_package_identities(package_roots), external_inputs)
     ensure_file_hashes_unchanged(lock_hashes, label="Dependency lock")
 
     uv_locks: list[dict[str, str]] = []
