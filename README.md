@@ -391,9 +391,9 @@ configuration hash, and platform. Publication evidence additionally records the
 exact manifest-list digest, platform child digests, and snapshot hashes.
 
 `uv` is copied from Astral's official container image and pinned by tag+digest
-in the Dockerfile. Dependabot checks that image reference and the workflow
-actions weekly, waits 7 days after a release, and groups version updates into one
-`infrastructure` pull request.
+in the Dockerfile. Renovate checks that image reference and the workflow
+actions weekly, waits 7 days after a release, and groups minor and patch updates
+into one pull request.
 
 ## Build
 
