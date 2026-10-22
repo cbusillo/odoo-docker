@@ -9,7 +9,7 @@ ARG POSTGRESQL_CLIENT_COMMON_VERSION
 ARG POSTGRESQL_LIBPQ_VERSION
 ARG RESOLVER_CUTOFF
 
-# Keep the official uv image first so Dependabot tracks it for Docker updates.
+# Keep the official uv image first so Renovate tracks it for Docker updates.
 FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336 AS uv-binary
 
 FROM --platform=$BUILDPLATFORM alpine/git:v2.54.0@sha256:ae0f6f4bce38d2b8c40becc0d6241a08d9f57186ea03029de2189a2b5e722d94 AS odoo-source
