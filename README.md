@@ -19,10 +19,8 @@ DIRECTION.md. [AGENTS.md](AGENTS.md) is the agent-instruction entry point;
 repository workflow metadata.
 
 Use the maintained [executing loop](https://github.com/cbusillo/codex-skills/blob/main/skills/references/executing-loop.md)
-for issue-backed work. Changes land through
-[Launchplane's merge train](https://github.com/cbusillo/codex-skills/blob/main/skills/launchplane/references/merge-train.md)
-after required checks and reviews. Image publishing follows the CI release
-model below; tenant runtime deployment is owned by Launchplane.
+for issue-backed work. Image publishing follows the CI release model below;
+tenant runtime deployment is owned by Launchplane.
 
 ## Images
 

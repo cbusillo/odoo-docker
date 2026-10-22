@@ -28,10 +28,8 @@ Keep it short; defer deeper detail to the README and scripts.
   for primary commands, validation gates, workflow routing, and cleanup policy.
 - Follow the maintained [executing loop](https://github.com/cbusillo/codex-skills/blob/main/skills/references/executing-loop.md)
   for claims, isolated worktrees, bot-authored changes, reviews, and closeout.
-- Hand green, reviewed PRs to Launchplane's merge train using the
-  [merge-train workflow](https://github.com/cbusillo/codex-skills/blob/main/skills/launchplane/references/merge-train.md).
-  The executing loop's `land` step here means a merge-train handoff; never call
-  `gh-pr.py merge` or merge by hand.
+- PRs land by the overall DIRECTION.md's
+  [merge-train rule](https://github.com/cbusillo/direction/blob/HEAD/DIRECTION.md#stop-boundaries).
 - Agents must not dispatch publishing workflows or push tags by hand; reruns go through the merge train or the agent asks Chris.
 
 ## Release Gate

@@ -77,7 +77,6 @@
   "prWorkflow": {
     "mergePath": "launchplane-merge-train",
     "handoffComment": "Ready for the merge train",
-    "handoff": "When the execution brief assigns a direction-session handoff, leave labeling and train driving to that session; otherwise follow the merge-train workflow.",
     "watchSkill": "babysit-pr",
     "modelReviewIsAdvisory": true,
     "requiredStatusChecks": [
