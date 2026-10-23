@@ -64,7 +64,11 @@
       "downstream helper behavior changes",
       "self-hosted runner or cache behavior changes",
       "workflow publishing changes"
-    ]
+    ],
+    "test": {
+      "local": "bash {test_script} {test_args}",
+      "ci": "bash scripts/test-image-dependency-health.sh && bash scripts/test-check-requirements-overrides.sh && bash scripts/test-odoo-bin-wrapper.sh && bash scripts/smoke-runtime.sh {runtime_image} && bash scripts/smoke-devtools.sh {devtools_image} && bash scripts/smoke-db-init.sh {runtime_image} && bash scripts/smoke-readiness.sh {devtools_image} {devtools_image} && bash scripts/test-downstream-helpers.sh {runtime_image}"
+    }
   },
   "importantWorkflows": [
     "Build And Publish Images",

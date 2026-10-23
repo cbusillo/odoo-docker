@@ -32,6 +32,26 @@ Keep it short; defer deeper detail to the README and scripts.
   [merge-train rule](https://github.com/cbusillo/direction/blob/HEAD/DIRECTION.md#stop-boundaries).
 - Agents must not dispatch publishing workflows or push tags by hand; reruns go through the merge train or the agent asks Chris.
 
+## Test Selection
+
+- `qualityGate.test.local` selects one complete test script from the README's
+  Validation Commands; replace `{test_script}` with its path and `{test_args}`
+  with its required arguments (or nothing). For example, wrapper changes use
+  `bash scripts/test-odoo-bin-wrapper.sh`.
+- Run focused local tests, required lint and inspection. For safety changes,
+  run the complete affected scripts: dependency/advisory policy uses
+  `test-image-dependency-health.sh`, dependency overrides use
+  `test-check-requirements-overrides.sh`, password/CLI handling uses
+  `test-odoo-bin-wrapper.sh` plus `smoke-db-init.sh`, readiness uses
+  `smoke-readiness.sh`, runtime Python/pip removal uses `smoke-runtime.sh`
+  (plus `smoke-devtools.sh` for devtools), and dependency/addon fetching uses
+  `test-downstream-helpers.sh`. Trace callers for overlapping areas.
+- `qualityGate.test.ci` describes the complete existing CI test sequence across
+  the build jobs. Replace `{runtime_image}` and `{devtools_image}` with the
+  corresponding images built by that run. CI retains both image builds,
+  dependency-health evaluation and the required `image-verification` aggregate;
+  all current-head checks must pass before ready. The full suite runs only in CI.
+
 ## Release Gate
 
 - Before release-oriented changes, run JetBrains inspections with the PyCharm
