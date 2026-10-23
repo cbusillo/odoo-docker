@@ -43,7 +43,8 @@ Keep it short; defer deeper detail to the README and scripts.
   `test-image-dependency-health.sh`, dependency overrides use
   `test-check-requirements-overrides.sh`, password/CLI handling uses
   `test-odoo-bin-wrapper.sh` plus `smoke-db-init.sh`, readiness uses
-  `smoke-readiness.sh`, and dependency/addon fetching uses
+  `smoke-readiness.sh`, runtime Python/pip removal uses `smoke-runtime.sh`
+  (plus `smoke-devtools.sh` for devtools), and dependency/addon fetching uses
   `test-downstream-helpers.sh`. Trace callers for overlapping areas.
 - `qualityGate.test.ci` describes the complete existing CI test sequence across
   the build jobs. Replace `{runtime_image}` and `{devtools_image}` with the
