@@ -2,8 +2,8 @@
 
 Base Odoo runtime image.
 
-This repository owns the base runtime build for Odoo 19. It compiles a
-deterministic runtime from the upstream Odoo source, then layers in `uv`,
+This repository owns the base runtime build for Odoo 19. It builds a
+runtime from resolved upstream Odoo source, then layers in `uv`,
 PostgreSQL 17 client tools, and compatibility paths used by downstream
 deployment tooling. The runtime also includes the Launchplane substrate needed
 by Launchplane-managed Odoo lanes.
@@ -312,7 +312,10 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   `candidate-<run>-<repository-sha>-*` tag, then the exact registry manifest and
   its `linux/amd64` and `linux/arm64` child digests are scanned. Stable, nightly,
   source `sha-*`, and validated `build-*` aliases move only after that evidence
-  passes and each alias is verified against the scanned manifest digest.
+  passes and each alias is verified against the scanned manifest digest. Each exact
+  platform child also executes its existing runtime/devtools smoke script. Both
+  targets must pass before either target starts alias promotion. Interrupted
+  registry updates can still leave a mixed pair; tag updates are not atomic.
 - Trivy skips only `/usr/share/java/gettext.jar` and
   `/usr/share/java/libintl-0.21.jar`, which are owned by Ubuntu's gettext
   packages, so comparison scans do not require a separate mutable Java
@@ -395,6 +398,10 @@ record repository/source identity, producer and database revisions, scan scope,
 configuration hash, and platform. Publication evidence additionally records the
 exact manifest-list digest, platform child digests, and snapshot hashes.
 
+Published image configs also carry the image repository and exact producer
+commit in OCI source/revision labels. These labels complement digest-bound
+evidence; source and run tags remain aliases rather than immutable identity.
+
 `uv` is copied from Astral's official container image and pinned by tag+digest
 in the Dockerfile. Renovate checks that image reference and the workflow
 actions weekly, waits 7 days after a release, and groups minor and patch updates
@@ -414,6 +421,10 @@ docker build \
 ```
 
 ## Validation Commands
+
+- `bash scripts/test-published-promotion.sh` executes the real promotion shell
+  with a disposable Docker adapter, proving an invalid pair causes no alias
+  changes and valid records promote their exact checked manifests.
 
 - `bash scripts/test-ghcr-retention.sh` executes registry cleanup against
   disposable API/manifest fixtures, including retained children and unavailable
