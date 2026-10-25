@@ -484,17 +484,25 @@ docker build \
 Publishing jobs share GitHub's native queued concurrency group through alias
 promotion and downstream dispatch. Each candidate records the workflow run
 number in an OCI `io.github.cbusillo.build-run-number` annotation. Promotion
-reads each alias directly from the registry and compares each family independently. A newer stable
-or nightly alias on either target protects the whole pair; unrelated families
-do not suppress one another. Both eligible mappings are planned before writes
-and verified before dispatch. A failed-jobs retry can repair a partial pair using the already checked
-candidates from successful jobs, including candidates from different attempts
-of the same run. Equal run numbers are repairs, not supersession. Unique build
-aliases are independent of shared source aliases. Community dispatch
-flags reflect only the families actually delivered by that execution.
+reads each alias directly from the registry and compares each family
+independently. A newer stable or nightly alias on either target protects the
+whole pair; unrelated families do not suppress one another. Both eligible
+mappings are planned before writes and verified before dispatch. A failed-jobs
+retry can repair a partial pair using the already checked candidates from
+successful jobs, including candidates from different attempts of the same run.
+The source resolver fixes the nightly date for both legs and failed-job retries.
+Floating and dated nightly aliases have independent pairs. Equal run numbers are
+repairs, not supersession. Unique build aliases are independent of shared source
+aliases. Community dispatch flags reflect only the families actually delivered
+by that execution.
 
 Existing images without that annotation are the legacy baseline (order zero).
 Only an exact registry tag-not-found result means an absent alias. Present but
-invalid annotations and other registry errors stop promotion. Before deploying this workflow, allow
-older publishing executions to finish; rerunning workflows from before this
-migration is not supported. Use the current workflow for subsequent builds.
+invalid annotations and other registry errors stop promotion. Before deploying
+this workflow, allow older publishing executions to finish; rerunning workflows
+from before this migration is not supported. Use the current workflow for
+subsequent builds.
+
+Run-number ordering belongs to this workflow identity. Keep `build.yml` in place
+when reorganizing jobs; recreating it requires an ordering migration before
+publication. Superseded families are visible as Actions notices.

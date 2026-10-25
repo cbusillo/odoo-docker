@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+
 HELPER_PATH = Path(__file__).resolve().parents[1] / "scripts/promote-published-images.py"
 SPEC = importlib.util.spec_from_file_location("promotion", HELPER_PATH)
 promotion = importlib.util.module_from_spec(SPEC)
@@ -219,6 +221,27 @@ class PublicationPromotionTest(unittest.TestCase):
             path.write_text(json.dumps(record))
         self.assertTrue(self.promote()["source"])
 
+    def test_floating_and_dated_nightly_pairs_do_not_suppress_each_other(self) -> None:
+        for newer in ("nightly", "nightly-20261025"):
+            with self.subTest(newer=newer):
+                self.registry.aliases.clear()
+                self.registry.bind(newer, "21", "runtime")
+                result = self.promote()
+                self.assertFalse(result[newer])
+                other = "nightly-20261025" if newer == "nightly" else "nightly"
+                self.assertTrue(result[other])
+                for target, digest in self.digests.items():
+                    self.assertEqual(self.registry.aliases[f"{ROOT}:{other}-{target}"], digest)
+
+    def test_mismatched_dated_pairs_stop_before_writes(self) -> None:
+        path = self.path / "devtools.json"
+        record = json.loads(path.read_text())
+        record["aliases"] = record["aliases"].replace("nightly-20261025", "nightly-20261026")
+        path.write_text(json.dumps(record))
+        with self.assertRaises(ValueError):
+            self.promote()
+        self.assertFalse(self.registry.mutations)
+
     def test_source_only_publication_can_dispatch_without_moving_channels(self) -> None:
         for target in promotion.TARGETS:
             path = self.path / f"{target}.json"
@@ -229,6 +252,66 @@ class PublicationPromotionTest(unittest.TestCase):
         self.assertTrue(result["dispatch"])
         self.assertNotIn("stable", result)
         self.assertNotIn("nightly", result)
+
+
+class NightlyTagTest(unittest.TestCase):
+    def test_publication_legs_and_later_attempts_use_the_resolved_date(self) -> None:
+        workflow = yaml.safe_load((HELPER_PATH.parents[1] / ".github/workflows/build.yml").read_text())
+        resolver = "resolve_source" if "resolve_source" in workflow["jobs"] else "resolve_enterprise_source"
+        resolve_step = workflow["jobs"][resolver]["steps"][0]
+        tag_step = next(step for step in workflow["jobs"]["publish"]["steps"] if step.get("id") == "tags")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, script in (("git", 'printf "%s refs/heads/fixture\\n" "$SOURCE_REV"'), ("date", 'echo "$CLOCK_DATE"')):
+                executable = root / name
+                executable.write_text(f"#!/bin/sh\n{script}\n")
+                executable.chmod(0o755)
+            output = root / "resolved"
+            environment = {
+                "PATH": f"{root}:{os.environ['PATH']}",
+                "SOURCE_REV": "a" * 40,
+                "CLOCK_DATE": "20261025",
+                "GITHUB_OUTPUT": str(output),
+                "ENTERPRISE_SOURCE_TOKEN": "fixture-token",
+                "ODOO_ENTERPRISE_REPOSITORY": "example/source",
+                "ODOO_ENTERPRISE_REF": "fixture",
+            }
+            subprocess.run(["bash", "-c", resolve_step["run"]], check=True, capture_output=True, text=True, env=environment)
+            resolved = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            aliases: list[set[str]] = []
+            for target, current_day in (("runtime", "20261025"), ("devtools", "20261026")):
+                output.write_text("")
+                result = subprocess.run(
+                    ["bash", "-c", tag_step["run"].replace("${{ matrix.suffix }}", target)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    env={
+                        **environment,
+                        "CLOCK_DATE": current_day,
+                        "NIGHTLY_DATE": resolved["nightly_date"],
+                        "ODOO_SOURCE_REV": resolved["value"],
+                        "ENTERPRISE_SOURCE_REV": resolved["value"],
+                        "BASE_IMAGE_REF": f"ghcr.io/example/base@sha256:{'b' * 64}",
+                        "DISPATCH_PUBLISH_STABLE": "false",
+                        "DISPATCH_PUBLISH_NIGHTLY": "true",
+                        "GITHUB_EVENT_NAME": "schedule" if resolver == "resolve_source" else "workflow_dispatch",
+                        "GITHUB_REF": "refs/heads/main",
+                        "GITHUB_SHA": "c" * 40,
+                        "GITHUB_RUN_ID": "123",
+                        "GITHUB_REPOSITORY": "example/images",
+                    },
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                aliases.append(
+                    {
+                        line.removesuffix(f"-{target}")
+                        for line in output.read_text().splitlines()
+                        if line.startswith(f"{ROOT}:nightly-")
+                    }
+                )
+            self.assertTrue(aliases[0])
+            self.assertEqual(aliases[0], aliases[1])
 
 
 if __name__ == "__main__":

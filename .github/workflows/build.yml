@@ -57,6 +57,7 @@ jobs:
       contents: read
     outputs:
       odoo_source_rev: ${{ steps.odoo_source.outputs.value }}
+      nightly_date: ${{ steps.odoo_source.outputs.nightly_date }}
     steps:
       - name: Resolve Odoo source revision
         id: odoo_source
@@ -68,6 +69,7 @@ jobs:
             exit 1
           fi
           echo "value=${source_revision}" >> "${GITHUB_OUTPUT}"
+          echo "nightly_date=$(date -u +%Y%m%d)" >> "${GITHUB_OUTPUT}"
           echo "Resolved Odoo source revision: ${source_revision}"
 
   resolve_inputs:
@@ -750,13 +752,13 @@ jobs:
       - name: Build candidate and promotion tag sets
         id: tags
         env:
+          NIGHTLY_DATE: ${{ needs.resolve_source.outputs.nightly_date }}
           ODOO_SOURCE_REV: ${{ needs.resolve_source.outputs.odoo_source_rev }}
           DISPATCH_PUBLISH_STABLE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_stable || 'false' }}
         run: |
           set -euo pipefail
           source_short_sha="${ODOO_SOURCE_REV::12}"
           repository_short_sha="${GITHUB_SHA::12}"
-          nightly_date="$(date -u +%Y%m%d)"
           image_root="ghcr.io/${GITHUB_REPOSITORY}"
           candidate_tag="${image_root}:candidate-${GITHUB_RUN_ID}-${repository_short_sha}-${{ matrix.suffix }}"
           aliases=(
@@ -765,7 +767,7 @@ jobs:
           )
 
           if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
-            aliases+=("${image_root}:nightly-${{ matrix.suffix }}" "${image_root}:nightly-${nightly_date}-${{ matrix.suffix }}")
+            aliases+=("${image_root}:nightly-${{ matrix.suffix }}" "${image_root}:nightly-${NIGHTLY_DATE}-${{ matrix.suffix }}")
           fi
 
           publish_stable="false"

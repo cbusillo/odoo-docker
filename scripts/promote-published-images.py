@@ -44,8 +44,10 @@ def inspect_order(reference: str, digest: str | None = None, allow_legacy: bool 
 def alias_family(tag: str) -> str:
     if tag == "19.0":
         return "stable"
-    if tag == "nightly" or re.fullmatch(r"nightly-[0-9]{8}", tag):
+    if tag == "nightly":
         return "nightly"
+    if re.fullmatch(r"nightly-[0-9]{8}", tag):
+        return tag
     if re.fullmatch(r"build-[0-9]+-[0-9a-f]+", tag):
         return "build"
     if re.fullmatch(r"sha-[0-9a-f-]+", tag):
