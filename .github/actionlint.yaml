@@ -3,3 +3,9 @@ self-hosted-runner:
   labels:
     - chris-testing-build
     - chris-testing-publish-cache
+
+paths:
+  .github/workflows/build.yml:
+    ignore:
+      # https://github.com/rhysd/actionlint/issues/657
+      - 'unexpected key "queue" for "concurrency" section'
