@@ -50,7 +50,7 @@ docker run --rm -i "${common[@]}" "${image_reference}" \
 identity="$(jq -c '.runtime_identity' "${fixture_dir}/contract.json")"
 docker run -d --name "${candidate}" --network-alias fixture.invalid "${common[@]}" \
     -e LAUNCHPLANE_RUNTIME_IDENTITY_JSON="${identity}" "${image_reference}" \
-    odoo-bin -d readiness_fixture --db-filter='^readiness_fixture$' --max-cron-threads=0 --log-level=warn >/dev/null
+    odoo-bin -d readiness_fixture --db-filter='^readiness_fixture$' --http-interface=0.0.0.0 --max-cron-threads=0 --log-level=warn >/dev/null
 for _ in {1..90}; do
     if docker exec "${candidate}" curl -fsS http://127.0.0.1:8069/launchplane/health >/dev/null 2>&1; then break; fi
     sleep 1
