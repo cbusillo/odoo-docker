@@ -29,7 +29,8 @@
       "downstreamHelpers": "bash scripts/test-downstream-helpers.sh <image-reference>",
       "dependencyHealth": "bash scripts/test-image-dependency-health.sh",
       "odooBinWrapper": "bash scripts/test-odoo-bin-wrapper.sh",
-      "requirementsOverrides": "bash scripts/test-check-requirements-overrides.sh"
+      "requirementsOverrides": "bash scripts/test-check-requirements-overrides.sh",
+      "ghcrRetention": "bash scripts/test-ghcr-retention.sh"
     },
     "lint": {
       "dockerfile": "docker run --rm -v \"$PWD:/work:ro\" -w /work hadolint/hadolint:v2.14.0 hadolint Dockerfile"
@@ -67,7 +68,7 @@
     ],
     "test": {
       "local": "bash {test_script} {test_args}",
-      "ci": "bash scripts/test-image-dependency-health.sh && bash scripts/test-check-requirements-overrides.sh && bash scripts/test-odoo-bin-wrapper.sh && bash scripts/smoke-runtime.sh {runtime_image} && bash scripts/smoke-devtools.sh {devtools_image} && bash scripts/smoke-db-init.sh {runtime_image} && bash scripts/smoke-readiness.sh {devtools_image} {devtools_image} && bash scripts/test-downstream-helpers.sh {runtime_image}"
+      "ci": "bash scripts/test-image-dependency-health.sh && bash scripts/test-check-requirements-overrides.sh && bash scripts/test-odoo-bin-wrapper.sh && bash scripts/smoke-runtime.sh {runtime_image} && bash scripts/smoke-devtools.sh {devtools_image} && bash scripts/smoke-db-init.sh {runtime_image} && bash scripts/smoke-readiness.sh {devtools_image} {devtools_image} && bash scripts/test-downstream-helpers.sh {runtime_image} && bash scripts/test-ghcr-retention.sh"
     }
   },
   "importantWorkflows": [
