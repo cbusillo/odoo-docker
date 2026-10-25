@@ -35,7 +35,8 @@ def setup(env: Environment) -> None:
             assert homepage
             homepage.arch = view.arch
 
-    uuid = env["ir.config_parameter"].sudo().get_param("database.uuid")
+    parameters = env["ir.config_parameter"].sudo()
+    uuid = parameters.search([("key", "=", "database.uuid")], limit=1).value
     identity = {
         "artifact_id": "isolated-fixture", "image_digest": "sha256:" + "a" * 64,
         "source_revision": "b" * 40, "slot": "candidate", "release_id": "fixture-release",
@@ -51,7 +52,7 @@ def setup(env: Environment) -> None:
             "credentials_committed": True, "mail_disabled": True, "integrations_disabled": True,
         },
     }
-    env["ir.config_parameter"].sudo().set_param("launchplane.readiness.release", json.dumps(release))
+    parameters.create({"key": "launchplane.readiness.release", "value": json.dumps(release)})
     contract = {
         "schema_version": 1, "database": env.cr.dbname, "database_uuid": uuid,
         "host": "fixture.invalid:8069", "website_id": website.id,
