@@ -806,7 +806,7 @@ jobs:
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }},mode=max
           outputs: type=image,oci-mediatypes=true
           annotations: |
-            index,manifest:io.github.cbusillo.build-order=${{ github.run_number }}.${{ github.run_attempt }}
+            index,manifest:io.github.cbusillo.build-run-number=${{ github.run_number }}
             index,manifest:org.opencontainers.image.source=https://github.com/${{ github.repository }}
             index,manifest:org.opencontainers.image.revision=${{ github.sha }}
           provenance: false
@@ -847,7 +847,7 @@ jobs:
           cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }},mode=max
           outputs: type=image,oci-mediatypes=true
           annotations: |
-            index,manifest:io.github.cbusillo.build-order=${{ github.run_number }}.${{ github.run_attempt }}
+            index,manifest:io.github.cbusillo.build-run-number=${{ github.run_number }}
             index,manifest:org.opencontainers.image.source=https://github.com/${{ github.repository }}
             index,manifest:org.opencontainers.image.revision=${{ github.sha }}
           provenance: false
@@ -888,7 +888,7 @@ jobs:
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }}
           outputs: type=image,oci-mediatypes=true
           annotations: |
-            index,manifest:io.github.cbusillo.build-order=${{ github.run_number }}.${{ github.run_attempt }}
+            index,manifest:io.github.cbusillo.build-run-number=${{ github.run_number }}
             index,manifest:org.opencontainers.image.source=https://github.com/${{ github.repository }}
             index,manifest:org.opencontainers.image.revision=${{ github.sha }}
           provenance: false
@@ -1127,8 +1127,6 @@ jobs:
 
       - name: Promote checked image pair
         id: promote_aliases
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/promote-published-images.py "${RUNNER_TEMP}/published-digests"
 
       - name: Trigger enterprise build

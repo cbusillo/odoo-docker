@@ -1,6 +1,8 @@
 import hashlib
 import importlib.util
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,19 +35,10 @@ class Registry:
         self.aliases[f"{ROOT}:{tag}-{target}"] = self.add_manifest(order, target)
 
     def run(self, arguments: list[str]) -> str:
-        if arguments == ["gh", "api", "repos/example/images"]:
-            return json.dumps({"owner": {"type": "User"}})
-        if arguments == ["gh", "api", "users/example/packages/container/images/versions?per_page=100", "--paginate", "--slurp"]:
-            return json.dumps(
-                [
-                    [
-                        {"name": digest, "metadata": {"container": {"tags": [alias.split(":")[1]]}}}
-                        for alias, digest in self.aliases.items()
-                    ]
-                ]
-            )
         if arguments[:5] == ["docker", "buildx", "imagetools", "inspect", "--raw"]:
             reference = arguments[5]
+            if "@" not in reference and reference not in self.aliases:
+                raise subprocess.CalledProcessError(1, arguments, stderr=f"ERROR: {reference}: not found\n")
             digest = reference.split("@")[1] if "@" in reference else self.aliases[reference]
             if digest in self.unavailable:
                 raise RuntimeError("Manifest unavailable")
@@ -77,7 +70,7 @@ class PublicationPromotionTest(unittest.TestCase):
         self.path = Path(self.directory.name)
         self.digests: dict[str, str] = {}
         for target in promotion.TARGETS:
-            self.digests[target] = self.registry.add_manifest("20.2", target)
+            self.digests[target] = self.registry.add_manifest("20", target)
             record = {
                 "digest": self.digests[target],
                 "aliases": "\n".join(f"{ROOT}:{tag}-{target}" for tag in ("19.0", "sha-a", "nightly", "nightly-20261025")),
@@ -88,7 +81,7 @@ class PublicationPromotionTest(unittest.TestCase):
         self.addCleanup(self.patch.stop)
 
     def promote(self) -> dict[str, bool]:
-        return promotion.promote("example/images", self.path, (20, 2))
+        return promotion.promote("example/images", self.path, 20)
 
     def test_publishes_complete_checked_pairs_and_dispatches(self) -> None:
         result = self.promote()
@@ -98,7 +91,7 @@ class PublicationPromotionTest(unittest.TestCase):
                 self.assertEqual(self.registry.aliases[f"{ROOT}:{tag}-{target}"], digest)
 
     def test_newer_alias_protects_its_pair_without_starving_other_channels(self) -> None:
-        for family, newer in (("stable", "21.1"), ("stable", "20.3"), ("nightly", "21.1"), ("source", "21.1")):
+        for family, newer in (("stable", "21"), ("nightly", "21"), ("source", "21")):
             with self.subTest(family=family, newer=newer):
                 tag = {"stable": "19.0", "nightly": "nightly", "source": "sha-a"}[family]
                 self.registry.aliases.clear()
@@ -112,7 +105,7 @@ class PublicationPromotionTest(unittest.TestCase):
                 self.assertNotIn(f"{ROOT}:{tag}-devtools", self.registry.aliases)
 
     def test_partial_pair_repairs_and_legacy_baseline_migrates(self) -> None:
-        self.registry.bind("19.0", "20.2", "runtime")
+        self.registry.bind("19.0", "20", "runtime")
         self.registry.bind("19.0", None, "devtools")
         self.assertTrue(self.promote()["stable"])
         self.assertEqual(self.registry.aliases[f"{ROOT}:19.0-devtools"], self.digests["devtools"])
@@ -132,7 +125,7 @@ class PublicationPromotionTest(unittest.TestCase):
                 elif fault == "syntax":
                     record["aliases"] = f"{ROOT}:invalid tag-devtools"
                 elif fault == "order":
-                    record["digest"] = self.registry.add_manifest("20.1", "devtools")
+                    record["digest"] = self.registry.add_manifest("19", "devtools")
                 else:
                     self.registry.unavailable.add(record["digest"])
                 path.write_text(json.dumps(record))
@@ -143,7 +136,7 @@ class PublicationPromotionTest(unittest.TestCase):
                 self.registry.unavailable.clear()
 
     def test_malformed_existing_order_stops_before_writes(self) -> None:
-        for order in ("", "invalid", "-1.1", "20", "0.1"):
+        for order in ("", "invalid", "-1", "20.1", "0"):
             with self.subTest(order=order):
                 self.registry.bind("19.0", order, "devtools")
                 with self.assertRaises(ValueError):
@@ -158,19 +151,17 @@ class PublicationPromotionTest(unittest.TestCase):
         self.assertTrue(self.promote()["stable"])
         self.assertEqual(self.registry.aliases[f"{ROOT}:19.0-devtools"], self.digests["devtools"])
 
-    def test_changed_registry_binding_stops_before_writes(self) -> None:
-        self.registry.bind("19.0", "19.1", "runtime")
+    def test_incorrect_alias_readback_does_not_report_delivery(self) -> None:
         original = self.registry.run
 
-        def change_binding(arguments: list[str]) -> str:
+        def corrupt_alias(arguments: list[str]) -> str:
             result = original(arguments)
-            if "--slurp" in arguments:
-                self.registry.bind("19.0", "21.1", "runtime")
+            if arguments[:4] == ["docker", "buildx", "imagetools", "create"] and "--dry-run" not in arguments:
+                self.registry.bind("19.0", "19", "runtime")
             return result
 
-        with patch.object(promotion, "run_command", side_effect=change_binding), self.assertRaises(ValueError):
+        with patch.object(promotion, "run_command", side_effect=corrupt_alias), self.assertRaises(ValueError):
             self.promote()
-        self.assertFalse(self.registry.mutations)
 
     def test_superseded_stable_does_not_dispatch_old_bases_as_a_source_only_run(self) -> None:
         for target in promotion.TARGETS:
@@ -178,31 +169,55 @@ class PublicationPromotionTest(unittest.TestCase):
             record = json.loads(path.read_text())
             record["aliases"] = "\n".join(f"{ROOT}:{tag}-{target}" for tag in ("19.0", "sha-a"))
             path.write_text(json.dumps(record))
-            self.registry.bind("19.0", "21.1", target)
+            self.registry.bind("19.0", "21", target)
         result = self.promote()
         self.assertTrue(result["source"])
         self.assertFalse(result["dispatch"])
 
-    def test_unavailable_or_ambiguous_inventory_stops_before_writes(self) -> None:
+    def test_registry_errors_other_than_exact_tag_absence_stop_before_writes(self) -> None:
         original = self.registry.run
-        for fault in ("unavailable", "malformed", "duplicate"):
-            with self.subTest(fault=fault):
-                self.registry.bind("19.0", "19.1", "runtime")
+        for message in ("unauthorized", "forbidden", "unexpected status 503", "other-reference: not found"):
+            with self.subTest(message=message):
 
-                def invalid_inventory(arguments: list[str], failure: str = fault) -> str:
-                    result = original(arguments)
-                    if "--slurp" not in arguments:
-                        return result
-                    if failure == "unavailable":
-                        raise RuntimeError("Package API unavailable")
-                    if failure == "malformed":
-                        return "{}"
-                    return json.dumps(json.loads(result) * 2)
+                def unavailable_registry(arguments: list[str], failure: str = message) -> str:
+                    if arguments[:5] == ["docker", "buildx", "imagetools", "inspect", "--raw"] and "@" not in arguments[5]:
+                        raise subprocess.CalledProcessError(1, arguments, stderr=failure)
+                    return original(arguments)
 
-                with patch.object(promotion, "run_command", side_effect=invalid_inventory):
-                    with self.assertRaises((ValueError, RuntimeError)):
+                with patch.object(promotion, "run_command", side_effect=unavailable_registry):
+                    with self.assertRaises(subprocess.CalledProcessError):
                         self.promote()
                 self.assertFalse(self.registry.mutations)
+
+    def test_failed_jobs_retry_can_reuse_candidates_from_different_attempts(self) -> None:
+        for target, attempt in (("runtime", 1), ("devtools", 2)):
+            digest = self.registry.add_manifest("20", f"{target}-attempt-{attempt}")
+            self.digests[target] = digest
+            path = self.path / f"{target}.json"
+            record = json.loads(path.read_text())
+            record["digest"] = digest
+            path.write_text(json.dumps(record))
+        with patch.dict(os.environ, {"GITHUB_RUN_ATTEMPT": "3"}):
+            self.assertTrue(self.promote()["stable"])
+
+    def test_unique_build_aliases_survive_shared_source_supersession(self) -> None:
+        for target in promotion.TARGETS:
+            path = self.path / f"{target}.json"
+            record = json.loads(path.read_text())
+            record["aliases"] = f"{ROOT}:sha-a-{target}\n{ROOT}:build-123-abcd-{target}"
+            path.write_text(json.dumps(record))
+            self.registry.bind("sha-a", "21", target)
+        self.assertFalse(self.promote()["source"])
+        for target, digest in self.digests.items():
+            self.assertEqual(self.registry.aliases[f"{ROOT}:build-123-abcd-{target}"], digest)
+
+    def test_enterprise_source_aliases_can_differ_between_targets(self) -> None:
+        for target, base in (("runtime", "abc"), ("devtools", "def")):
+            path = self.path / f"{target}.json"
+            record = json.loads(path.read_text())
+            record["aliases"] = f"{ROOT}:sha-abcd-{base}-{target}"
+            path.write_text(json.dumps(record))
+        self.assertTrue(self.promote()["source"])
 
     def test_source_only_publication_can_dispatch_without_moving_channels(self) -> None:
         for target in promotion.TARGETS:

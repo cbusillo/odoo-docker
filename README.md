@@ -483,17 +483,18 @@ docker build \
 
 Publishing jobs share GitHub's native queued concurrency group through alias
 promotion and downstream dispatch. Each candidate records the workflow run
-number and attempt in an OCI `io.github.cbusillo.build-order` annotation.
-Promotion reads the package inventory, confirms existing tag bindings against
-registry bytes, and compares each alias family independently. A newer stable
+number in an OCI `io.github.cbusillo.build-run-number` annotation. Promotion
+reads each alias directly from the registry and compares each family independently. A newer stable
 or nightly alias on either target protects the whole pair; unrelated families
 do not suppress one another. Both eligible mappings are planned before writes
-and verified before dispatch. A retry can repair a partial pair, and a later
-attempt of the same run supersedes its earlier attempts. Community dispatch
+and verified before dispatch. A failed-jobs retry can repair a partial pair using the already checked
+candidates from successful jobs, including candidates from different attempts
+of the same run. Equal run numbers are repairs, not supersession. Unique build
+aliases are independent of shared source aliases. Community dispatch
 flags reflect only the families actually delivered by that execution.
 
 Existing images without that annotation are the legacy baseline (order zero).
-Present but invalid annotations, unavailable inventory, changed bindings and
-unavailable manifests stop promotion. Before deploying this workflow, allow
+Only an exact registry tag-not-found result means an absent alias. Present but
+invalid annotations and other registry errors stop promotion. Before deploying this workflow, allow
 older publishing executions to finish; rerunning workflows from before this
 migration is not supported. Use the current workflow for subsequent builds.

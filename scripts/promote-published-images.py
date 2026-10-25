@@ -1,3 +1,4 @@
+import argparse
 import hashlib
 import json
 import os
@@ -5,7 +6,7 @@ import re
 import subprocess
 from pathlib import Path
 
-ORDER_ANNOTATION = "io.github.cbusillo.build-order"
+ORDER_ANNOTATION = "io.github.cbusillo.build-run-number"
 TARGETS = ("runtime", "devtools")
 
 
@@ -19,48 +20,25 @@ def require_digest(value: str) -> str:
     return value
 
 
-def parse_order(value: str) -> tuple[int, int]:
-    if not isinstance(value, str) or not re.fullmatch(r"[1-9][0-9]*\.[1-9][0-9]*", value):
-        raise ValueError("Invalid publication order")
-    number, attempt = value.split(".")
-    return int(number), int(attempt)
+def parse_order(value: str) -> int:
+    if not isinstance(value, str) or not re.fullmatch(r"[1-9][0-9]*", value):
+        raise ValueError("Invalid publication run number")
+    return int(value)
 
 
-def inspect_order(reference: str, digest: str, allow_legacy: bool = False) -> tuple[int, int]:
-    raw = run_command(["docker", "buildx", "imagetools", "inspect", "--raw", reference])
-    if f"sha256:{hashlib.sha256(raw.encode()).hexdigest()}" != digest:
+def inspect_order(reference: str, digest: str | None = None, allow_legacy: bool = False) -> int:
+    try:
+        raw = run_command(["docker", "buildx", "imagetools", "inspect", "--raw", reference])
+    except subprocess.CalledProcessError as error:
+        if allow_legacy and error.returncode == 1 and error.stderr.strip() == f"ERROR: {reference}: not found":
+            return 0
+        raise
+    if digest is not None and f"sha256:{hashlib.sha256(raw.encode()).hexdigest()}" != digest:
         raise ValueError(f"Registry binding changed: {reference}")
     annotations = json.loads(raw).get("annotations", {})
     if allow_legacy and ORDER_ANNOTATION not in annotations:
-        return 0, 0
+        return 0
     return parse_order(annotations[ORDER_ANNOTATION])
-
-
-def read_inventory(repository: str) -> dict[str, str]:
-    owner, package = repository.split("/")
-    owner_type = json.loads(run_command(["gh", "api", f"repos/{repository}"]))["owner"]["type"]
-    if owner_type not in ("User", "Organization"):
-        raise ValueError("Unknown package owner type")
-    namespace = "users" if owner_type == "User" else "orgs"
-    pages = json.loads(
-        run_command(
-            ["gh", "api", f"{namespace}/{owner}/packages/container/{package}/versions?per_page=100", "--paginate", "--slurp"]
-        )
-    )
-    if not isinstance(pages, list) or not pages or any(not isinstance(page, list) for page in pages):
-        raise ValueError("Invalid package inventory")
-    aliases: dict[str, str] = {}
-    for page in pages:
-        for version in page:
-            digest = require_digest(version["name"])
-            tags = version["metadata"]["container"]["tags"]
-            if not isinstance(tags, list):
-                raise ValueError("Invalid package tags")
-            for tag in tags:
-                if not isinstance(tag, str) or tag in aliases:
-                    raise ValueError("Ambiguous package alias")
-                aliases[tag] = digest
-    return aliases
 
 
 def alias_family(tag: str) -> str:
@@ -68,7 +46,9 @@ def alias_family(tag: str) -> str:
         return "stable"
     if tag == "nightly" or re.fullmatch(r"nightly-[0-9]{8}", tag):
         return "nightly"
-    if re.fullmatch(r"(?:sha|build)-[0-9a-f-]+", tag):
+    if re.fullmatch(r"build-[0-9]+-[0-9a-f]+", tag):
+        return "build"
+    if re.fullmatch(r"sha-[0-9a-f-]+", tag):
         return "source"
     raise ValueError(f"Unsupported publication alias: {tag}")
 
@@ -99,25 +79,23 @@ def read_publications(directory: Path, image_root: str) -> tuple[dict[str, str],
     return digests, families
 
 
-def promote(repository: str, directory: Path, order: tuple[int, int]) -> dict[str, bool]:
+def promote(repository: str, directory: Path, order: int) -> dict[str, bool]:
     image_root = f"ghcr.io/{repository.lower()}"
     digests, families = read_publications(directory, image_root)
     for digest in digests.values():
         if inspect_order(f"{image_root}@{digest}", digest) != order:
-            raise ValueError("Candidate does not belong to this checked workflow attempt")
-    inventory = read_inventory(repository.lower())
+            raise ValueError("Candidate does not belong to this checked workflow run")
     selected: dict[str, list[str]] = {target: [] for target in TARGETS}
     delivered: dict[str, bool] = {}
     for family, targets in families.items():
         superseded = False
         for aliases in targets.values():
             for alias in aliases:
-                tag = alias.removeprefix(f"{image_root}:")
-                if tag in inventory and inspect_order(alias, inventory[tag], allow_legacy=True) > order:
+                if inspect_order(alias, allow_legacy=True) > order:
                     superseded = True
         delivered[family] = not superseded
         if superseded:
-            print(f"Skipping superseded {family} alias pair")
+            print(f"::notice::Skipping superseded {family} alias pair")
             continue
         for target, aliases in targets.items():
             selected[target].extend(aliases)
@@ -143,12 +121,10 @@ def promote(repository: str, directory: Path, order: tuple[int, int]) -> dict[st
 
 
 def main() -> None:
-    import argparse
-
     parser = argparse.ArgumentParser()
     parser.add_argument("directory", type=Path)
     arguments = parser.parse_args()
-    order = parse_order(f"{os.environ['GITHUB_RUN_NUMBER']}.{os.environ['GITHUB_RUN_ATTEMPT']}")
+    order = parse_order(os.environ["GITHUB_RUN_NUMBER"])
     delivered = promote(os.environ["GITHUB_REPOSITORY"], arguments.directory, order)
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
         for family in ("stable", "nightly", "dispatch"):
