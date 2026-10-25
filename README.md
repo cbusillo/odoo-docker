@@ -480,3 +480,11 @@ docker build \
   vendored packages and expand the runtime vulnerability and supply-chain
   surface. Standard-library virtual environment bootstrapping with bundled
   `pip` is intentionally unavailable; use `uv venv` instead.
+
+Publishing jobs share GitHub's native queued concurrency group through alias
+promotion and downstream dispatch. Verification keeps per-ref cancellation.
+Before either operation, the job reads complete GitHub run history from its
+creation time; an older publishing run is superseded even when the newer run
+fails. Retrying the newest publishing run remains supported. Historical runs
+still produce checked candidates, but cannot roll aliases or downstream bases
+back after a newer publisher. Unavailable/incomplete history prevents writes.

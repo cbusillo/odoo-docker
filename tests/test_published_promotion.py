@@ -16,10 +16,80 @@ def load_workflow(path: Path) -> dict[str, Any]:
         return yaml.safe_load(workflow_file)
 
 
+class PublicationOrderTest(unittest.TestCase):
+    def test_only_the_newest_publisher_can_move_aliases_or_dispatch(self) -> None:
+        workflow = load_workflow(BUILD_WORKFLOW)
+        step = next(step for step in workflow["jobs"]["trigger_enterprise"]["steps"] if step.get("id") == "current_publication")
+        current = {
+            "id": 1,
+            "run_number": 10,
+            "workflow_id": 3,
+            "created_at": "2026-01-01T00:00:00Z",
+            "event": "push",
+            "head_branch": "main",
+        }
+        newer = {**current, "id": 2, "run_number": 11}
+        cases = (
+            ("newest", [[current]], 1, "true"),
+            ("newer publisher", [[current, newer]], 2, "false"),
+            ("newer dispatch", [[current, {**newer, "event": "workflow_dispatch"}]], 2, "false"),
+            ("verification", [[current, {**newer, "event": "pull_request"}]], 2, "true"),
+            ("train", [[current, {**newer, "head_branch": "launchplane/train/fixture"}]], 2, "true"),
+            ("multiple pages", [[current], [newer]], 2, "false"),
+            ("incomplete", [[current]], 2, None),
+            ("duplicate", [[current, current]], 2, None),
+            ("missing current", [[newer]], 1, None),
+            ("unknown branch", [[current, {**newer, "head_branch": None}]], 2, None),
+            ("unavailable", [[current]], 1, None),
+        )
+        for name, pages, total, expected in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                metadata = root / "metadata"
+                metadata.write_text(json.dumps(current))
+                history = root / "history"
+                history.write_text(json.dumps([{"total_count": total, "workflow_runs": page} for page in pages]))
+                gh = root / "gh"
+                gh.write_text("""#!/bin/sh
+set -eu
+if [ "$UNAVAILABLE" = true ]; then exit 1; fi
+case "$*" in
+    *'/actions/runs/'*) cat "$METADATA" ;;
+    *) cat "$HISTORY" ;;
+esac
+""")
+                gh.chmod(0o755)
+                output = root / "output"
+                result = subprocess.run(
+                    ["bash", "-c", step["run"]],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env={
+                        "PATH": f"{root}:{os.environ['PATH']}",
+                        "RUNNER_TEMP": str(root),
+                        "GITHUB_OUTPUT": str(output),
+                        "GITHUB_REPOSITORY": "example/images",
+                        "GITHUB_RUN_ID": str(current["id"]),
+                        "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                        "METADATA": str(metadata),
+                        "HISTORY": str(history),
+                        "UNAVAILABLE": "true" if name == "unavailable" else "false",
+                    },
+                )
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists())
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(dict(line.split("=", 1) for line in output.read_text().splitlines())["current"], expected)
+
+
 class PublicationPromotionTest(unittest.TestCase):
     def test_complete_alias_pairs_are_planned_before_any_changes(self) -> None:
         workflow = load_workflow(BUILD_WORKFLOW)
-        step = next(step for step in workflow["jobs"]["trigger_enterprise"]["steps"] if "run" in step)
+        step = next(step for step in workflow["jobs"]["trigger_enterprise"]["steps"] if step.get("id") == "promote_aliases")
         for fault in (None, "digest", "empty", "target", "syntax", "source"):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)

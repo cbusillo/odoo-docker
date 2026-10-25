@@ -16,8 +16,8 @@ on:
     - cron: "17 4 * * 1"
 
 concurrency:
-  group: odoo-docker-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref || github.run_id }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/launchplane/train/')) && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/launchplane/train/') }}
 
 env:
   DOCKER_BUILD_SUMMARY: false
@@ -680,6 +680,7 @@ jobs:
     concurrency:
       group: odoo-docker-publish
       cancel-in-progress: false
+      queue: max
     needs: [resolve_source, resolve_inputs, verify]
     if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/launchplane/train/')
     permissions:
@@ -803,6 +804,7 @@ jobs:
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }}
           cache-to: |
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }},mode=max
+          outputs: type=image,oci-mediatypes=true
           annotations: |
             index,manifest:org.opencontainers.image.source=https://github.com/${{ github.repository }}
             index,manifest:org.opencontainers.image.revision=${{ github.sha }}
@@ -842,6 +844,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.candidate }}
           cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }},mode=max
+          outputs: type=image,oci-mediatypes=true
           annotations: |
             index,manifest:org.opencontainers.image.source=https://github.com/${{ github.repository }}
             index,manifest:org.opencontainers.image.revision=${{ github.sha }}
@@ -881,6 +884,7 @@ jobs:
           tags: ${{ steps.tags.outputs.candidate }}
           cache-from: |
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }}
+          outputs: type=image,oci-mediatypes=true
           annotations: |
             index,manifest:org.opencontainers.image.source=https://github.com/${{ github.repository }}
             index,manifest:org.opencontainers.image.revision=${{ github.sha }}
@@ -933,6 +937,11 @@ jobs:
           docker buildx imagetools inspect --raw "${CANDIDATE_IMAGE}" \
             >"${evidence_root}/manifest.json"
           registry_digest="sha256:$(sha256sum "${evidence_root}/manifest.json" | awk '{print $1}')"
+          jq -e --arg source "https://github.com/${GITHUB_REPOSITORY}" --arg revision "${GITHUB_SHA}" '
+            .annotations["org.opencontainers.image.source"] == $source
+            and .annotations["org.opencontainers.image.revision"] == $revision
+          ' "${evidence_root}/manifest.json" >/dev/null
+
           if [ "${registry_digest}" != "${image_digest}" ]; then
             echo "Registry digest ${registry_digest} does not match Buildx digest ${image_digest}" >&2
             exit 1
@@ -1013,6 +1022,11 @@ jobs:
               "${child_reference}#${platform}" \
               remote \
               "${platform_root}"
+            docker buildx imagetools inspect --raw "${child_reference}" > "${platform_root}/manifest.json"
+            jq -e --arg source "https://github.com/${GITHUB_REPOSITORY}" --arg revision "${GITHUB_SHA}" '
+              .annotations["org.opencontainers.image.source"] == $source
+              and .annotations["org.opencontainers.image.revision"] == $revision
+            ' "${platform_root}/manifest.json" >/dev/null
             if ! docker image inspect "${child_reference}" >/dev/null 2>&1; then
               printf '%s\n' "${child_reference}" >> "${pulled_file}"
             fi
@@ -1084,13 +1098,55 @@ jobs:
   trigger_enterprise:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    concurrency:
+      group: odoo-docker-publish
+      cancel-in-progress: false
+      queue: max
     needs: [resolve_source, publish]
     if: ${{ !cancelled() && needs.publish.result == 'success' && github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/launchplane/train/') }}
     permissions:
       contents: read
+      actions: read
       packages: write
     steps:
+      - name: Check publication order
+        id: current_publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current="${RUNNER_TEMP}/current-publication.json"
+          history="${RUNNER_TEMP}/publication-history.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" > "${current}"
+          workflow_id="$(jq -er '.workflow_id | select(type == "number" and . > 0 and floor == .)' "${current}")"
+          created="$(jq -er '.created_at | select(type == "string" and length > 0)' "${current}")"
+          gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs" \
+            -f "created=>=${created}" -F per_page=100 --paginate --slurp > "${history}"
+          newer="$(jq -r --slurpfile current "${current}" '
+            .[0].total_count as $total
+            | [.[].workflow_runs[]] as $runs
+            | if ($total | type) != "number" or $total != ($runs | length)
+                or any(.[]; .total_count != $total)
+                or ($runs | map(.id) | unique | length) != $total
+                or ($current[0].run_number | type) != "number"
+                or ($current[0].id | type) != "number"
+                or (any($runs[]; .id == $current[0].id) | not)
+                or any($runs[]; (.run_number | type) != "number" or (.event | type) != "string")
+              then error("Incomplete publication history") else $runs end
+            | map(select(.event != "pull_request"))
+            | if any(.[]; (.head_branch | type) != "string")
+              then error("Unknown publication branch") else . end
+            | map(select(.head_branch | startswith("launchplane/train/") | not))
+            | any(.[]; .run_number > $current[0].run_number)
+          ' "${history}")"
+          if [ "${newer}" = true ]; then
+            echo 'current=false' >> "${GITHUB_OUTPUT}"
+            echo 'Publication was superseded. Use the newest publishing run to move aliases or dispatch downstream builds.' >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo 'current=true' >> "${GITHUB_OUTPUT}"
+          fi
       - name: Download published digests
+        if: steps.current_publication.outputs.current == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: published-digest-*
@@ -1098,12 +1154,15 @@ jobs:
           merge-multiple: true
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        if: steps.current_publication.outputs.current == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Promote checked image pair
+        id: promote_aliases
+        if: steps.current_publication.outputs.current == 'true'
         run: |
           set -euo pipefail
           image_root="ghcr.io/${GITHUB_REPOSITORY}"
@@ -1142,6 +1201,7 @@ jobs:
           for suffix in runtime devtools; do promote_target "${suffix}" apply; done
 
       - name: Trigger enterprise build
+        if: steps.current_publication.outputs.current == 'true'
         env:
           ODOO_SOURCE_REV: ${{ needs.resolve_source.outputs.odoo_source_rev }}
           DISPATCH_TOKEN: ${{ secrets.ENTERPRISE_REPO_DISPATCH_TOKEN }}
