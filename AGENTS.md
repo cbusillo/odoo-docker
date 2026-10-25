@@ -3,6 +3,12 @@
 Use this file as the quick-start guide for coding agents working in this repo.
 Keep it short; defer deeper detail to the README and scripts.
 
+## What Odoo Docker does
+
+Odoo Docker builds the shared base runtime image used by downstream Odoo products.
+It supplies Odoo, Python tooling, PostgreSQL client tools, and the runtime support needed by Launchplane-managed lanes.
+Evidence: [README.md](README.md); tenant business logic belongs downstream.
+
 ## Start Here
 
 - Read the Director's [overall DIRECTION.md](https://github.com/cbusillo/direction/blob/HEAD/DIRECTION.md)
