@@ -52,7 +52,8 @@ Evidence: [README.md](README.md); tenant business logic belongs downstream.
   `smoke-readiness.sh`, runtime Python/pip removal uses `smoke-runtime.sh`
   (plus `smoke-devtools.sh` for devtools), and dependency/addon fetching uses
   `test-downstream-helpers.sh`, and registry cleanup uses
-  `test-ghcr-retention.sh`. Trace callers for overlapping areas.
+  `test-ghcr-retention.sh`, and published alias changes use
+  `test-published-promotion.sh`. Trace callers for overlapping areas.
 - `qualityGate.test.ci` describes the complete existing CI test sequence across
   the build jobs. Replace `{runtime_image}` and `{devtools_image}` with the
   corresponding images built by that run. CI retains both image builds,
