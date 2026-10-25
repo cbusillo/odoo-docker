@@ -1,169 +1,219 @@
+import hashlib
+import importlib.util
 import json
-import os
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
+from unittest.mock import patch
 
-import yaml
-
-BUILD_WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/build.yml"
-
-
-def load_workflow(path: Path) -> dict[str, Any]:
-    with path.open(encoding="utf-8") as workflow_file:
-        return yaml.safe_load(workflow_file)
+HELPER_PATH = Path(__file__).resolve().parents[1] / "scripts/promote-published-images.py"
+SPEC = importlib.util.spec_from_file_location("promotion", HELPER_PATH)
+promotion = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(promotion)
+ROOT = "ghcr.io/example/images"
 
 
-class PublicationOrderTest(unittest.TestCase):
-    def test_only_the_newest_publisher_can_move_aliases_or_dispatch(self) -> None:
-        workflow = load_workflow(BUILD_WORKFLOW)
-        step = next(step for step in workflow["jobs"]["trigger_enterprise"]["steps"] if step.get("id") == "current_publication")
-        current = {
-            "id": 1,
-            "run_number": 10,
-            "workflow_id": 3,
-            "created_at": "2026-01-01T00:00:00Z",
-            "event": "push",
-            "head_branch": "main",
-        }
-        newer = {**current, "id": 2, "run_number": 11}
-        cases = (
-            ("newest", [[current]], 1, "true"),
-            ("newer publisher", [[current, newer]], 2, "false"),
-            ("newer dispatch", [[current, {**newer, "event": "workflow_dispatch"}]], 2, "false"),
-            ("verification", [[current, {**newer, "event": "pull_request"}]], 2, "true"),
-            ("train", [[current, {**newer, "head_branch": "launchplane/train/fixture"}]], 2, "true"),
-            ("multiple pages", [[current], [newer]], 2, "false"),
-            ("incomplete", [[current]], 2, None),
-            ("duplicate", [[current, current]], 2, None),
-            ("missing current", [[newer]], 1, None),
-            ("unknown branch", [[current, {**newer, "head_branch": None}]], 2, None),
-            ("unavailable", [[current]], 1, None),
-        )
-        for name, pages, total, expected in cases:
-            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                metadata = root / "metadata"
-                metadata.write_text(json.dumps(current))
-                history = root / "history"
-                history.write_text(json.dumps([{"total_count": total, "workflow_runs": page} for page in pages]))
-                gh = root / "gh"
-                gh.write_text("""#!/bin/sh
-set -eu
-if [ "$UNAVAILABLE" = true ]; then exit 1; fi
-case "$*" in
-    *'/actions/runs/'*) cat "$METADATA" ;;
-    *) cat "$HISTORY" ;;
-esac
-""")
-                gh.chmod(0o755)
-                output = root / "output"
-                result = subprocess.run(
-                    ["bash", "-c", step["run"]],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    env={
-                        "PATH": f"{root}:{os.environ['PATH']}",
-                        "RUNNER_TEMP": str(root),
-                        "GITHUB_OUTPUT": str(output),
-                        "GITHUB_REPOSITORY": "example/images",
-                        "GITHUB_RUN_ID": str(current["id"]),
-                        "GITHUB_STEP_SUMMARY": str(root / "summary"),
-                        "METADATA": str(metadata),
-                        "HISTORY": str(history),
-                        "UNAVAILABLE": "true" if name == "unavailable" else "false",
-                    },
-                )
-                if expected is None:
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertFalse(output.exists())
-                else:
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(dict(line.split("=", 1) for line in output.read_text().splitlines())["current"], expected)
+class Registry:
+    def __init__(self) -> None:
+        self.manifests: dict[str, str] = {}
+        self.aliases: dict[str, str] = {}
+        self.mutations: list[str] = []
+        self.unavailable: set[str] = set()
+        self.planned: set[str] = set()
+        self.fail_apply = ""
+
+    def add_manifest(self, order: str | None, target: str) -> str:
+        annotations = {} if order is None else {promotion.ORDER_ANNOTATION: order}
+        raw = json.dumps({"annotations": annotations, "target": target})
+        digest = f"sha256:{hashlib.sha256(raw.encode()).hexdigest()}"
+        self.manifests[digest] = raw
+        return digest
+
+    def bind(self, tag: str, order: str | None, target: str) -> None:
+        self.aliases[f"{ROOT}:{tag}-{target}"] = self.add_manifest(order, target)
+
+    def run(self, arguments: list[str]) -> str:
+        if arguments == ["gh", "api", "repos/example/images"]:
+            return json.dumps({"owner": {"type": "User"}})
+        if arguments == ["gh", "api", "users/example/packages/container/images/versions?per_page=100", "--paginate", "--slurp"]:
+            return json.dumps(
+                [
+                    [
+                        {"name": digest, "metadata": {"container": {"tags": [alias.split(":")[1]]}}}
+                        for alias, digest in self.aliases.items()
+                    ]
+                ]
+            )
+        if arguments[:5] == ["docker", "buildx", "imagetools", "inspect", "--raw"]:
+            reference = arguments[5]
+            digest = reference.split("@")[1] if "@" in reference else self.aliases[reference]
+            if digest in self.unavailable:
+                raise RuntimeError("Manifest unavailable")
+            return self.manifests[digest]
+        if arguments[:4] != ["docker", "buildx", "imagetools", "create"]:
+            raise AssertionError(arguments)
+        digest = arguments[-1].split("@")[1]
+        aliases = [arguments[index + 1] for index, argument in enumerate(arguments) if argument == "--tag"]
+        if not aliases or digest in self.unavailable:
+            raise RuntimeError("Invalid plan")
+        if "--dry-run" in arguments:
+            self.planned.add(digest)
+            return self.manifests[digest]
+        if len(self.planned) != 2:
+            raise AssertionError("Both targets must be planned before any writes")
+        if digest == self.fail_apply:
+            raise RuntimeError("Publish failed")
+        for alias in aliases:
+            self.mutations.append(alias)
+            self.aliases[alias] = digest
+        return ""
 
 
 class PublicationPromotionTest(unittest.TestCase):
-    def test_complete_alias_pairs_are_planned_before_any_changes(self) -> None:
-        workflow = load_workflow(BUILD_WORKFLOW)
-        step = next(step for step in workflow["jobs"]["trigger_enterprise"]["steps"] if step.get("id") == "promote_aliases")
-        for fault in (None, "digest", "empty", "target", "syntax", "source"):
-            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                publications = root / "published-digests"
-                publications.mkdir()
-                initial = {"ghcr.io/example/images:existing": f"sha256:{'c' * 64}"}
-                expected = dict(initial)
-                for suffix, character in (("runtime", "a"), ("devtools", "b")):
-                    digest = f"sha256:{character * 64}"
-                    aliases = [f"ghcr.io/example/images:fixture-{suffix}", f"ghcr.io/example/images:other-{suffix}"]
-                    expected.update(dict.fromkeys(aliases, digest))
-                    record = {"digest": digest, "aliases": "\n".join(aliases)}
-                    if suffix == "devtools":
-                        if fault == "digest":
-                            record["digest"] = "invalid"
-                        elif fault == "empty":
-                            record["aliases"] = "\n\n"
-                        elif fault == "target":
-                            record["aliases"] = "ghcr.io/example/images:wrong-runtime"
-                        elif fault == "syntax":
-                            record["aliases"] = "ghcr.io/example/images:invalid tag-devtools"
-                    (publications / f"{suffix}.json").write_text(json.dumps(record))
-                docker = root / "docker"
-                docker.write_text(r"""#!/usr/bin/env node
-const fs = require("node:fs");
-const args = process.argv.slice(2);
-const state = JSON.parse(fs.readFileSync(process.env.STATE, "utf8"));
-if (args[0] !== "buildx" || args[1] !== "imagetools") process.exit(1);
-if (args[2] === "inspect") {
-    if (!state[args[3]]) process.exit(1);
-    process.stdout.write(`Digest: ${state[args[3]]}\n`);
-} else if (args[2] === "create") {
-    const aliases = [];
-    for (let index = 3; index < args.length - 1; index++) {
-        if (args[index] === "--tag") aliases.push(args[++index]);
-        else if (args[index] !== "--dry-run") process.exit(1);
-    }
-    const digest = args[args.length - 1].split("@")[1];
-    if (!aliases.length || aliases.some(alias => /\s/.test(alias))) process.exit(1);
-    if (args.includes("--dry-run")) {
-        if (digest === process.env.UNAVAILABLE_SOURCE) process.exit(1);
-    } else {
-        for (const alias of aliases) state[alias] = digest;
-        fs.appendFileSync(process.env.MUTATIONS, JSON.stringify({aliases, digest}) + "\n");
-        fs.writeFileSync(process.env.STATE, JSON.stringify(state));
-    }
-} else process.exit(1);
-""")
-                docker.chmod(0o755)
-                mutations = root / "mutations"
-                state = root / "state"
-                state.write_text(json.dumps(initial))
-                result = subprocess.run(
-                    ["bash", "-c", step["run"]],
-                    env={
-                        "PATH": f"{root}:{os.environ['PATH']}",
-                        "RUNNER_TEMP": str(root),
-                        "GITHUB_REPOSITORY": "example/images",
-                        "MUTATIONS": str(mutations),
-                        "STATE": str(state),
-                        "UNAVAILABLE_SOURCE": f"sha256:{'b' * 64}" if fault == "source" else "",
-                    },
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=30,
-                )
-                if fault is None:
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(json.loads(state.read_text()), expected)
+    def setUp(self) -> None:
+        self.registry = Registry()
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name)
+        self.digests: dict[str, str] = {}
+        for target in promotion.TARGETS:
+            self.digests[target] = self.registry.add_manifest("20.2", target)
+            record = {
+                "digest": self.digests[target],
+                "aliases": "\n".join(f"{ROOT}:{tag}-{target}" for tag in ("19.0", "sha-a", "nightly", "nightly-20261025")),
+            }
+            (self.path / f"{target}.json").write_text(json.dumps(record))
+        self.patch = patch.object(promotion, "run_command", side_effect=self.registry.run)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+
+    def promote(self) -> dict[str, bool]:
+        return promotion.promote("example/images", self.path, (20, 2))
+
+    def test_publishes_complete_checked_pairs_and_dispatches(self) -> None:
+        result = self.promote()
+        self.assertTrue(result["dispatch"])
+        for target, digest in self.digests.items():
+            for tag in ("19.0", "sha-a", "nightly", "nightly-20261025"):
+                self.assertEqual(self.registry.aliases[f"{ROOT}:{tag}-{target}"], digest)
+
+    def test_newer_alias_protects_its_pair_without_starving_other_channels(self) -> None:
+        for family, newer in (("stable", "21.1"), ("stable", "20.3"), ("nightly", "21.1"), ("source", "21.1")):
+            with self.subTest(family=family, newer=newer):
+                tag = {"stable": "19.0", "nightly": "nightly", "source": "sha-a"}[family]
+                self.registry.aliases.clear()
+                self.registry.mutations.clear()
+                self.registry.bind(tag, newer, "runtime")
+                before = dict(self.registry.aliases)
+                delivered = self.promote()
+                self.assertFalse(delivered[family])
+                self.assertTrue(delivered["nightly" if family == "stable" else "stable"])
+                self.assertEqual(self.registry.aliases[f"{ROOT}:{tag}-runtime"], before[f"{ROOT}:{tag}-runtime"])
+                self.assertNotIn(f"{ROOT}:{tag}-devtools", self.registry.aliases)
+
+    def test_partial_pair_repairs_and_legacy_baseline_migrates(self) -> None:
+        self.registry.bind("19.0", "20.2", "runtime")
+        self.registry.bind("19.0", None, "devtools")
+        self.assertTrue(self.promote()["stable"])
+        self.assertEqual(self.registry.aliases[f"{ROOT}:19.0-devtools"], self.digests["devtools"])
+
+    def test_invalid_or_unavailable_second_candidate_never_mutates(self) -> None:
+        for fault in ("digest", "empty", "target", "syntax", "order", "unavailable"):
+            with self.subTest(fault=fault):
+                path = self.path / "devtools.json"
+                original = path.read_text()
+                record = json.loads(original)
+                if fault == "digest":
+                    record["digest"] = "invalid"
+                elif fault == "empty":
+                    record["aliases"] = ""
+                elif fault == "target":
+                    record["aliases"] = f"{ROOT}:19.0-runtime"
+                elif fault == "syntax":
+                    record["aliases"] = f"{ROOT}:invalid tag-devtools"
+                elif fault == "order":
+                    record["digest"] = self.registry.add_manifest("20.1", "devtools")
                 else:
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertFalse(mutations.exists())
-                    self.assertEqual(json.loads(state.read_text()), initial)
+                    self.registry.unavailable.add(record["digest"])
+                path.write_text(json.dumps(record))
+                with self.assertRaises((ValueError, RuntimeError)):
+                    self.promote()
+                self.assertFalse(self.registry.mutations)
+                path.write_text(original)
+                self.registry.unavailable.clear()
+
+    def test_malformed_existing_order_stops_before_writes(self) -> None:
+        for order in ("", "invalid", "-1.1", "20", "0.1"):
+            with self.subTest(order=order):
+                self.registry.bind("19.0", order, "devtools")
+                with self.assertRaises(ValueError):
+                    self.promote()
+                self.assertFalse(self.registry.mutations)
+
+    def test_partial_apply_failure_does_not_report_delivery_and_retry_repairs(self) -> None:
+        self.registry.fail_apply = self.digests["devtools"]
+        with self.assertRaises(RuntimeError):
+            self.promote()
+        self.registry.fail_apply = ""
+        self.assertTrue(self.promote()["stable"])
+        self.assertEqual(self.registry.aliases[f"{ROOT}:19.0-devtools"], self.digests["devtools"])
+
+    def test_changed_registry_binding_stops_before_writes(self) -> None:
+        self.registry.bind("19.0", "19.1", "runtime")
+        original = self.registry.run
+
+        def change_binding(arguments: list[str]) -> str:
+            result = original(arguments)
+            if "--slurp" in arguments:
+                self.registry.bind("19.0", "21.1", "runtime")
+            return result
+
+        with patch.object(promotion, "run_command", side_effect=change_binding), self.assertRaises(ValueError):
+            self.promote()
+        self.assertFalse(self.registry.mutations)
+
+    def test_superseded_stable_does_not_dispatch_old_bases_as_a_source_only_run(self) -> None:
+        for target in promotion.TARGETS:
+            path = self.path / f"{target}.json"
+            record = json.loads(path.read_text())
+            record["aliases"] = "\n".join(f"{ROOT}:{tag}-{target}" for tag in ("19.0", "sha-a"))
+            path.write_text(json.dumps(record))
+            self.registry.bind("19.0", "21.1", target)
+        result = self.promote()
+        self.assertTrue(result["source"])
+        self.assertFalse(result["dispatch"])
+
+    def test_unavailable_or_ambiguous_inventory_stops_before_writes(self) -> None:
+        original = self.registry.run
+        for fault in ("unavailable", "malformed", "duplicate"):
+            with self.subTest(fault=fault):
+                self.registry.bind("19.0", "19.1", "runtime")
+
+                def invalid_inventory(arguments: list[str], failure: str = fault) -> str:
+                    result = original(arguments)
+                    if "--slurp" not in arguments:
+                        return result
+                    if failure == "unavailable":
+                        raise RuntimeError("Package API unavailable")
+                    if failure == "malformed":
+                        return "{}"
+                    return json.dumps(json.loads(result) * 2)
+
+                with patch.object(promotion, "run_command", side_effect=invalid_inventory):
+                    with self.assertRaises((ValueError, RuntimeError)):
+                        self.promote()
+                self.assertFalse(self.registry.mutations)
+
+    def test_source_only_publication_can_dispatch_without_moving_channels(self) -> None:
+        for target in promotion.TARGETS:
+            path = self.path / f"{target}.json"
+            record = json.loads(path.read_text())
+            record["aliases"] = f"{ROOT}:sha-a-{target}"
+            path.write_text(json.dumps(record))
+        result = self.promote()
+        self.assertTrue(result["dispatch"])
+        self.assertNotIn("stable", result)
+        self.assertNotIn("nightly", result)
 
 
 if __name__ == "__main__":

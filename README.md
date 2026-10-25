@@ -400,8 +400,8 @@ exact manifest-list digest, platform child digests, and snapshot hashes.
 
 Published image indexes and manifests also carry the image repository and exact
 producer commit in OCI source/revision annotations. Unlike config labels, these
-do not misattribute downstream images through inheritance. These labels complement digest-bound
-evidence; source and run tags remain aliases rather than immutable identity.
+do not misattribute downstream images through inheritance. These annotations complement
+digest-bound evidence; source and run tags remain aliases rather than immutable identity.
 
 `uv` is copied from Astral's official container image and pinned by tag+digest
 in the Dockerfile. Renovate checks that image reference and the workflow
@@ -482,9 +482,18 @@ docker build \
   `pip` is intentionally unavailable; use `uv venv` instead.
 
 Publishing jobs share GitHub's native queued concurrency group through alias
-promotion and downstream dispatch. Verification keeps per-ref cancellation.
-Before either operation, the job reads complete GitHub run history from its
-creation time; an older publishing run is superseded even when the newer run
-fails. Retrying the newest publishing run remains supported. Historical runs
-still produce checked candidates, but cannot roll aliases or downstream bases
-back after a newer publisher. Unavailable/incomplete history prevents writes.
+promotion and downstream dispatch. Each candidate records the workflow run
+number and attempt in an OCI `io.github.cbusillo.build-order` annotation.
+Promotion reads the package inventory, confirms existing tag bindings against
+registry bytes, and compares each alias family independently. A newer stable
+or nightly alias on either target protects the whole pair; unrelated families
+do not suppress one another. Both eligible mappings are planned before writes
+and verified before dispatch. A retry can repair a partial pair, and a later
+attempt of the same run supersedes its earlier attempts. Community dispatch
+flags reflect only the families actually delivered by that execution.
+
+Existing images without that annotation are the legacy baseline (order zero).
+Present but invalid annotations, unavailable inventory, changed bindings and
+unavailable manifests stop promotion. Before deploying this workflow, allow
+older publishing executions to finish; rerunning workflows from before this
+migration is not supported. Use the current workflow for subsequent builds.
