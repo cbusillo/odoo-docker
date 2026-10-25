@@ -71,17 +71,24 @@ class GhcrRetentionTest(unittest.TestCase):
     def published_package(self) -> dict[str, Any]:
         return {
             "versions": [
-                package_version(1, self.INDEX, "19.0-runtime"),
+                package_version(1, self.INDEX, "sha-0123abc-runtime"),
                 package_version(2, self.CHILD_IMAGE),
                 package_version(3, self.CHILD_ATTESTATION),
-                package_version(4, self.DEVTOOLS_INDEX, "19.0-devtools"),
+                package_version(4, self.DEVTOOLS_INDEX, "sha-89abcde-devtools"),
                 package_version(5, self.RUNTIME_CACHE, "buildcache-runtime"),
                 package_version(6, self.DEVTOOLS_CACHE, "buildcache-devtools"),
                 package_version(self.STALE_PR_IMAGE_ID, "sha256:stale-pr-image", "pr-12-runtime"),
                 package_version(self.ORPHAN_ID, "sha256:orphan"),
             ],
             "rawInspections": {
-                self.INDEX: manifest_inspection({"manifests": [{"digest": self.CHILD_IMAGE}, {"digest": self.CHILD_ATTESTATION}]}),
+                self.INDEX: manifest_inspection(
+                    {
+                        "manifests": [
+                            {"digest": self.CHILD_IMAGE, "mediaType": "application/vnd.oci.image.manifest.v1+json"},
+                            {"digest": self.CHILD_ATTESTATION, "mediaType": "application/vnd.oci.image.manifest.v1+json"},
+                        ]
+                    }
+                ),
                 self.DEVTOOLS_INDEX: manifest_inspection({"manifests": []}),
                 self.RUNTIME_CACHE: manifest_inspection({"layers": []}),
                 self.DEVTOOLS_CACHE: manifest_inspection({"layers": []}),
@@ -91,6 +98,42 @@ class GhcrRetentionTest(unittest.TestCase):
     def test_retention_keeps_retained_indexes_their_children_and_build_caches(self) -> None:
         run = run_retention(self.published_package())
 
+        self.assertIsNone(run.failure)
+        self.assertEqual(run.deleted_ids, {self.STALE_PR_IMAGE_ID, self.ORPHAN_ID})
+
+    def test_retention_preserves_children_of_recent_untagged_indexes(self) -> None:
+        scenario = self.published_package()
+        scenario["versions"][0]["metadata"]["container"]["tags"] = []
+        scenario["versions"][0]["created_at"] = "2999-01-01T00:00:00Z"
+        run = run_retention(scenario)
+        self.assertIsNone(run.failure)
+        self.assertEqual(run.deleted_ids, {self.STALE_PR_IMAGE_ID, self.ORPHAN_ID})
+
+    def test_retention_follows_nested_indexes_but_never_cache_layer_blobs(self) -> None:
+        scenario = self.published_package()
+        nested = "sha256:nested"
+        scenario["versions"].append(package_version(9, nested))
+        scenario["rawInspections"][self.INDEX] = manifest_inspection(
+            {"manifests": [{"digest": nested, "mediaType": "application/vnd.oci.image.index.v1+json"}]}
+        )
+        scenario["rawInspections"][nested] = self.published_package()["rawInspections"][self.INDEX]
+        scenario["rawInspections"][self.RUNTIME_CACHE] = manifest_inspection(
+            {
+                "manifests": [
+                    {"digest": "sha256:blob", "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip"},
+                    {"digest": "sha256:config", "mediaType": "application/vnd.buildkit.cacheconfig.v0"},
+                ]
+            }
+        )
+        run = run_retention(scenario)
+        self.assertIsNone(run.failure)
+        self.assertEqual(run.deleted_ids, {self.STALE_PR_IMAGE_ID, self.ORPHAN_ID})
+
+    def test_retention_reports_already_missing_children_and_protects_recoverable_children(self) -> None:
+        scenario = self.published_package()
+        scenario["versions"] = [version for version in scenario["versions"] if version["name"] != self.CHILD_IMAGE]
+        scenario["childInspections"] = {self.CHILD_IMAGE: {"exitCode": 1, "stderr": "manifest unknown"}}
+        run = run_retention(scenario)
         self.assertIsNone(run.failure)
         self.assertEqual(run.deleted_ids, {self.STALE_PR_IMAGE_ID, self.ORPHAN_ID})
 

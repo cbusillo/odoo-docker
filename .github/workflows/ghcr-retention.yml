@@ -97,12 +97,23 @@ jobs:
                 .filter((version) => String(version.name || "").startsWith("sha256:"))
                 .map((version) => [version.name, version]),
             );
-            const retainedTaggedVersions = taggedVersions.filter((version) => keepIds.has(version.id));
+            const retainedVersions = versions.filter((version) => keepIds.has(version.id)
+              || (untaggedVersions.includes(version)
+                && !(Date.parse(version.created_at) < keepUntaggedCutoffEpochMilliseconds)));
+            const manifestTypes = new Set([
+              "application/vnd.oci.image.manifest.v1+json",
+              "application/vnd.oci.image.index.v1+json",
+              "application/vnd.docker.distribution.manifest.v2+json",
+              "application/vnd.docker.distribution.manifest.list.v2+json",
+            ]);
+            const inspectedDigests = new Set();
             const retainedChildDigests = new Set();
             const retainedChildParents = new Map();
             const missingRetainedChildren = [];
 
-            for (const version of retainedTaggedVersions) {
+            for (const version of retainedVersions) {
+              if (inspectedDigests.has(version.name)) continue;
+              inspectedDigests.add(version.name);
               const imageReference = `ghcr.io/${owner.toLowerCase()}/${packageName}@${version.name}`;
               const inspection = await exec.getExecOutput(
                 "docker",
@@ -123,11 +134,15 @@ jobs:
               }
 
               for (const child of manifest.manifests || []) {
+                if (!manifestTypes.has(child.mediaType)) continue;
                 if (typeof child?.digest === "string" && child.digest.startsWith("sha256:")) {
                   retainedChildDigests.add(child.digest);
                   const parents = retainedChildParents.get(child.digest) || [];
                   parents.push(version.name);
                   retainedChildParents.set(child.digest, parents);
+                  if (child.mediaType.endsWith("index.v1+json") || child.mediaType.endsWith("manifest.list.v2+json")) {
+                    retainedVersions.push({ name: child.digest });
+                  }
                 }
               }
             }
