@@ -356,7 +356,12 @@ while still giving us a recoverable remote cache when a builder is recreated.
 
 The GHCR retention workflow keeps stable, nightly, and registry-cache tags,
 preserves the newest 10 `sha-*`, validated `build-*`, and `candidate-*` tags per
-image suffix, and prunes untagged versions older than 7 days.
+image suffix, and prunes unreferenced untagged versions older than 7 days.
+Platform manifests referenced by retained indexes are preserved regardless of
+age. Cleanup stops before deleting anything when a retained index cannot be
+inspected or a readable child cannot be reconciled with package inventory.
+Children already missing from the registry are reported without preventing
+protection of the remaining recoverable manifests.
 
 GHCR retention is repo-local package hygiene. This repo owns the package tags it
 publishes, so the retention workflow may delete only this repo's old package
@@ -409,6 +414,10 @@ docker build \
 ```
 
 ## Validation Commands
+
+- `bash scripts/test-ghcr-retention.sh` executes registry cleanup against
+  disposable API/manifest fixtures, including retained children and unavailable
+  dependency evidence. It performs no registry writes.
 
 - `bash scripts/test-check-requirements-overrides.sh` checks exact pins,
   explicitly allowed unpinned requirements, non-exact constraints, and removed

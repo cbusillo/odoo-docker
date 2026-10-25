@@ -36,6 +36,10 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: Test registry retention decisions
+        run: bash scripts/test-ghcr-retention.sh
+
       - name: Run Hadolint
         run: |
           docker run --rm \
