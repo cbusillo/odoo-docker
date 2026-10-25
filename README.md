@@ -398,8 +398,9 @@ record repository/source identity, producer and database revisions, scan scope,
 configuration hash, and platform. Publication evidence additionally records the
 exact manifest-list digest, platform child digests, and snapshot hashes.
 
-Published image configs also carry the image repository and exact producer
-commit in OCI source/revision labels. These labels complement digest-bound
+Published image indexes and manifests also carry the image repository and exact
+producer commit in OCI source/revision annotations. Unlike config labels, these
+do not misattribute downstream images through inheritance. These labels complement digest-bound
 evidence; source and run tags remain aliases rather than immutable identity.
 
 `uv` is copied from Astral's official container image and pinned by tag+digest

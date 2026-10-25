@@ -803,9 +803,9 @@ jobs:
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }}
           cache-to: |
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }},mode=max
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+          annotations: |
+            index,manifest:org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            index,manifest:org.opencontainers.image.revision=${{ github.sha }}
           provenance: false
           sbom: false
           build-args: |
@@ -842,9 +842,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.candidate }}
           cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }},mode=max
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+          annotations: |
+            index,manifest:org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            index,manifest:org.opencontainers.image.revision=${{ github.sha }}
           provenance: false
           sbom: false
           build-args: |
@@ -881,9 +881,9 @@ jobs:
           tags: ${{ steps.tags.outputs.candidate }}
           cache-from: |
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.suffix }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+          annotations: |
+            index,manifest:org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            index,manifest:org.opencontainers.image.revision=${{ github.sha }}
           provenance: false
           sbom: false
           build-args: |
@@ -1017,7 +1017,7 @@ jobs:
               printf '%s\n' "${child_reference}" >> "${pulled_file}"
             fi
             docker pull --platform "${platform}" "${child_reference}"
-            bash "scripts/smoke-${{ matrix.suffix }}.sh" "${child_reference}"
+            DOCKER_DEFAULT_PLATFORM="${platform}" bash "scripts/smoke-${{ matrix.suffix }}.sh" "${child_reference}"
             platform_snapshot_arguments+=(
               --platform-snapshot "${platform}=${platform_root}/snapshot.json"
             )
@@ -1085,7 +1085,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [resolve_source, publish]
-    if: always() && needs.publish.result == 'success' && github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/launchplane/train/')
+    if: ${{ !cancelled() && needs.publish.result == 'success' && github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/heads/launchplane/train/') }}
     permissions:
       contents: read
       packages: write
@@ -1107,31 +1107,39 @@ jobs:
         run: |
           set -euo pipefail
           image_root="ghcr.io/${GITHUB_REPOSITORY}"
-          for suffix in runtime devtools; do
+          promote_target() {
+            local suffix="$1" mode="$2" publication digest aliases alias actual
+            local -a alias_arguments=() mode_arguments=(create)
             publication="${RUNNER_TEMP}/published-digests/${suffix}.json"
             digest="$(jq -er '.digest' "${publication}")"
             [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
-            jq -er '.aliases | select(type == "string" and length > 0)' "${publication}" >/dev/null
-          done
-          for suffix in runtime devtools; do
-            publication="${RUNNER_TEMP}/published-digests/${suffix}.json"
-            digest="$(jq -er '.digest' "${publication}")"
-            aliases="$(jq -er '.aliases' "${publication}")"
-            alias_arguments=()
+            aliases="$(jq -er '.aliases | select(type == "string")' "${publication}")"
             while IFS= read -r alias; do
               [ -n "${alias}" ] || continue
+              case "${alias}" in
+                "${image_root}:"*"-${suffix}") ;;
+                *) echo "Alias is outside its checked image target" >&2; return 1 ;;
+              esac
               alias_arguments+=(--tag "${alias}")
             done <<< "${aliases}"
-            docker buildx imagetools create "${alias_arguments[@]}" "${image_root}@${digest}"
+            if [ "${#alias_arguments[@]}" -eq 0 ]; then
+              echo "No validated aliases were selected for promotion" >&2
+              return 1
+            fi
+            if [ "${mode}" = plan ]; then mode_arguments+=(--dry-run); fi
+            docker buildx imagetools "${mode_arguments[@]}" "${alias_arguments[@]}" "${image_root}@${digest}" >/dev/null
+            if [ "${mode}" = plan ]; then return 0; fi
             while IFS= read -r alias; do
               [ -n "${alias}" ] || continue
               actual="$(docker buildx imagetools inspect "${alias}" | awk '/^Digest:/ {print $2; exit}')"
               if [ "${actual}" != "${digest}" ]; then
                 echo "Alias ${alias} did not match checked manifest" >&2
-                exit 1
+                return 1
               fi
             done <<< "${aliases}"
-          done
+          }
+          for suffix in runtime devtools; do promote_target "${suffix}" plan; done
+          for suffix in runtime devtools; do promote_target "${suffix}" apply; done
 
       - name: Trigger enterprise build
         env:
