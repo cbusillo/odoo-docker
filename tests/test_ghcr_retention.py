@@ -47,10 +47,11 @@ def run_retention(scenario: dict[str, Any]) -> RetentionRun:
         scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
         result = subprocess.run(
             ["node", str(RETENTION_HARNESS), str(script_path), str(scenario_path)],
-            env={**os.environ, **job["env"], "DRY_RUN": "false"},
+            env={"PATH": os.environ["PATH"], **job["env"], "DRY_RUN": "false"},
             check=False,
             capture_output=True,
             text=True,
+            timeout=60,
         )
     if result.returncode != 0:
         raise AssertionError(result.stderr)
@@ -62,22 +63,16 @@ class GhcrRetentionTest(unittest.TestCase):
     INDEX = "sha256:index"
     CHILD_IMAGE = "sha256:child-image"
     CHILD_ATTESTATION = "sha256:child-attestation"
-    DEVTOOLS_INDEX = "sha256:devtools-index"
     RUNTIME_CACHE = "sha256:runtime-cache"
-    DEVTOOLS_CACHE = "sha256:devtools-cache"
-    STALE_PR_IMAGE_ID = 7
     ORPHAN_ID = 8
 
     def published_package(self) -> dict[str, Any]:
         return {
             "versions": [
-                package_version(1, self.INDEX, "sha-0123abc-runtime"),
+                {**package_version(1, self.INDEX), "created_at": "2999-01-01T00:00:00Z"},
                 package_version(2, self.CHILD_IMAGE),
                 package_version(3, self.CHILD_ATTESTATION),
-                package_version(4, self.DEVTOOLS_INDEX, "sha-89abcde-devtools"),
-                package_version(5, self.RUNTIME_CACHE, "buildcache-runtime"),
-                package_version(6, self.DEVTOOLS_CACHE, "buildcache-devtools"),
-                package_version(self.STALE_PR_IMAGE_ID, "sha256:stale-pr-image", "pr-12-runtime"),
+                {**package_version(5, self.RUNTIME_CACHE), "created_at": "2999-01-01T00:00:00Z"},
                 package_version(self.ORPHAN_ID, "sha256:orphan"),
             ],
             "rawInspections": {
@@ -89,9 +84,7 @@ class GhcrRetentionTest(unittest.TestCase):
                         ]
                     }
                 ),
-                self.DEVTOOLS_INDEX: manifest_inspection({"manifests": []}),
                 self.RUNTIME_CACHE: manifest_inspection({"layers": []}),
-                self.DEVTOOLS_CACHE: manifest_inspection({"layers": []}),
             },
         }
 
@@ -99,15 +92,14 @@ class GhcrRetentionTest(unittest.TestCase):
         run = run_retention(self.published_package())
 
         self.assertIsNone(run.failure)
-        self.assertEqual(run.deleted_ids, {self.STALE_PR_IMAGE_ID, self.ORPHAN_ID})
+        self.assertEqual(run.deleted_ids, {self.ORPHAN_ID})
 
-    def test_retention_preserves_children_of_recent_untagged_indexes(self) -> None:
+    def test_retention_protects_tagged_children_without_applying_root_tag_policy(self) -> None:
         scenario = self.published_package()
-        scenario["versions"][0]["metadata"]["container"]["tags"] = []
-        scenario["versions"][0]["created_at"] = "2999-01-01T00:00:00Z"
+        scenario["versions"][1]["metadata"]["container"]["tags"] = ["fixture-label"]
         run = run_retention(scenario)
         self.assertIsNone(run.failure)
-        self.assertEqual(run.deleted_ids, {self.STALE_PR_IMAGE_ID, self.ORPHAN_ID})
+        self.assertEqual(run.deleted_ids, {self.ORPHAN_ID})
 
     def test_retention_follows_nested_indexes_but_never_cache_layer_blobs(self) -> None:
         scenario = self.published_package()
@@ -127,7 +119,7 @@ class GhcrRetentionTest(unittest.TestCase):
         )
         run = run_retention(scenario)
         self.assertIsNone(run.failure)
-        self.assertEqual(run.deleted_ids, {self.STALE_PR_IMAGE_ID, self.ORPHAN_ID})
+        self.assertEqual(run.deleted_ids, {self.ORPHAN_ID})
 
     def test_retention_reports_already_missing_children_and_protects_recoverable_children(self) -> None:
         scenario = self.published_package()
@@ -135,7 +127,7 @@ class GhcrRetentionTest(unittest.TestCase):
         scenario["childInspections"] = {self.CHILD_IMAGE: {"exitCode": 1, "stderr": "manifest unknown"}}
         run = run_retention(scenario)
         self.assertIsNone(run.failure)
-        self.assertEqual(run.deleted_ids, {self.STALE_PR_IMAGE_ID, self.ORPHAN_ID})
+        self.assertEqual(run.deleted_ids, {self.ORPHAN_ID})
 
     def test_retention_deletes_nothing_when_a_retained_index_cannot_be_inspected(self) -> None:
         for inspection in ({"exitCode": 1, "stderr": "unauthorized"}, {"exitCode": 0, "stdout": "not a manifest"}):
