@@ -90,6 +90,11 @@ the image repository.
 
 ## Launchplane Runtime Substrate
 
+The image-owned health addon uses Odoo's native short version format, which
+the selected runtime prefixes with its major version. Its manifest can be
+installed on both 19 and 20. This does not qualify every image or downstream
+addon for 20; the versioned image and tenant ports retain their own gates.
+
 The image reserves `/opt/launchplane/addons` for image-owned Odoo addons that
 support Launchplane-managed runtime behavior. These addons are separate from
 upstream Odoo source, downstream project addons in `/opt/project/addons`, and
@@ -445,7 +450,8 @@ docker build \
 - `scripts/smoke-devtools.sh <image-reference>` checks the runtime contract
   before checking the devtools image browser tooling and addon path setup.
 - `scripts/smoke-db-init.sh <image-reference>` checks database-backed Odoo
-  initialization, authenticated shell and database dump commands, and that
+  initialization and the installed state of `base` and `launchplane_runtime_health`,
+  authenticated shell and database dump commands, and that
   disposable Odoo process listings omit database password values and flags.
   It also requires a successful, nonempty run of upstream Odoo's
   `base:TestImage` suite against the installed Pillow.
