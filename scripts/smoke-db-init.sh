@@ -78,7 +78,7 @@ printf '[options]\ndb_password = stale-config-password\n' > /volumes/config/_gen
 odoo-bin \
   -d '${db_name}' \
   --init base,launchplane_runtime_health \
-  --test-tags /base:TestImage \
+  --test-tags /base:TestImage,/base:TestIrAttachment.test_10_image_autoresize \
   --without-demo \
   --http-interface=127.0.0.1 \
   --stop-after-init \
