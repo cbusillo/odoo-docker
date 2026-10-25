@@ -2,9 +2,9 @@
 import copy
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
@@ -37,7 +37,14 @@ def snapshot() -> list:
     return rows
 
 
-def probe(probe_contract: dict, probe_evidence: dict, *, host=None, database=None, extra_headers=None) -> tuple[int, dict]:
+def probe(
+    probe_contract: dict,
+    probe_evidence: dict,
+    *,
+    host: str | None = None,
+    database: str | None = None,
+    extra_headers: dict[str, str] | None = None,
+) -> tuple[int, dict]:
     headers = {"Host": host or probe_contract["host"], "X-Odoo-Database": database or probe_contract["database"],
                "Content-Type": "application/json", **(extra_headers or {})}
     req = Request("http://127.0.0.1:8069/launchplane/readiness", headers=headers,
@@ -54,6 +61,15 @@ def probe(probe_contract: dict, probe_evidence: dict, *, host=None, database=Non
 
 before = snapshot()
 assert probe(contract, observations) == (200, {"status": "pass"})
+unknown_host_contract = copy.deepcopy(contract)
+unknown_host_contract["host"] = "unconfigured.invalid:8069"
+unknown_host_evidence = copy.deepcopy(observations)
+unknown_host_evidence["contract_sha256"] = fingerprint(unknown_host_contract)
+unknown_host_evidence["browser"]["contract_sha256"] = fingerprint(unknown_host_contract)
+assert probe(unknown_host_contract, unknown_host_evidence) == (
+    503, {"status": "fail", "reason": "website_mismatch"}
+)
+print("readiness rejected unconfigured Host without default-site fallback")
 subprocess.check_call(["/usr/local/bin/launchplane-readiness", "check", "--contract", str(root / "contract.json"),
                        "--evidence", str(root / "observations.json")])
 cases = []
