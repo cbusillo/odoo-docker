@@ -25,6 +25,16 @@ command = [
     str(root / "browser.json"),
 ]
 observations = json.loads(subprocess.check_output(command))
+expected_media = json.loads((root / "media.json").read_text())
+observed_media = {asset["path"]: asset["sha256"] for asset in observations["assets"]}
+assert all(observed_media.get(path) == digest for path, digest in expected_media.items()), "Gallery asset evidence was lost"
+print(
+    "complete readiness receipt:",
+    len(json.dumps({"contract": contract, "observations": observations}, separators=(",", ":")).encode()),
+    "bytes;",
+    len(observations["assets"]),
+    "assets",
+)
 (root / "observations.json").write_text(json.dumps(observations))
 opener = build_opener(ProxyHandler({}))
 connection = psycopg2.connect(
@@ -71,6 +81,7 @@ def probe(
         response = opener.open(req, timeout=10)
     except HTTPError as error:
         response = error
+    assert response.headers.get_content_type() == "application/json", f"Readiness returned HTTP {response.status}"
     probe_result = json.loads(response.read())
     assert "Set-Cookie" not in response.headers
     assert response.headers["Cache-Control"] == "no-store"
