@@ -11,7 +11,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, "launchplane/train/**"]
+    branches: [main]
   schedule:
     - cron: "17 4 * * 1"
 
@@ -601,8 +601,11 @@ jobs:
             --candidate "${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}/candidate/snapshot.json" \
             --output "${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}/comparison.json"
 
-      - name: Preserve absolute gate without trusted comparison parity
-        if: github.event_name != 'pull_request' || steps.resolver_parity.outputs.comparison != 'true'
+      - name: Enforce absolute dependency health
+        if: >-
+          github.event_name != 'pull_request' ||
+          startsWith(github.head_ref, 'launchplane/train/') ||
+          steps.resolver_parity.outputs.comparison != 'true'
         env:
           BASELINE_ROOT: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
           SCANNER_AVAILABLE: ${{ steps.resolver_parity.outputs.scanner_available || 'false' }}

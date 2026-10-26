@@ -313,7 +313,9 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   therefore validated by the prior scanner on the upgrade pull request and
   become active for absolute default-branch health after merge.
 - Default-branch, scheduled, and dispatch runs retain absolute high/critical
-  health. Multi-architecture images are pushed first under a unique
+  health. Generated train batch PRs also enforce absolute health before merge,
+  alongside the causal comparison when available, using the same candidate scan.
+  Multi-architecture images are pushed first under a unique
   `candidate-<run>-<repository-sha>-*` tag, then the exact registry manifest and
   its `linux/amd64` and `linux/arm64` child digests are scanned. Stable, nightly,
   source `sha-*`, and validated `build-*` aliases move only after that evidence
@@ -330,8 +332,11 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
 - `push` to `main` promotes stable `19.0-*`, `sha-*`, and `build-*` tags.
 - Manual `workflow_dispatch` runs promote `sha-*` and `build-*` tags, and also
   stable `19.0-*` tags unless `publish_stable` is turned off (it defaults on).
-- Pushes to `launchplane/train/**` merge-train branches verify only, like pull
-  requests: they report `image-verification` and publish nothing.
+- Train candidates run full validation once through their generated batch PR,
+  reporting `image-verification` without publishing. The Build workflow does not
+  also run on train pushes. This repository uses merge commits without
+  CODEOWNERS assignments; restore a candidate-push route before adopting a
+  landing mode that omits the batch PR.
 - After a publishing run, the workflow dispatches the `odoo-enterprise-docker`
   build with the exact published runtime and devtools digests. It passes on
   the same stable decision, and asks for nightly tags only on scheduled runs.
