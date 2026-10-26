@@ -15,6 +15,9 @@ SPEC = importlib.util.spec_from_file_location("promotion", HELPER_PATH)
 promotion = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(promotion)
 ROOT = "ghcr.io/example/images"
+VARIANTS = promotion.read_variants(HELPER_PATH.parents[1] / "image-variants.json")
+LEGACY = next(variant for variant in VARIANTS if not variant.alias_prefix)
+SOURCE_REVISION = "a" * 40
 
 
 class Registry:
@@ -26,8 +29,18 @@ class Registry:
         self.planned: set[str] = set()
         self.fail_apply = ""
 
-    def add_manifest(self, order: str | None, target: str) -> str:
-        annotations = {} if order is None else {promotion.ORDER_ANNOTATION: order}
+    def add_manifest(
+        self, order: str | None, target: str, variant: promotion.ImageVariant = LEGACY, source_revision: str = SOURCE_REVISION
+    ) -> str:
+        annotations = (
+            {}
+            if order is None
+            else {
+                promotion.ORDER_ANNOTATION: order,
+                promotion.SERIES_ANNOTATION: variant.series,
+                promotion.SOURCE_ANNOTATION: source_revision,
+            }
+        )
         raw = json.dumps({"annotations": annotations, "target": target})
         digest = f"sha256:{hashlib.sha256(raw.encode()).hexdigest()}"
         self.manifests[digest] = raw
@@ -75,7 +88,9 @@ class PublicationPromotionTest(unittest.TestCase):
             self.digests[target] = self.registry.add_manifest("20", target)
             record = {
                 "digest": self.digests[target],
-                "aliases": "\n".join(f"{ROOT}:{tag}-{target}" for tag in ("19.0", "sha-a", "nightly", "nightly-20261025")),
+                "series": LEGACY.series,
+                "odoo_source_revision": SOURCE_REVISION,
+                "aliases": "\n".join(f"{ROOT}:{tag}-{target}" for tag in (LEGACY.series, "sha-a", "nightly", "nightly-20261025")),
             }
             (self.path / f"{target}.json").write_text(json.dumps(record))
         self.patch = patch.object(promotion, "run_command", side_effect=self.registry.run)
@@ -83,19 +98,19 @@ class PublicationPromotionTest(unittest.TestCase):
         self.addCleanup(self.patch.stop)
 
     def promote(self) -> dict[str, bool]:
-        return promotion.promote("example/images", self.path, 20)
+        return promotion.promote("example/images", self.path, 20, LEGACY, SOURCE_REVISION).delivered
 
     def test_publishes_complete_checked_pairs_and_dispatches(self) -> None:
         result = self.promote()
         self.assertTrue(result["dispatch"])
         for target, digest in self.digests.items():
-            for tag in ("19.0", "sha-a", "nightly", "nightly-20261025"):
+            for tag in (LEGACY.series, "sha-a", "nightly", "nightly-20261025"):
                 self.assertEqual(self.registry.aliases[f"{ROOT}:{tag}-{target}"], digest)
 
     def test_newer_alias_protects_its_pair_without_starving_other_channels(self) -> None:
         for family, newer in (("stable", "21"), ("nightly", "21"), ("source", "21")):
             with self.subTest(family=family, newer=newer):
-                tag = {"stable": "19.0", "nightly": "nightly", "source": "sha-a"}[family]
+                tag = {"stable": LEGACY.series, "nightly": "nightly", "source": "sha-a"}[family]
                 self.registry.aliases.clear()
                 self.registry.mutations.clear()
                 self.registry.bind(tag, newer, "runtime")
@@ -107,10 +122,10 @@ class PublicationPromotionTest(unittest.TestCase):
                 self.assertNotIn(f"{ROOT}:{tag}-devtools", self.registry.aliases)
 
     def test_partial_pair_repairs_and_legacy_baseline_migrates(self) -> None:
-        self.registry.bind("19.0", "20", "runtime")
-        self.registry.bind("19.0", None, "devtools")
+        self.registry.bind(LEGACY.series, "20", "runtime")
+        self.registry.bind(LEGACY.series, None, "devtools")
         self.assertTrue(self.promote()["stable"])
-        self.assertEqual(self.registry.aliases[f"{ROOT}:19.0-devtools"], self.digests["devtools"])
+        self.assertEqual(self.registry.aliases[f"{ROOT}:{LEGACY.series}-devtools"], self.digests["devtools"])
 
     def test_invalid_or_unavailable_second_candidate_never_mutates(self) -> None:
         for fault in ("digest", "empty", "target", "syntax", "order", "unavailable"):
@@ -123,7 +138,7 @@ class PublicationPromotionTest(unittest.TestCase):
                 elif fault == "empty":
                     record["aliases"] = ""
                 elif fault == "target":
-                    record["aliases"] = f"{ROOT}:19.0-runtime"
+                    record["aliases"] = f"{ROOT}:{LEGACY.series}-runtime"
                 elif fault == "syntax":
                     record["aliases"] = f"{ROOT}:invalid tag-devtools"
                 elif fault == "order":
@@ -140,7 +155,7 @@ class PublicationPromotionTest(unittest.TestCase):
     def test_malformed_existing_order_stops_before_writes(self) -> None:
         for order in ("", "invalid", "-1", "20.1", "0"):
             with self.subTest(order=order):
-                self.registry.bind("19.0", order, "devtools")
+                self.registry.bind(LEGACY.series, order, "devtools")
                 with self.assertRaises(ValueError):
                     self.promote()
                 self.assertFalse(self.registry.mutations)
@@ -151,7 +166,7 @@ class PublicationPromotionTest(unittest.TestCase):
             self.promote()
         self.registry.fail_apply = ""
         self.assertTrue(self.promote()["stable"])
-        self.assertEqual(self.registry.aliases[f"{ROOT}:19.0-devtools"], self.digests["devtools"])
+        self.assertEqual(self.registry.aliases[f"{ROOT}:{LEGACY.series}-devtools"], self.digests["devtools"])
 
     def test_incorrect_alias_readback_does_not_report_delivery(self) -> None:
         original = self.registry.run
@@ -159,7 +174,7 @@ class PublicationPromotionTest(unittest.TestCase):
         def corrupt_alias(arguments: list[str]) -> str:
             result = original(arguments)
             if arguments[:4] == ["docker", "buildx", "imagetools", "create"] and "--dry-run" not in arguments:
-                self.registry.bind("19.0", "19", "runtime")
+                self.registry.bind(LEGACY.series, "19", "runtime")
             return result
 
         with patch.object(promotion, "run_command", side_effect=corrupt_alias), self.assertRaises(ValueError):
@@ -169,9 +184,9 @@ class PublicationPromotionTest(unittest.TestCase):
         for target in promotion.TARGETS:
             path = self.path / f"{target}.json"
             record = json.loads(path.read_text())
-            record["aliases"] = "\n".join(f"{ROOT}:{tag}-{target}" for tag in ("19.0", "sha-a"))
+            record["aliases"] = "\n".join(f"{ROOT}:{tag}-{target}" for tag in (LEGACY.series, "sha-a"))
             path.write_text(json.dumps(record))
-            self.registry.bind("19.0", "21", target)
+            self.registry.bind(LEGACY.series, "21", target)
         result = self.promote()
         self.assertTrue(result["source"])
         self.assertFalse(result["dispatch"])
@@ -252,6 +267,78 @@ class PublicationPromotionTest(unittest.TestCase):
         self.assertTrue(result["dispatch"])
         self.assertNotIn("stable", result)
         self.assertNotIn("nightly", result)
+
+
+class VersionedPromotionTest(unittest.TestCase):
+    def test_each_series_promotes_only_its_pair_and_permitted_followup(self) -> None:
+        for variant in VARIANTS:
+            with self.subTest(series=variant.series), tempfile.TemporaryDirectory() as directory:
+                registry = Registry()
+                root = Path(directory)
+                expected = {}
+                for target in promotion.TARGETS:
+                    digest = registry.add_manifest("23", target, variant)
+                    expected[target] = digest
+                    tags = (variant.series, f"{variant.alias_prefix}nightly", f"{variant.alias_prefix}sha-abc")
+                    (root / f"{target}.json").write_text(
+                        json.dumps(
+                            {
+                                "digest": digest,
+                                "series": variant.series,
+                                "odoo_source_revision": SOURCE_REVISION,
+                                "aliases": "\n".join(f"{ROOT}:{tag}-{target}" for tag in tags),
+                            }
+                        )
+                    )
+                with patch.object(promotion, "run_command", side_effect=registry.run):
+                    result = promotion.promote("example/images", root, 23, variant, SOURCE_REVISION)
+                self.assertEqual(result.digests, expected)
+                self.assertEqual(result.delivered["dispatch"], variant.enterprise_followup)
+                for alias, digest in registry.aliases.items():
+                    target = alias.rsplit("-", 1)[1]
+                    self.assertEqual(digest, expected[target])
+
+    def test_wrong_series_revision_or_alias_never_writes(self) -> None:
+        for variant in VARIANTS:
+            other = next(candidate for candidate in VARIANTS if candidate != variant)
+            for fault in ("manifest-series", "manifest-source", "record-series", "record-source", "alias", "existing-series"):
+                with self.subTest(series=variant.series, fault=fault), tempfile.TemporaryDirectory() as directory:
+                    registry = Registry()
+                    root = Path(directory)
+                    for target in promotion.TARGETS:
+                        wrong = target == "devtools"
+                        digest = registry.add_manifest(
+                            "23",
+                            target,
+                            other if wrong and fault == "manifest-series" else variant,
+                            "b" * 40 if wrong and fault == "manifest-source" else SOURCE_REVISION,
+                        )
+                        record = {
+                            "digest": digest,
+                            "series": other.series if wrong and fault == "record-series" else variant.series,
+                            "odoo_source_revision": "b" * 40 if wrong and fault == "record-source" else SOURCE_REVISION,
+                            "aliases": f"{ROOT}:{other.series if wrong and fault == 'alias' else variant.series}-{target}",
+                        }
+                        (root / f"{target}.json").write_text(json.dumps(record))
+                    if fault == "existing-series":
+                        registry.aliases[f"{ROOT}:{variant.series}-devtools"] = registry.add_manifest("24", "devtools", other)
+                    with patch.object(promotion, "run_command", side_effect=registry.run), self.assertRaises(ValueError):
+                        promotion.promote("example/images", root, 23, variant, SOURCE_REVISION)
+                    self.assertFalse(registry.mutations)
+
+    def test_variant_configuration_rejects_empty_duplicate_or_ambiguous_namespaces(self) -> None:
+        original = json.loads((HELPER_PATH.parents[1] / "image-variants.json").read_text())
+        for records in (
+            [],
+            [original[0], original[0]],
+            [{**original[0], "alias_prefix": "wrong-"}],
+            [{**original[0], "enterprise_followup": "false"}],
+        ):
+            with self.subTest(records=records), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "variants.json"
+                path.write_text(json.dumps(records))
+                with self.assertRaises(ValueError):
+                    promotion.read_variants(path)
 
 
 class NightlyTagTest(unittest.TestCase):

@@ -60,6 +60,6 @@ const context = {
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
 
 (async () => {
-    await new AsyncFunction("github", "context", "core", "exec", script)(github, context, core, exec);
+    await new AsyncFunction("github", "context", "core", "exec", "require", script)(github, context, core, exec, require);
     process.stdout.write(JSON.stringify({ deletedIds, failure }));
 })();
