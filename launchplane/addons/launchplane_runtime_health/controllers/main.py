@@ -52,10 +52,7 @@ class LaunchplaneRuntimeHealthController(http.Controller):
             local = ip_address(peer).is_loopback
         except ValueError:
             local = False
-        forwarded = any(
-            key == "HTTP_FORWARDED" or key.startswith("HTTP_X_FORWARDED_")
-            for key in environ
-        )
+        forwarded = any(key == "HTTP_FORWARDED" or key.startswith("HTTP_X_FORWARDED_") for key in environ)
         if not local or forwarded:
             return self._readiness_response("private_probe_required", 403)
 
@@ -85,9 +82,12 @@ class LaunchplaneRuntimeHealthController(http.Controller):
 
             # SQL only: no registry creation, ORM hooks, render, warming or writes.
             cr = request.env.cr
-            cr.execute("SELECT key, value FROM ir_config_parameter WHERE key IN %s", [
-                ("database.uuid", "launchplane.readiness.release", "base.partially_updated_database"),
-            ])
+            cr.execute(
+                "SELECT key, value FROM ir_config_parameter WHERE key IN %s",
+                [
+                    ("database.uuid", "launchplane.readiness.release", "base.partially_updated_database"),
+                ],
+            )
             parameters = dict(cr.fetchall())
             if parameters.get("database.uuid") != contract["database_uuid"]:
                 raise ReadinessFailure("database_identity_mismatch")

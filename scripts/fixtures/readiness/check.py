@@ -1,4 +1,5 @@
 """Exercise real Odoo HTTP/SQL pass/fail behavior from inside the isolated candidate."""
+
 import copy
 import json
 import os
@@ -15,13 +16,23 @@ from launchplane.addons.launchplane_runtime_health.controllers.readiness import 
 
 root = Path("/fixture")
 contract = json.loads((root / "contract.json").read_text())
-command = ["/usr/local/bin/launchplane-readiness", "prepare", "--contract", str(root / "contract.json"),
-           "--evidence", str(root / "browser.json")]
+command = [
+    "/usr/local/bin/launchplane-readiness",
+    "prepare",
+    "--contract",
+    str(root / "contract.json"),
+    "--evidence",
+    str(root / "browser.json"),
+]
 observations = json.loads(subprocess.check_output(command))
 (root / "observations.json").write_text(json.dumps(observations))
 opener = build_opener(ProxyHandler({}))
-connection = psycopg2.connect(host=os.environ["ODOO_DB_HOST"], user=os.environ["ODOO_DB_USER"],
-                            password=os.environ["ODOO_DB_PASSWORD"], dbname=contract["database"])
+connection = psycopg2.connect(
+    host=os.environ["ODOO_DB_HOST"],
+    user=os.environ["ODOO_DB_USER"],
+    password=os.environ["ODOO_DB_PASSWORD"],
+    dbname=contract["database"],
+)
 
 
 def snapshot() -> list:
@@ -45,10 +56,17 @@ def probe(
     database: str | None = None,
     extra_headers: dict[str, str] | None = None,
 ) -> tuple[int, dict]:
-    headers = {"Host": host or probe_contract["host"], "X-Odoo-Database": database or probe_contract["database"],
-               "Content-Type": "application/json", **(extra_headers or {})}
-    req = Request("http://127.0.0.1:8069/launchplane/readiness", headers=headers,
-                  data=json.dumps({"contract": probe_contract, "observations": probe_evidence}, separators=(",", ":")).encode())
+    headers = {
+        "Host": host or probe_contract["host"],
+        "X-Odoo-Database": database or probe_contract["database"],
+        "Content-Type": "application/json",
+        **(extra_headers or {}),
+    }
+    req = Request(
+        "http://127.0.0.1:8069/launchplane/readiness",
+        headers=headers,
+        data=json.dumps({"contract": probe_contract, "observations": probe_evidence}, separators=(",", ":")).encode(),
+    )
     try:
         response = opener.open(req, timeout=10)
     except HTTPError as error:
@@ -66,12 +84,18 @@ unknown_host_contract["host"] = "unconfigured.invalid:8069"
 unknown_host_evidence = copy.deepcopy(observations)
 unknown_host_evidence["contract_sha256"] = fingerprint(unknown_host_contract)
 unknown_host_evidence["browser"]["contract_sha256"] = fingerprint(unknown_host_contract)
-assert probe(unknown_host_contract, unknown_host_evidence) == (
-    503, {"status": "fail", "reason": "website_mismatch"}
-)
+assert probe(unknown_host_contract, unknown_host_evidence) == (503, {"status": "fail", "reason": "website_mismatch"})
 print("readiness rejected unconfigured Host without default-site fallback")
-subprocess.check_call(["/usr/local/bin/launchplane-readiness", "check", "--contract", str(root / "contract.json"),
-                       "--evidence", str(root / "observations.json")])
+subprocess.check_call(
+    [
+        "/usr/local/bin/launchplane-readiness",
+        "check",
+        "--contract",
+        str(root / "contract.json"),
+        "--evidence",
+        str(root / "observations.json"),
+    ]
+)
 cases = []
 for field, value in [("database_uuid", "wrong"), ("website_id", 999), ("modules", ["base", "web", "website", "missing"])]:
     changed = copy.deepcopy(contract)
@@ -86,15 +110,20 @@ changed = copy.deepcopy(contract)
 changed["runtime_identity"]["slot"] = "old-slot"
 changed["release"]["runtime_identity"]["slot"] = "old-slot"
 cases.append(("slot", changed, observations, {}))
-for name, kwargs in [("wrong-host", {"host": "wrong.invalid"}),
-                     ("wrong-db", {"database": "missing_database"}),
-                     ("forwarded", {"extra_headers": {"X-Forwarded-For": "127.0.0.1"}})]:
+for name, kwargs in [
+    ("wrong-host", {"host": "wrong.invalid"}),
+    ("wrong-db", {"database": "missing_database"}),
+    ("forwarded", {"extra_headers": {"X-Forwarded-For": "127.0.0.1"}}),
+]:
     cases.append((name, contract, observations, kwargs))
 for name, change in [
     ("stale-probe", lambda observed_value: observed_value.update(checked_at=observed_value["checked_at"] - 31)),
     ("failed-render", lambda observed_value: observed_value["routes"][0].update(status=500)),
     ("missing-asset", lambda observed_value: observed_value["assets"][0].update(status=404)),
-    ("stale-browser", lambda observed_value: observed_value["browser"].update(checked_at=observed_value["browser"]["checked_at"] - 31)),
+    (
+        "stale-browser",
+        lambda observed_value: observed_value["browser"].update(checked_at=observed_value["browser"]["checked_at"] - 31),
+    ),
     ("failed-browser", lambda observed_value: observed_value["browser"].update(errors=["script failed"])),
 ]:
     changed = copy.deepcopy(observations)
