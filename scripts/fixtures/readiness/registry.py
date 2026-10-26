@@ -16,14 +16,14 @@ def check_registry(env: Environment) -> None:
     root = Path("/fixture")
     contract = json.loads((root / "contract.json").read_text())
     observations = json.loads((root / "observations.json").read_text())
-    req = http.Request(WerkzeugRequest.from_values(
+    req = getattr(http, "requestlib", http).Request(WerkzeugRequest.from_values(
         method="POST", data=json.dumps({"contract": contract, "observations": observations}),
         headers={"Host": contract["host"], "X-Odoo-Database": contract["database"], "Content-Type": "application/json"},
         environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
     ))
     req.db, req.env, req.registry = env.cr.dbname, env, env.registry
     controller = controller_module.LaunchplaneRuntimeHealthController()
-    request_bound = controller.launchplane_readiness.routing["max_content_length"]
+    request_bound = controller.launchplane_readiness.original_routing["max_content_length"]
     body = json.dumps({"contract": contract, "observations": observations}, separators=(",", ":")).encode()
     opener = build_opener(ProxyHandler({}))
     for size in (request_bound, request_bound + 1):
