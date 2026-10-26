@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -48,9 +49,28 @@ def run_retention(scenario: dict[str, Any]) -> RetentionRun:
         (Path(temporary_directory) / "image-variants.json").write_text(
             scenario.get("variants_json", (REPO_ROOT / "image-variants.json").read_text()), encoding="utf-8"
         )
+        scripts = Path(temporary_directory) / "scripts"
+        scripts.mkdir()
+        (scripts / "promote-published-images.py").write_bytes((REPO_ROOT / "scripts/promote-published-images.py").read_bytes())
+        tools = Path(temporary_directory) / "bin"
+        tools.mkdir()
+        (tools / "python3").symlink_to(sys.executable)
+        validated = Path(temporary_directory) / "validated"
+        validator = next(step["run"] for step in job["steps"] if step.get("id") == "variants")
+        validation = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", validator],
+            env={"PATH": f"{tools}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(validated)},
+            cwd=temporary_directory,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if validation.returncode != 0:
+            return RetentionRun(set(), validation.stderr)
+        variant_output = dict(line.split("=", 1) for line in validated.read_text().splitlines())["value"]
         result = subprocess.run(
             ["node", str(RETENTION_HARNESS), str(script_path), str(scenario_path)],
-            env={"PATH": os.environ["PATH"], **job["env"], "DRY_RUN": "false"},
+            env={"PATH": os.environ["PATH"], **job["env"], "DRY_RUN": "false", "IMAGE_VARIANTS": variant_output},
             check=False,
             capture_output=True,
             text=True,
@@ -111,6 +131,17 @@ class GhcrRetentionTest(unittest.TestCase):
                 run = run_retention(scenario)
                 self.assertIsNotNone(run.failure)
                 self.assertFalse(run.deleted_ids)
+
+    def test_a_series_removed_from_active_builds_keeps_its_stable_manifest(self) -> None:
+        variants = json.loads((REPO_ROOT / "image-variants.json").read_text())
+        retired = next(variant for variant in variants if variant["alias_prefix"])
+        scenario = self.published_package()
+        scenario["variants_json"] = json.dumps([variant for variant in variants if variant != retired])
+        scenario["versions"][0]["metadata"]["container"]["tags"] = [f"{retired['series']}-runtime"]
+        scenario["versions"][0]["created_at"] = OUTSIDE_RETENTION_WINDOW
+        run = run_retention(scenario)
+        self.assertIsNone(run.failure)
+        self.assertEqual(run.deleted_ids, {self.ORPHAN_ID})
 
     def published_package(self) -> dict[str, Any]:
         return {

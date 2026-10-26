@@ -26,32 +26,23 @@ jobs:
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Read validated image variants
+        id: variants
+        run: |
+          set -euo pipefail
+          variants="$(python3 -c 'import json, runpy; from dataclasses import asdict; from pathlib import Path; module = runpy.run_path("scripts/promote-published-images.py"); print(json.dumps([asdict(variant) for variant in module["read_variants"](Path("image-variants.json"))]))')"
+          echo "value=${variants}" >> "${GITHUB_OUTPUT}"
       - name: Prune old GHCR versions
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          IMAGE_VARIANTS: ${{ steps.variants.outputs.value }}
         with:
           script: |
             const packageName = process.env.PACKAGE_NAME;
             const keepShaCount = Number.parseInt(process.env.KEEP_SHA_COUNT || "10", 10);
             const keepUntaggedDays = Number.parseInt(process.env.KEEP_UNTAGGED_DAYS || "7", 10);
             const dryRun = String(process.env.DRY_RUN).toLowerCase() === "true";
-            let variants;
-            try {
-              variants = JSON.parse(require("node:fs").readFileSync("image-variants.json", "utf8"));
-              if (!Array.isArray(variants) || variants.length === 0
-                || variants.some((variant) => !variant || typeof variant !== "object"
-                  || Object.keys(variant).sort().join(",") !== "alias_prefix,enterprise_followup,series"
-                  || typeof variant.series !== "string" || !/^[1-9][0-9]*\.[0-9]+$/.test(variant.series)
-                  || !["", `${variant.series}-`].includes(variant.alias_prefix)
-                  || typeof variant.enterprise_followup !== "boolean"
-                  || (variant.enterprise_followup && variant.alias_prefix))
-                || new Set(variants.map((variant) => variant.series)).size !== variants.length
-                || variants.filter((variant) => variant.alias_prefix === "").length !== 1) {
-                throw new Error("Invalid image variant namespaces");
-              }
-            } catch (error) {
-              core.setFailed("Cannot read valid image variants; no registry deletion is allowed.");
-              return;
-            }
+            const variants = JSON.parse(process.env.IMAGE_VARIANTS);
             const owner = context.repo.owner;
             const ownerType = String(context.payload.repository?.owner?.type || "User").toLowerCase();
 
@@ -81,16 +72,15 @@ jobs:
 
             const keepIds = new Set();
             const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const keepTagRegexes = variants.flatMap((variant) => {
-              const series = escapeRegex(variant.series);
+            const keepTagRegexes = [/^[1-9][0-9]*\.[0-9]+-(runtime|devtools)$/];
+            keepTagRegexes.push(...variants.flatMap((variant) => {
               const prefix = escapeRegex(variant.alias_prefix);
               return [
-                new RegExp(`^${series}-(runtime|devtools)$`),
                 new RegExp(`^${prefix}nightly-(runtime|devtools)$`),
                 new RegExp(`^${prefix}nightly-\\d{8}-(runtime|devtools)$`),
                 new RegExp(`^buildcache-${prefix}(runtime|devtools)$`),
               ];
-            });
+            }));
 
             const shouldKeepByTag = (tags) =>
               tags.some((tag) => keepTagRegexes.some((regex) => regex.test(tag)));

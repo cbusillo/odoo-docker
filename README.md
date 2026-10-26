@@ -328,7 +328,7 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   once; matching tooling reuses the scan, while differing tooling scans that
   same image with its separately bound scanner profile and database. Both
   evaluations must pass. Multi-architecture images are pushed first under a unique
-  `candidate-<run>-<repository-sha>-*` tag, then the exact registry manifest and
+  `<alias-prefix>candidate-<run>-<repository-sha>-*` tag, then the exact registry manifest and
   its `linux/amd64` and `linux/arm64` child digests are scanned. Stable, nightly,
   source `sha-*`, and validated `build-*` aliases move only after that evidence
   passes and each alias is verified against the scanned manifest digest. Each exact
@@ -345,7 +345,7 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
 - Manual `workflow_dispatch` runs promote `sha-*` and `build-*` tags, and also
   each series' stable tags unless `publish_stable` is turned off (it defaults on).
   The legacy series keeps its existing unqualified nightly/source/build/cache
-  names. Other series qualify those names with their configured alias prefix;
+  names. Other series qualify candidate, nightly, source, build and cache names with their configured alias prefix;
   all stable tags use the series. Local verification tags, evidence and artifacts
   include the series to prevent cross-version collisions.
 - Train candidates run full validation through their generated batch PR,
@@ -396,6 +396,8 @@ preserves the newest 10 `sha-*`, validated `build-*`, and `candidate-*` tags per
 series and image suffix, and prunes unreferenced untagged versions older than 7 days.
 Tag grammar comes from the same variant file; unreadable or invalid variant
 configuration stops cleanup before any deletion.
+Stable series tags and their referenced manifests remain protected even when
+that series is removed from the active build list.
 Platform manifests referenced by retained indexes are preserved regardless of
 age. Cleanup stops before deleting anything when a retained index cannot be
 inspected or a readable child cannot be reconciled with package inventory.
@@ -423,8 +425,8 @@ records.
 
 ## Source Pinning
 
-The workflow resolves the current `odoo/odoo` `19.0` commit and pins that exact
-revision into the build. This gives repeatable artifacts per run and makes
+The workflow resolves each declared `odoo/odoo` series' current commit and pins
+that exact revision into its builds. This gives repeatable artifacts per run and makes
 scheduled updates explicit.
 
 The Dockerfile pins artifact-affecting base and build images by digest, uses an
@@ -456,6 +458,18 @@ docker build \
   --target runtime-devtools \
   .
 ```
+
+For a pinned Community 20 build, set `ODOO_SOURCE_REV` to the full upstream
+commit to qualify, then use:
+
+```bash
+docker build --target runtime \
+  --build-arg ODOO_SOURCE_REF=20.0 \
+  --build-arg ODOO_SOURCE_REV="${ODOO_SOURCE_REV:?Set an exact upstream commit}" \
+  -t odoo-local:20.0-runtime .
+```
+
+Use `--target runtime-devtools` and a separate local tag for its browser layer.
 
 ## Validation Commands
 
