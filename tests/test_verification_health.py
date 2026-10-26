@@ -106,7 +106,6 @@ class VerificationHealthTest(unittest.TestCase):
             GITHUB_OUTPUT=str(self.output),
             PYTHON_VERSION=str(WORKFLOW["env"]["PYTHON_VERSION"]),
             TRIVY_IMAGE=self.image,
-            TRAIN_CANDIDATE="true",
             BASELINE_COMMIT="1" * 40,
             SOURCE_COMMIT="2" * 40,
             DEPENDENCY_HEALTH_REPOSITORY="example/images",
@@ -274,13 +273,30 @@ class VerificationHealthTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(any("scan" in event for event in self.events()))
 
-    def test_source_pr_keeps_existing_single_scanner_path(self) -> None:
+    def test_ordinary_pr_cannot_skip_head_evaluator(self) -> None:
         self.environment["TRAIN_CANDIDATE"] = "false"
         self.resolve(different_scanner=True)
         result = self.run_script(self.step("verify", "candidate_absolute"))
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            [event["download"] for event in self.events() if "download" in event],
+            [self.environment["FAKE_BASE_IMAGE"], self.image],
+        )
+        self.assertEqual(
+            [event for event in self.events() if "scan" in event],
+            [{"scan": self.environment["IMAGE_REFERENCE"], "scanner": self.image}],
+        )
+        self.environment["FAKE_SCAN_REPORT"] = json.dumps(report(vulnerable=True))
+        self.assertNotEqual(self.run_script(self.step("verify", "candidate_absolute")).returncode, 0)
+
+    def test_non_pr_without_baseline_skips_head_evaluator(self) -> None:
+        self.environment.update(BASELINE_COMMIT="", TRAIN_CANDIDATE="false", FAKE_SCAN_REPORT=json.dumps(report(vulnerable=True)))
+        outputs = self.resolve()
+        result = self.run_script(self.step("verify", "candidate_absolute"))
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(any("scan" in event for event in self.events()))
         self.assertEqual(len([event for event in self.events() if "download" in event]), 1)
+        self.assertNotIn("candidate_scan_configuration_sha256", outputs)
 
     def test_invalid_scanner_fails_before_resolving_packages(self) -> None:
         for key in ("FAKE_BASE_IMAGE", "TRIVY_IMAGE"):
