@@ -149,10 +149,10 @@ fail readiness. Odoo writes that marker when module actions remain pending after
 an update, and [registry startup](https://github.com/odoo/odoo/blob/e55c653b4dbafba45de5434c8da96db5952b42cb/odoo/orm/registry.py#L174)
 consumes it to force another update.
 
-The probe sends compact JSON without dropping asset evidence. The endpoint
-accepts up to 1 MiB for complete contract and observation receipts, including
-theme and gallery assets. Larger receipts fail closed and the CLI identifies
-that size failure. Each tenant must qualify its own complete receipt. The
+The probe sends compact JSON without dropping asset evidence. The endpoint's
+finite request bound accommodates complete contract and observation receipts,
+including theme and gallery assets. Larger receipts fail closed and the CLI
+identifies that size failure. Each tenant must qualify its own complete receipt. The
 native smoke includes a published image gallery and checks every image hash,
 plus rejection immediately beyond the runtime's request bound.
 

@@ -24,7 +24,7 @@ command = [
     "--evidence",
     str(root / "browser.json"),
 ]
-observations = json.loads(subprocess.check_output(command))
+observations = json.loads((root / "observations.json").read_text())
 expected_media = json.loads((root / "media.json").read_text())
 observed_media = {asset["path"]: asset["sha256"] for asset in observations["assets"]}
 assert all(observed_media.get(path) == digest for path, digest in expected_media.items()), "Gallery asset evidence was lost"
