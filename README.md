@@ -454,7 +454,9 @@ docker build \
   authenticated shell and database dump commands, and that
   disposable Odoo process listings omit database password values and flags.
   It also requires a successful, nonempty run of upstream Odoo's
-  `base:TestImage` suite against the installed Pillow.
+  image/attachment tests against the installed Pillow. The selection retains
+  `base:TestImage` where available and exercises
+  `base:TestIrAttachment.test_10_image_autoresize` on both Odoo 19 and 20.
 - `scripts/smoke-readiness.sh <runtime-image> [browser-image]` creates a fresh
   Website database on a private internal Docker network, exercises Chromium and
   real page/asset preparation, and proves readiness failures. All database keys
