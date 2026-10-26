@@ -253,4 +253,6 @@ python3 "${tool}" artifact-evidence \
 jq -e '.status == "pass" and (.platforms | length) == 2' \
   "${test_root}/artifact-evidence.json" >/dev/null
 
+uv run --no-project --with pyyaml python "${repo_root}/tests/test_verification_health.py"
+
 echo "image dependency health checks passed"

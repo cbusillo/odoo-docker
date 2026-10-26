@@ -11,7 +11,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, "launchplane/train/**"]
+    branches: [main]
   schedule:
     - cron: "17 4 * * 1"
 
@@ -87,10 +87,13 @@ jobs:
       trivy_db_sha256: ${{ steps.inputs.outputs.trivy_db_sha256 }}
       trivy_image: ${{ steps.inputs.outputs.trivy_image }}
       trivy_version: ${{ steps.inputs.outputs.trivy_version }}
+      candidate_scan_configuration_sha256: ${{ steps.inputs.outputs.candidate_scan_configuration_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Validate dependency-health tooling
         run: scripts/test-image-dependency-health.sh
@@ -99,6 +102,7 @@ jobs:
         id: inputs
         env:
           BASELINE_COMMIT: ${{ github.event.pull_request.base.sha || '' }}
+          TRAIN_CANDIDATE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'launchplane/train/') }}
         run: |
           set -euo pipefail
 
@@ -119,10 +123,26 @@ jobs:
                 | head -n 1)"
             fi
           fi
-          if [[ ! "${trivy_image}" =~ ^aquasec/trivy:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$ ]]; then
-            echo "Resolved Trivy image is not an approved immutable reference" >&2
-            exit 1
+          scanner_images=("${trivy_image}")
+          if [ "${TRAIN_CANDIDATE}" = "true" ]; then
+            scanner_images+=("${TRIVY_IMAGE}")
           fi
+          for image in "${scanner_images[@]}"; do
+            if [[ ! "${image}" =~ ^aquasec/trivy:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$ ]]; then
+              echo "Resolved Trivy image is not an approved immutable reference" >&2
+              exit 1
+            fi
+          done
+          resolve_scanner() {
+            local image="$1" cache="$2"
+            mkdir -p "${cache}"
+            docker run --rm \
+              --volume "${cache}:/root/.cache/trivy" \
+              "${image}" image --cache-dir /root/.cache/trivy --download-db-only
+            resolved_trivy_version="$(docker run --rm "${image}" --version --format json | jq -er '.Version')"
+            resolved_trivy_db_sha256="$(cd "${cache}" \
+              && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+          }
 
           postgresql_versions="$(docker run --rm --platform linux/amd64 \
             --env APT_SNAPSHOT="${apt_snapshot}" \
@@ -159,19 +179,9 @@ jobs:
           fi
 
           trivy_cache="${RUNNER_TEMP}/trivy-cache"
-          mkdir -p "${trivy_cache}"
-          docker run --rm \
-            --volume "${trivy_cache}:/root/.cache/trivy" \
-            "${trivy_image}" image \
-            --cache-dir /root/.cache/trivy \
-            --download-db-only
-          trivy_version="$(docker run --rm "${trivy_image}" --version --format json | jq -er '.Version')"
-          trivy_db_sha256="$(cd "${trivy_cache}" \
-            && find . -type f -print0 \
-              | sort -z \
-              | xargs -0 sha256sum \
-              | sha256sum \
-              | awk '{print $1}')"
+          resolve_scanner "${trivy_image}" "${trivy_cache}"
+          trivy_version="${resolved_trivy_version}"
+          trivy_db_sha256="${resolved_trivy_db_sha256}"
 
           mkdir -p "${RUNNER_TEMP}/dependency-health-inputs"
           jq -cn \
@@ -215,6 +225,28 @@ jobs:
           tar -C "${RUNNER_TEMP}" -czf \
             "${RUNNER_TEMP}/dependency-health-inputs/trivy-cache.tar.gz" \
             trivy-cache
+
+          if [ "${TRAIN_CANDIDATE}" = "true" ]; then
+            candidate_trivy_version="${trivy_version}"
+            candidate_trivy_db_sha256="${trivy_db_sha256}"
+            if [ "${TRIVY_IMAGE}" != "${trivy_image}" ]; then
+              resolve_scanner "${TRIVY_IMAGE}" "${RUNNER_TEMP}/trivy-candidate-cache"
+              candidate_trivy_version="${resolved_trivy_version}"
+              candidate_trivy_db_sha256="${resolved_trivy_db_sha256}"
+              tar -C "${RUNNER_TEMP}" -czf \
+                "${RUNNER_TEMP}/dependency-health-inputs/candidate-trivy-cache.tar.gz" \
+                trivy-candidate-cache
+            fi
+            jq \
+              --arg image "${TRIVY_IMAGE}" \
+              --arg version "${candidate_trivy_version}" \
+              --arg databases_sha256 "${candidate_trivy_db_sha256}" \
+              '.scanner.image = $image | .scanner.version = $version | .scanner.databases_sha256 = $databases_sha256' \
+              "${RUNNER_TEMP}/dependency-health-inputs/comparison-inputs.json" \
+              >"${RUNNER_TEMP}/dependency-health-inputs/candidate-inputs.json"
+            echo "candidate_scan_configuration_sha256=$(sha256sum \
+              "${RUNNER_TEMP}/dependency-health-inputs/candidate-inputs.json" | awk '{print $1}')" >>"${GITHUB_OUTPUT}"
+          fi
 
           {
             echo "apt_snapshot=${apt_snapshot}"
@@ -602,18 +634,83 @@ jobs:
             --output "${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}/comparison.json"
 
       - name: Preserve absolute gate without trusted comparison parity
+        id: trusted_absolute
         if: github.event_name != 'pull_request' || steps.resolver_parity.outputs.comparison != 'true'
         env:
           BASELINE_ROOT: ${{ runner.temp }}/odoo-docker-baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
           SCANNER_AVAILABLE: ${{ steps.resolver_parity.outputs.scanner_available || 'false' }}
+          HEALTH_ROOT: ${{ runner.temp }}/dependency-health-${{ matrix.suffix }}
         run: |
           tooling_root="${GITHUB_WORKSPACE}"
           if [ "${SCANNER_AVAILABLE}" = "true" ]; then
             tooling_root="${BASELINE_ROOT}"
           fi
           python3 "${tooling_root}/scripts/image-dependency-health.py" absolute \
-            --snapshot "${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}/candidate/snapshot.json" \
-            --output "${RUNNER_TEMP}/dependency-health-${{ matrix.suffix }}/absolute.json"
+            --snapshot "${HEALTH_ROOT}/candidate/snapshot.json" \
+            --output "${HEALTH_ROOT}/absolute.json"
+
+      - name: Enforce candidate-tooling absolute health before merge
+        id: candidate_absolute
+        env:
+          TRAIN_CANDIDATE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'launchplane/train/') }}
+          SCANNER_PARITY: ${{ steps.resolver_parity.outputs.scanner_parity || 'false' }}
+          BASELINE_COMMIT: ${{ github.event.pull_request.base.sha || '' }}
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          DEPENDENCY_HEALTH_REPOSITORY: ${{ github.repository }}
+          CANDIDATE_CONFIGURATION_SHA256: ${{ needs.resolve_inputs.outputs.candidate_scan_configuration_sha256 }}
+          BASE_TRIVY_IMAGE: ${{ needs.resolve_inputs.outputs.trivy_image }}
+          BASE_TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+          IMAGE_REFERENCE: odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suffix }}
+          SCAN_SCOPE: image:${{ matrix.suffix }}:linux/amd64
+          HEALTH_ROOT: ${{ runner.temp }}/dependency-health-${{ matrix.suffix }}
+        run: |
+          set -euo pipefail
+          if [ "${TRAIN_CANDIDATE}" != "true" ]; then
+            exit 0
+          fi
+          evidence_root="${HEALTH_ROOT}/candidate-tooling"
+          mkdir -p "${evidence_root}"
+          if [ "${SCANNER_PARITY}" = "true" ]; then
+            python3 scripts/image-dependency-health.py absolute \
+              --snapshot "${HEALTH_ROOT}/candidate/snapshot.json" \
+              --output "${evidence_root}/absolute.json"
+            exit 0
+          fi
+          profile="${RUNNER_TEMP}/dependency-health-inputs/candidate-inputs.json"
+          if [ "$(sha256sum "${profile}" | awk '{print $1}')" != "${CANDIDATE_CONFIGURATION_SHA256}" ]; then
+            echo "Candidate scanner configuration digest does not match resolved inputs" >&2
+            exit 1
+          fi
+          candidate_trivy_image="$(jq -er '.scanner.image' "${profile}")"
+          if [ "${candidate_trivy_image}" != "${TRIVY_IMAGE}" ]; then
+            echo "Candidate scanner image does not match the source pin" >&2
+            exit 1
+          fi
+          cache_root="${BASE_TRIVY_CACHE_DIR}"
+          if [ "${candidate_trivy_image}" != "${BASE_TRIVY_IMAGE}" ]; then
+            cache_root="${BASE_TRIVY_CACHE_DIR}-candidate"
+            mkdir -p "${cache_root}"
+            tar -C "${cache_root}" --strip-components=1 -xzf \
+              "${RUNNER_TEMP}/dependency-health-inputs/candidate-trivy-cache.tar.gz"
+          fi
+          expected_db_sha256="$(jq -er '.scanner.databases_sha256' "${profile}")"
+          actual_db_sha256="$(cd "${cache_root}" \
+            && find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
+          if [ "${actual_db_sha256}" != "${expected_db_sha256}" ]; then
+            echo "Candidate scanner database digest does not match resolved inputs" >&2
+            exit 1
+          fi
+          TRIVY_CACHE_DIR="${cache_root}"
+          TRIVY_VERSION="$(jq -er '.scanner.version' "${profile}")"
+          TRIVY_DB_SHA256="${expected_db_sha256}"
+          SCAN_CONFIGURATION_SHA256="${CANDIDATE_CONFIGURATION_SHA256}"
+          export TRIVY_CACHE_DIR TRIVY_VERSION TRIVY_DB_SHA256 SCAN_CONFIGURATION_SHA256
+          bash scripts/scan-image-dependencies.sh \
+            "${IMAGE_REFERENCE}" "${SOURCE_COMMIT}" "${BASELINE_COMMIT}" \
+            "${SCAN_SCOPE}" docker "${evidence_root}"
+          python3 scripts/image-dependency-health.py absolute \
+            --snapshot "${evidence_root}/snapshot.json" \
+            --output "${evidence_root}/absolute.json"
 
       - name: Upload verification dependency evidence
         if: always()
