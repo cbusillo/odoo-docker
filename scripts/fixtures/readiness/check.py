@@ -144,6 +144,24 @@ for name, expected, evidence, kwargs in cases:
     status, result = probe(expected, evidence, **kwargs)
     assert status in {403, 503} and result["status"] == "fail", (name, status, result)
     assert expected["database"] not in json.dumps(result), result
+    if name == "stale-probe":
+        rejected_evidence = root / "rejected-observations.json"
+        rejected_evidence.write_text(json.dumps(evidence))
+        rejected = subprocess.run(
+            [
+                "/usr/local/bin/launchplane-readiness",
+                "check",
+                "--contract",
+                str(root / "contract.json"),
+                "--evidence",
+                str(rejected_evidence),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert rejected.returncode != 0
+        assert result["reason"] in rejected.stderr, rejected.stderr
+        assert expected["database"] not in rejected.stderr, rejected.stderr
     print("readiness rejected:", name)
 assert snapshot() == before, "Observational readiness changed database state"
 connection.close()

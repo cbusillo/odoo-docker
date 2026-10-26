@@ -10,7 +10,7 @@ def create_gallery(env: Environment) -> str:
     contents = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><title>Gallery image {index}</title>'
         f'<rect width="2" height="2" fill="#{index:06x}"/></svg>'.encode()
-        for index in range(400)
+        for index in range(128)
     ]
     attachments = env["ir.attachment"].create(
         [

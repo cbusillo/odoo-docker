@@ -155,6 +155,8 @@ including theme and gallery assets. Larger receipts fail closed and the CLI
 identifies that size failure. Each tenant must qualify its own complete receipt. The
 native smoke includes a published image gallery and checks every image hash,
 plus rejection immediately beyond the runtime's request bound.
+Known validation failures report their existing reason code without logging
+the contract's private values.
 
 The maintenance producer records `launchplane.readiness.release` in
 `ir.config_parameter` **after** successful exact-release updates and the committed
