@@ -313,7 +313,11 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   therefore validated by the prior scanner on the upgrade pull request and
   become active for absolute default-branch health after merge.
 - Default-branch, scheduled, and dispatch runs retain absolute high/critical
-  health. Multi-architecture images are pushed first under a unique
+  health. Train batch PRs retain both base-tooling comparison/fallback checks
+  and candidate-tooling absolute health before merge. They build each target
+  once; matching tooling reuses the scan, while differing tooling scans that
+  same image with its separately bound scanner profile and database. Both
+  evaluations must pass. Multi-architecture images are pushed first under a unique
   `candidate-<run>-<repository-sha>-*` tag, then the exact registry manifest and
   its `linux/amd64` and `linux/arm64` child digests are scanned. Stable, nightly,
   source `sha-*`, and validated `build-*` aliases move only after that evidence
@@ -330,8 +334,10 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
 - `push` to `main` promotes stable `19.0-*`, `sha-*`, and `build-*` tags.
 - Manual `workflow_dispatch` runs promote `sha-*` and `build-*` tags, and also
   stable `19.0-*` tags unless `publish_stable` is turned off (it defaults on).
-- Pushes to `launchplane/train/**` merge-train branches verify only, like pull
-  requests: they report `image-verification` and publish nothing.
+- Train candidates run full validation through their generated batch PR,
+  reporting `image-verification` without publishing or a second train-push
+  build. This repository uses merge commits without CODEOWNERS assignments;
+  restore a candidate-push route before adopting a mode that omits the batch PR.
 - After a publishing run, the workflow dispatches the `odoo-enterprise-docker`
   build with the exact published runtime and devtools digests. It passes on
   the same stable decision, and asks for nightly tags only on scheduled runs.
