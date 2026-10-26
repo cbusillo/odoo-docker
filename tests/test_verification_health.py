@@ -36,6 +36,8 @@ def fake_tool(name: str, arguments: list[str]) -> int:
     if name != "docker" or arguments[0] != "run":
         raise ValueError(f"Unexpected command: {name} {arguments}")
     if any(argument.startswith("ubuntu:") for argument in arguments):
+        with Path(os.environ["FAKE_DOCKER_TRACE"]).open("a") as stream:
+            stream.write(json.dumps({"packages": "resolved"}) + "\n")
         print("postgresql-client-17=17.1\npostgresql-client-common=1.0\nlibpq5=17.1")
         return 0
     image = next(argument for argument in arguments if argument.startswith("aquasec/trivy:"))
@@ -279,6 +281,16 @@ class VerificationHealthTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(any("scan" in event for event in self.events()))
         self.assertEqual(len([event for event in self.events() if "download" in event]), 1)
+
+    def test_invalid_scanner_fails_before_resolving_packages(self) -> None:
+        for key in ("FAKE_BASE_IMAGE", "TRIVY_IMAGE"):
+            with self.subTest(scanner=key):
+                original = self.environment[key]
+                self.environment[key] = "not-an-immutable-scanner"
+                result = self.run_script(self.step("resolve_inputs", "inputs"))
+                self.environment[key] = original
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(Path(self.environment["FAKE_DOCKER_TRACE"]).exists())
 
 
 if __name__ == "__main__":

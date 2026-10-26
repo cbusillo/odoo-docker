@@ -93,6 +93,8 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
       - name: Validate dependency-health tooling
         run: scripts/test-image-dependency-health.sh
 
@@ -121,12 +123,18 @@ jobs:
                 | head -n 1)"
             fi
           fi
-          resolve_scanner() {
-            local image="$1" cache="$2"
+          scanner_images=("${trivy_image}")
+          if [ "${TRAIN_CANDIDATE}" = "true" ]; then
+            scanner_images+=("${TRIVY_IMAGE}")
+          fi
+          for image in "${scanner_images[@]}"; do
             if [[ ! "${image}" =~ ^aquasec/trivy:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$ ]]; then
               echo "Resolved Trivy image is not an approved immutable reference" >&2
               exit 1
             fi
+          done
+          resolve_scanner() {
+            local image="$1" cache="$2"
             mkdir -p "${cache}"
             docker run --rm \
               --volume "${cache}:/root/.cache/trivy" \
