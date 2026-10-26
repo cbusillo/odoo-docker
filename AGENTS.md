@@ -55,8 +55,9 @@ Evidence: [README.md](README.md); tenant business logic belongs downstream.
   `test-ghcr-retention.sh`, and published alias changes use
   `test-published-promotion.sh`. Trace callers for overlapping areas.
 - `qualityGate.test.ci` describes the complete existing CI test sequence across
-  the build jobs. Replace `{runtime_image}` and `{devtools_image}` with the
-  corresponding images built by that run. CI retains both image builds,
+  the build jobs. For each selected series, replace `{runtime_image}`,
+  `{devtools_image}` and `{odoo_series}` with its matching images and series
+  from that run. CI retains both image builds,
   dependency-health evaluation and the required `image-verification` aggregate;
   all current-head checks must pass before ready. The full suite runs only in CI.
 

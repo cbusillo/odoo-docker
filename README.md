@@ -490,10 +490,12 @@ Use `--target runtime-devtools` and a separate local tag for its browser layer.
   advisory handling, and multi-architecture artifact binding.
 - `scripts/test-odoo-bin-wrapper.sh` checks wrapper argument handling without a
   container build.
-- `scripts/smoke-runtime.sh <image-reference>` checks the runtime image helper
-  contract and Odoo CLI availability.
-- `scripts/smoke-devtools.sh <image-reference>` checks the runtime contract
-  before checking the devtools image browser tooling and addon path setup.
+- `scripts/smoke-runtime.sh <image-reference> [odoo-series]` checks the runtime
+  image helper contract and Odoo CLI availability. Supply the selected series
+  to also verify the installed Odoo identity, as CI does for each matrix row.
+- `scripts/smoke-devtools.sh <image-reference> [odoo-series]` checks the runtime
+  contract and selected series before checking the devtools image browser
+  tooling and addon path setup.
 - `scripts/smoke-db-init.sh <image-reference>` checks database-backed Odoo
   initialization and the installed state of `base` and `launchplane_runtime_health`,
   authenticated shell and database dump commands, and that
