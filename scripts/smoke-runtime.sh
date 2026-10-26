@@ -3,7 +3,7 @@ set -euo pipefail
 
 image_reference="${1:?Usage: scripts/smoke-runtime.sh <image-reference>}"
 
-docker run --rm --entrypoint /bin/bash "${image_reference}" -lc '
+docker run --rm --env EXPECTED_ODOO_SERIES="${2:-}" --entrypoint /bin/bash "${image_reference}" -lc '
 set -euo pipefail
 test -x /odoo/odoo-bin
 test -x /usr/local/bin/uv
@@ -38,6 +38,9 @@ exported = subprocess.check_output(
 )
 assert exported == expected, "Exported constraints differ from installed metadata"
 PY
+if [ -n "${EXPECTED_ODOO_SERIES}" ]; then
+  PYTHONPATH=/odoo /venv/bin/python -c "import os; from odoo import release; assert \".\".join(map(str, release.version_info[:2])) == os.environ[\"EXPECTED_ODOO_SERIES\"], release.version"
+fi
 /venv/bin/python -c "import sys; assert sys.version_info[:2] == (3, 13), sys.version"
 /venv/bin/python -c "import cryptography, OpenSSL"
 test ! -e /venv/bin/pip

@@ -109,12 +109,12 @@ jobs:
                   const immutableRegex = prefix === "sha"
                     ? new RegExp(`^${namespace}sha-[0-9a-f]+-${suffix}$`)
                     : new RegExp(`^${namespace}${prefix}-[0-9]+-[0-9a-f]+-${suffix}$`);
-                const recentVersions = taggedVersions.filter((version) =>
-                  version.metadata.container.tags.some((tag) => immutableRegex.test(tag)),
-                );
-                for (const version of recentVersions.slice(0, keepShaCount)) {
-                  keepIds.add(version.id);
-                }
+                  const recentVersions = taggedVersions.filter((version) =>
+                    version.metadata.container.tags.some((tag) => immutableRegex.test(tag)),
+                  );
+                  for (const version of recentVersions.slice(0, keepShaCount)) {
+                    keepIds.add(version.id);
+                  }
                 }
               }
             }

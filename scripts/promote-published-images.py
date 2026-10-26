@@ -84,9 +84,9 @@ def inspect_order(
             raise ValueError("Registry image belongs to another Odoo series")
     if source_revision is not None and annotations.get(SOURCE_ANNOTATION) != source_revision:
         raise ValueError("Registry image belongs to another Odoo source revision")
-    if allow_legacy and ORDER_ANNOTATION not in annotations:
+    if allow_legacy and not variant.alias_prefix and ORDER_ANNOTATION not in annotations:
         return 0
-    return parse_order(annotations[ORDER_ANNOTATION])
+    return parse_order(annotations.get(ORDER_ANNOTATION))
 
 
 def alias_family(tag: str, variant: ImageVariant) -> str:

@@ -2,7 +2,9 @@ import hashlib
 import importlib.util
 import json
 import os
+import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -270,6 +272,19 @@ class PublicationPromotionTest(unittest.TestCase):
 
 
 class VersionedPromotionTest(unittest.TestCase):
+    def test_new_series_cannot_adopt_an_existing_alias_without_publication_order(self) -> None:
+        variant = next(variant for variant in VARIANTS if variant.alias_prefix)
+        registry = Registry()
+        digest = registry.add_manifest("23", "runtime", variant)
+        manifest = json.loads(registry.manifests[digest])
+        del manifest["annotations"][promotion.ORDER_ANNOTATION]
+        raw = json.dumps(manifest)
+        registry.aliases[f"{ROOT}:{variant.series}-runtime"] = digest = f"sha256:{hashlib.sha256(raw.encode()).hexdigest()}"
+        registry.manifests[digest] = raw
+        with patch.object(promotion, "run_command", side_effect=registry.run), self.assertRaises(ValueError):
+            promotion.inspect_order(f"{ROOT}:{variant.series}-runtime", variant, allow_legacy=True)
+        self.assertFalse(registry.mutations)
+
     def test_each_series_promotes_only_its_pair_and_permitted_followup(self) -> None:
         for variant in VARIANTS:
             with self.subTest(series=variant.series), tempfile.TemporaryDirectory() as directory:
@@ -341,64 +356,159 @@ class VersionedPromotionTest(unittest.TestCase):
                     promotion.read_variants(path)
 
 
-class NightlyTagTest(unittest.TestCase):
-    def test_publication_legs_and_later_attempts_use_the_resolved_date(self) -> None:
+class VerificationPairTest(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
         workflow = yaml.safe_load((HELPER_PATH.parents[1] / ".github/workflows/build.yml").read_text())
-        resolver = "resolve_source" if "resolve_source" in workflow["jobs"] else "resolve_enterprise_source"
-        resolve_step = workflow["jobs"][resolver]["steps"][0]
+        self.steps = {
+            identifier: next(step["run"] for step in workflow["jobs"][job]["steps"] if step.get("id") == identifier)
+            for identifier, job in (("verification_pass", "verify"), ("verified_pair", "publish"))
+        }
+        inputs = self.root / "dependency-health-inputs"
+        inputs.mkdir()
+        self.inputs = inputs / "comparison-inputs.json"
+        self.inputs.write_text(json.dumps({"scanner": {"image": "fixture", "database": "pinned"}, "cutoff": "fixture"}))
+        self.configuration = hashlib.sha256(self.inputs.read_bytes()).hexdigest()
+        self.commit = "c" * 40
+
+    def run_step(self, identifier: str, variant: promotion.ImageVariant, suffix: str) -> subprocess.CompletedProcess[str]:
+        target = "runtime-devtools" if suffix == "devtools" else suffix
+        key = f"{variant.series}-{suffix}"
+        bindings = {
+            "env.VARIANT_KEY": key,
+            "github.event.pull_request.head.sha || github.sha": self.commit,
+            "matrix.target": target,
+            "needs.resolve_inputs.outputs.scan_configuration_sha256": self.configuration,
+        }
+        script = self.steps[identifier]
+        for name, value in bindings.items():
+            script = script.replace("${{ " + name + " }}", value)
+        return subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", script],
+            env={
+                "PATH": os.environ["PATH"],
+                "RUNNER_TEMP": str(self.root),
+                "ODOO_SERIES": variant.series,
+                "ODOO_SOURCE_REV": SOURCE_REVISION,
+                "GITHUB_SHA": self.commit,
+                "GITHUB_RUN_ID": "123",
+            },
+            capture_output=True,
+            text=True,
+        )
+
+    def qualify(self, variant: promotion.ImageVariant) -> Path:
+        selected = self.root / f"verified-{variant.series}-runtime"
+        for suffix in promotion.TARGETS:
+            key = f"{variant.series}-{suffix}"
+            health = self.root / f"dependency-health-{key}"
+            health.mkdir(exist_ok=True)
+            provenance = health / "build-provenance.json"
+            provenance.write_text(json.dumps({"resolved_inputs": json.loads(self.inputs.read_text())}))
+            result = self.run_step("verification_pass", variant, suffix)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            proof = selected / f"dependency-health-verify-{key}"
+            proof.mkdir(parents=True, exist_ok=True)
+            (proof / "build-provenance.json").write_bytes(provenance.read_bytes())
+        return selected
+
+    def test_each_series_requires_its_complete_pair_without_another_series(self) -> None:
+        for variant in VARIANTS:
+            with self.subTest(series=variant.series):
+                self.qualify(variant)
+                result = self.run_step("verified_pair", variant, "runtime")
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_failed_or_misbound_second_target_stops_publication(self) -> None:
+        variant = VARIANTS[-1]
+        selected = self.qualify(variant)
+        proof = selected / f"dependency-health-verify-{variant.series}-devtools/build-provenance.json"
+        original = proof.read_text()
+        mutations = {
+            "status": "failed",
+            "series": "unselected",
+            "odoo_source_revision": "b" * 40,
+            "source_commit": "d" * 40,
+            "run_id": "122",
+            "target": "runtime",
+            "scan_configuration_sha256": "0" * 64,
+        }
+        for field, value in mutations.items():
+            with self.subTest(field=field):
+                record = json.loads(original)
+                record["verification"][field] = value
+                proof.write_text(json.dumps(record))
+                self.assertNotEqual(self.run_step("verified_pair", variant, "runtime").returncode, 0)
+        record = json.loads(original)
+        record["resolved_inputs"]["cutoff"] = "different"
+        proof.write_text(json.dumps(record))
+        self.assertNotEqual(self.run_step("verified_pair", variant, "runtime").returncode, 0)
+        proof.unlink()
+        self.assertNotEqual(self.run_step("verified_pair", variant, "runtime").returncode, 0)
+
+
+class NightlyTagTest(unittest.TestCase):
+    def test_publication_legs_and_later_attempts_use_the_resolved_date_and_source(self) -> None:
+        root = HELPER_PATH.parents[1]
+        workflow = yaml.safe_load((root / ".github/workflows/build.yml").read_text())
+        resolve_step = next(step for step in workflow["jobs"]["resolve_source"]["steps"] if step.get("id") == "odoo_source")
         tag_step = next(step for step in workflow["jobs"]["publish"]["steps"] if step.get("id") == "tags")
+        revisions = {variant.series: f"{index:x}" * 40 for index, variant in enumerate(VARIANTS, 1)}
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            for name, script in (("git", 'printf "%s refs/heads/fixture\\n" "$SOURCE_REV"'), ("date", 'echo "$CLOCK_DATE"')):
-                executable = root / name
-                executable.write_text(f"#!/bin/sh\n{script}\n")
-                executable.chmod(0o755)
-            output = root / "resolved"
+            tools = Path(directory)
+            git_code = 'import json, os, sys; print(json.loads(os.environ["SOURCE_REVISIONS"])[sys.argv[-1].rsplit("/", 1)[1]])'
+            git = tools / "git"
+            git.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} -c {shlex.quote(git_code)} "$@"\n')
+            git.chmod(0o755)
+            clock = tools / "date"
+            clock.write_text('#!/bin/sh\necho "$CLOCK_DATE"\n')
+            clock.chmod(0o755)
+            output = tools / "resolved"
             environment = {
-                "PATH": f"{root}:{os.environ['PATH']}",
-                "SOURCE_REV": "a" * 40,
+                "PATH": f"{tools}:{os.environ['PATH']}",
+                "SOURCE_REVISIONS": json.dumps(revisions),
                 "CLOCK_DATE": "20261025",
                 "GITHUB_OUTPUT": str(output),
-                "ENTERPRISE_SOURCE_TOKEN": "fixture-token",
-                "ODOO_ENTERPRISE_REPOSITORY": "example/source",
-                "ODOO_ENTERPRISE_REF": "fixture",
             }
-            subprocess.run(["bash", "-c", resolve_step["run"]], check=True, capture_output=True, text=True, env=environment)
+            subprocess.run(
+                ["bash", "-c", resolve_step["run"]], cwd=root, check=True, capture_output=True, text=True, env=environment
+            )
             resolved = dict(line.split("=", 1) for line in output.read_text().splitlines())
-            aliases: list[set[str]] = []
-            for target, current_day in (("runtime", "20261025"), ("devtools", "20261026")):
-                output.write_text("")
-                result = subprocess.run(
-                    ["bash", "-c", tag_step["run"].replace("${{ matrix.suffix }}", target)],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    env={
-                        **environment,
-                        "CLOCK_DATE": current_day,
-                        "NIGHTLY_DATE": resolved["nightly_date"],
-                        "ODOO_SOURCE_REV": resolved["value"],
-                        "ENTERPRISE_SOURCE_REV": resolved["value"],
-                        "BASE_IMAGE_REF": f"ghcr.io/example/base@sha256:{'b' * 64}",
-                        "DISPATCH_PUBLISH_STABLE": "false",
-                        "DISPATCH_PUBLISH_NIGHTLY": "true",
-                        "GITHUB_EVENT_NAME": "schedule" if resolver == "resolve_source" else "workflow_dispatch",
-                        "GITHUB_REF": "refs/heads/main",
-                        "GITHUB_SHA": "c" * 40,
-                        "GITHUB_RUN_ID": "123",
-                        "GITHUB_REPOSITORY": "example/images",
-                    },
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                aliases.append(
-                    {
-                        line.removesuffix(f"-{target}")
-                        for line in output.read_text().splitlines()
-                        if line.startswith(f"{ROOT}:nightly-")
+            self.assertEqual(json.loads(resolved["revisions"]), revisions)
+            for variant in VARIANTS:
+                aliases: list[set[str]] = []
+                for target, current_day in (("runtime", "20261025"), ("devtools", "20261026")):
+                    output.write_text("")
+                    result = subprocess.run(
+                        ["bash", "-c", tag_step["run"].replace("${{ matrix.suffix }}", target)],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        env={
+                            **environment,
+                            "CLOCK_DATE": current_day,
+                            "NIGHTLY_DATE": resolved["nightly_date"],
+                            "ODOO_SOURCE_REV": json.loads(resolved["revisions"])[variant.series],
+                            "ODOO_SERIES": variant.series,
+                            "ALIAS_PREFIX": variant.alias_prefix,
+                            "DISPATCH_PUBLISH_STABLE": "false",
+                            "GITHUB_EVENT_NAME": "schedule",
+                            "GITHUB_REF": "refs/heads/main",
+                            "GITHUB_SHA": "c" * 40,
+                            "GITHUB_RUN_ID": "123",
+                            "GITHUB_REPOSITORY": "example/images",
+                        },
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    tags = {
+                        line.removesuffix(f"-{target}") for line in output.read_text().splitlines() if line.startswith(f"{ROOT}:")
                     }
-                )
-            self.assertTrue(aliases[0])
-            self.assertEqual(aliases[0], aliases[1])
+                    self.assertIn(f"{ROOT}:{variant.alias_prefix}sha-{revisions[variant.series][:12]}", tags)
+                    self.assertIn(f"{ROOT}:{variant.alias_prefix}nightly-{resolved['nightly_date']}", tags)
+                    aliases.append(tags)
+                self.assertEqual(aliases[0], aliases[1])
 
 
 if __name__ == "__main__":

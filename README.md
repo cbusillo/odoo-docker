@@ -2,7 +2,8 @@
 
 Base Odoo runtime image.
 
-This repository owns the base runtime build for Odoo 19. It builds a
+This repository owns the Community base runtime builds declared in
+[image-variants.json](image-variants.json). It builds a
 runtime from resolved upstream Odoo source, then layers in `uv`,
 PostgreSQL 17 client tools, and compatibility paths used by downstream
 deployment tooling. The runtime also includes the Launchplane substrate needed
@@ -308,12 +309,14 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
 ## CI Release Model
 
 - Every run builds test images first and executes smoke checks.
+  Each declared series resolves its own exact Odoo revision and verifies both
+  runtime targets. Smoke tests check the actual installed Odoo series.
 - Pull-request builds resolve one Ubuntu snapshot, exact PostgreSQL package set,
   Python/npm cutoff, scanner image, and Trivy database for the comparison.
   Exact base and head commits use those same inputs. The merge gate blocks
   introduced or worsened high/critical findings without blaming a pull request
   for unchanged inherited findings. Causal comparison runs only when the base
-  has native resolver support and its workflow, scanner, and evaluator match
+  declares that same series, has native resolver support, and its workflow, scanner, and evaluator match
   the head. The comparison uses the base copies of that tooling. Otherwise,
   verification retains the stricter candidate absolute gate, using base scanner
   tooling and its pinned scanner image when available. Scanner upgrades are
@@ -338,19 +341,32 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   database; the installed gettext packages remain covered by the Ubuntu OS
   advisory scan.
 - `schedule` (weekly) promotes `nightly-*`, `sha-*`, and `build-*` tags.
-- `push` to `main` promotes stable `19.0-*`, `sha-*`, and `build-*` tags.
+- `push` to `main` promotes each series' stable, source and build tags.
 - Manual `workflow_dispatch` runs promote `sha-*` and `build-*` tags, and also
-  stable `19.0-*` tags unless `publish_stable` is turned off (it defaults on).
+  each series' stable tags unless `publish_stable` is turned off (it defaults on).
+  The legacy series keeps its existing unqualified nightly/source/build/cache
+  names. Other series qualify those names with their configured alias prefix;
+  all stable tags use the series. Local verification tags, evidence and artifacts
+  include the series to prevent cross-version collisions.
 - Train candidates run full validation through their generated batch PR,
   reporting `image-verification` without publishing or a second train-push
   build. This repository uses merge commits without CODEOWNERS assignments;
   restore a candidate-push route before adopting a mode that omits the batch PR.
-- After a publishing run, the workflow dispatches the `odoo-enterprise-docker`
+- Each publisher first requires both targets' successful verification provenance
+  for its exact series, Odoo revision, repository commit, run and resolved inputs.
+  A failure in one series cannot publish an unchecked target or prevent the
+  other qualified pair from progressing. Published evidence uploads precede
+  the digest records that permit alias promotion. Index and platform annotations
+  bind the series and Odoo revision; promotion checks them and alias readback.
+- Only the variant with Enterprise follow-up enabled dispatches `odoo-enterprise-docker`
   build with the exact published runtime and devtools digests. It passes on
   the same stable decision, and asks for nightly tags only on scheduled runs.
+  Community 20 never triggers an Enterprise 19 build. Base-image aliases mean
+  image qualification; tenant testing, Client acceptance and production release
+  remain on their own gated paths.
 - `pull_request` runs verify-only (no image publishing) and reports one stable
   `image-verification` merge gate after lint, source resolution, override
-  validation, both image builds when resolver parity is available, smoke tests,
+  validation inside each selected series, all supported image builds, smoke tests,
   and dependency-health evaluation pass.
 - Fork pull requests fail closed before using trusted self-hosted runners. A
   maintainer must recreate an accepted fork change on a branch in this
@@ -377,7 +393,9 @@ while still giving us a recoverable remote cache when a builder is recreated.
 
 The GHCR retention workflow keeps stable, nightly, and registry-cache tags,
 preserves the newest 10 `sha-*`, validated `build-*`, and `candidate-*` tags per
-image suffix, and prunes unreferenced untagged versions older than 7 days.
+series and image suffix, and prunes unreferenced untagged versions older than 7 days.
+Tag grammar comes from the same variant file; unreadable or invalid variant
+configuration stops cleanup before any deletion.
 Platform manifests referenced by retained indexes are preserved regardless of
 age. Cleanup stops before deleting anything when a retained index cannot be
 inspected or a readable child cannot be reconciled with package inventory.
