@@ -101,12 +101,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       build-essential \
       ca-certificates \
       curl \
-      dirmngr \
       fontconfig \
       fonts-noto-cjk \
       gettext \
       git \
-      gnupg \
       libjpeg-dev \
       libldap2-dev \
       libpq-dev \
@@ -134,8 +132,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-    | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt-archive.postgresql.org/pub/repos/apt noble-pgdg-archive main" \
+    -o /usr/share/keyrings/postgresql.asc \
+    && echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt-archive.postgresql.org/pub/repos/apt noble-pgdg-archive main" \
       > /etc/apt/sources.list.d/pgdg.list
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \

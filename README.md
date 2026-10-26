@@ -515,6 +515,8 @@ Use `--target runtime-devtools` and a separate local tag for its browser layer.
 ## Security Notes
 
 - Do not add credentials or access tokens in this repo.
+- APT verifies PostgreSQL's armored signing key directly. GnuPG key-management
+  tools are omitted; `gpgv` remains available for signature verification.
 - certifi is a transitive Requests dependency, resolved during the base build.
   Rebuild the base to pick up its patched release; enterprise images inherit
   `/venv` without reinstalling Python dependencies. See the
