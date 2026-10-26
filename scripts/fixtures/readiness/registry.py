@@ -6,6 +6,7 @@ from unittest.mock import patch
 from odoo import http
 from odoo.addons.launchplane_runtime_health.controllers import main as controller_module
 from odoo.api import Environment
+from odoo.tools import config
 from werkzeug.wrappers import Request as WerkzeugRequest
 
 
@@ -21,6 +22,15 @@ def check_registry(env: Environment) -> None:
     req.db, req.env, req.registry = env.cr.dbname, env, env.registry
     controller = controller_module.LaunchplaneRuntimeHealthController()
     with patch.dict(vars(controller_module), {"request": req}):
+        previous_filter = config["dbfilter"]
+        try:
+            config["dbfilter"] = "^unmatched_fixture_database$"
+            response = controller.launchplane_readiness()
+            assert response.status_code == 503
+            assert json.loads(response.get_data())["reason"] == "database_mismatch"
+        finally:
+            config["dbfilter"] = previous_filter
+        print("readiness rejected a database outside the native filter")
         website = env["website"].browse(contract["website_id"])
         assert controller_module._website_id_for_host(website, contract["host"].split(":")[0]) == website.id
         previous_domain = website.domain

@@ -68,7 +68,7 @@ class LaunchplaneRuntimeHealthController(http.Controller):
             if (
                 request.db != database
                 or request.httprequest.headers.get("X-Odoo-Database") != database
-                or http.db_filter([database], host=contract["host"]) != [database]
+                or getattr(http, "router", http).db_filter([database], host=contract["host"]) != [database]
                 or request.httprequest.cookies
             ):
                 raise ReadinessFailure("database_mismatch")
