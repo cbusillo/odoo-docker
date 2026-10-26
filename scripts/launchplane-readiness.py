@@ -5,21 +5,26 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from html.parser import HTMLParser
-from pathlib import Path
 import re
 import sys
 import time
+from html.parser import HTMLParser
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, OpenerDirector, ProxyHandler, Request, build_opener
 
 sys.path[:0] = ["/odoo", "/opt"]
-from launchplane.addons.launchplane_runtime_health.controllers.readiness import fingerprint, resource_allowed, validate_contract, validate_observations
+from launchplane.addons.launchplane_runtime_health.controllers.readiness import (
+    fingerprint,
+    resource_allowed,
+    validate_contract,
+    validate_observations,
+)
 
 
 class NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl) -> None:
+    def redirect_request(self, req: Request, fp: object, code: int, msg: str, headers: object, newurl: str) -> None:
         return None
 
 
@@ -76,7 +81,7 @@ def prepare(opener: OpenerDirector, origin: str, contract: dict, browser: dict) 
     # It permits preparation without pretending the candidate is traffic-ready.
     try:
         fetch(opener, origin, contract, "/launchplane/readiness",
-              json.dumps({"contract": contract, "observations": None}).encode())
+              json.dumps({"contract": contract, "observations": None}, separators=(",", ":")).encode())
     except HTTPError as error:
         if error.code != 503 or json.loads(error.read()) != {
             "status": "fail", "reason": "probe_evidence_missing",
@@ -151,12 +156,15 @@ def main() -> int:
         else:
             validate_observations(contract, evidence)
             body, _ = fetch(opener, args.origin, contract, "/launchplane/readiness",
-                            json.dumps({"contract": contract, "observations": evidence}).encode())
+                            json.dumps({"contract": contract, "observations": evidence}, separators=(",", ":")).encode())
             result = json.loads(body)
             if result != {"status": "pass"}:
                 raise ValueError("Readiness failed")
-    except (HTTPError, ValueError, OSError):
-        print("Readiness preparation/check failed", file=sys.stderr)
+    except (HTTPError, ValueError, OSError) as error:
+        if isinstance(error, HTTPError) and error.code == 413:
+            print("Readiness evidence exceeds the candidate request bound", file=sys.stderr)
+        else:
+            print("Readiness preparation/check failed", file=sys.stderr)
         return 1
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return 0

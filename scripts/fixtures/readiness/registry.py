@@ -2,6 +2,8 @@
 import json
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.request import ProxyHandler, Request, build_opener
 
 from odoo import http
 from odoo.addons.launchplane_runtime_health.controllers import main as controller_module
@@ -21,6 +23,26 @@ def check_registry(env: Environment) -> None:
     ))
     req.db, req.env, req.registry = env.cr.dbname, env, env.registry
     controller = controller_module.LaunchplaneRuntimeHealthController()
+    request_bound = controller.launchplane_readiness.routing["max_content_length"]
+    body = json.dumps({"contract": contract, "observations": observations}, separators=(",", ":")).encode()
+    opener = build_opener(ProxyHandler({}))
+    for size in (request_bound, request_bound + 1):
+        probe = Request(
+            "http://127.0.0.1:8069/launchplane/readiness",
+            headers={"Host": contract["host"], "X-Odoo-Database": contract["database"], "Content-Type": "application/json"},
+            data=body + b" " * (size - len(body)),
+        )
+        try:
+            response = opener.open(probe, timeout=10)
+        except HTTPError as error:
+            response = error
+        with response:
+            if size == request_bound:
+                assert response.status in {200, 503}
+                assert "status" in json.loads(response.read())
+            else:
+                assert response.status == 413
+    print("readiness enforced the runtime request bound")
     with patch.dict(vars(controller_module), {"request": req}):
         previous_filter = config["dbfilter"]
         try:

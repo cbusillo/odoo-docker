@@ -148,6 +148,11 @@ fail readiness. Odoo writes that marker when module actions remain pending after
 an update, and [registry startup](https://github.com/odoo/odoo/blob/e55c653b4dbafba45de5434c8da96db5952b42cb/odoo/orm/registry.py#L174)
 consumes it to force another update.
 
+The probe sends compact JSON without dropping asset evidence. Receipts remain
+subject to the endpoint's request bound; an oversized receipt fails closed and
+the CLI identifies that size failure. Each tenant must qualify its own receipt,
+since additional theme assets can exceed the bare-image fixture's envelope.
+
 The maintenance producer records `launchplane.readiness.release` in
 `ir.config_parameter` **after** successful exact-release updates and the committed
 credential boundary. Its receipt binds the full expected runtime identity and

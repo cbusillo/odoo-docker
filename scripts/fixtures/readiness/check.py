@@ -48,7 +48,7 @@ def probe(
     headers = {"Host": host or probe_contract["host"], "X-Odoo-Database": database or probe_contract["database"],
                "Content-Type": "application/json", **(extra_headers or {})}
     req = Request("http://127.0.0.1:8069/launchplane/readiness", headers=headers,
-                  data=json.dumps({"contract": probe_contract, "observations": probe_evidence}).encode())
+                  data=json.dumps({"contract": probe_contract, "observations": probe_evidence}, separators=(",", ":")).encode())
     try:
         response = opener.open(req, timeout=10)
     except HTTPError as error:
