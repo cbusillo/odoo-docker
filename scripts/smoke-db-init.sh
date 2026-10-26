@@ -77,7 +77,7 @@ set -euo pipefail
 printf '[options]\ndb_password = stale-config-password\n' > /volumes/config/_generated.conf
 odoo-bin \
   -d '${db_name}' \
-  --init base \
+  --init base,launchplane_runtime_health \
   --test-tags /base:TestImage \
   --without-demo \
   --http-interface=127.0.0.1 \
@@ -90,11 +90,13 @@ if ! grep -Eq \"odoo[.]tests[.]result: 0 failed, 0 error[(]s[)] of [1-9][0-9]* t
 fi
 "
 
-base_state="$(docker exec "${postgres_container}" psql -U "${db_user}" -d "${db_name}" -Atc "select state from ir_module_module where name = 'base';")"
-if [[ "${base_state}" != "installed" ]]; then
-	echo "Expected Odoo base module to be installed, got: ${base_state}" >&2
-	exit 1
-fi
+for module in base launchplane_runtime_health; do
+	module_state="$(docker exec "${postgres_container}" psql -U "${db_user}" -d "${db_name}" -Atc "select state from ir_module_module where name = '${module}';")"
+	if [[ "${module_state}" != "installed" ]]; then
+		echo "Expected Odoo ${module} module to be installed, got: ${module_state}" >&2
+		exit 1
+	fi
+done
 
 # Authenticate a non-server data command through the same image wrapper.
 docker run --rm \
