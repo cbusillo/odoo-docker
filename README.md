@@ -2,8 +2,8 @@
 
 Base Odoo runtime image.
 
-This repository owns the base runtime build for Odoo 19. It compiles a
-deterministic runtime from the upstream Odoo source, then layers in `uv`,
+This repository owns the base runtime build for Odoo 19. It builds a
+runtime from resolved upstream Odoo source, then layers in `uv`,
 PostgreSQL 17 client tools, and compatibility paths used by downstream
 deployment tooling. The runtime also includes the Launchplane substrate needed
 by Launchplane-managed Odoo lanes.
@@ -317,7 +317,10 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   `candidate-<run>-<repository-sha>-*` tag, then the exact registry manifest and
   its `linux/amd64` and `linux/arm64` child digests are scanned. Stable, nightly,
   source `sha-*`, and validated `build-*` aliases move only after that evidence
-  passes and each alias is verified against the scanned manifest digest.
+  passes and each alias is verified against the scanned manifest digest. Each exact
+  platform child also executes its existing runtime/devtools smoke script. Both
+  targets must pass before either target starts alias promotion. Interrupted
+  registry updates can still leave a mixed pair; tag updates are not atomic.
 - Trivy skips only `/usr/share/java/gettext.jar` and
   `/usr/share/java/libintl-0.21.jar`, which are owned by Ubuntu's gettext
   packages, so comparison scans do not require a separate mutable Java
@@ -400,6 +403,11 @@ record repository/source identity, producer and database revisions, scan scope,
 configuration hash, and platform. Publication evidence additionally records the
 exact manifest-list digest, platform child digests, and snapshot hashes.
 
+Published image indexes and manifests also carry the image repository and exact
+producer commit in OCI source/revision annotations. Unlike config labels, these
+do not misattribute downstream images through inheritance. These annotations complement
+digest-bound evidence; source and run tags remain aliases rather than immutable identity.
+
 `uv` is copied from Astral's official container image and pinned by tag+digest
 in the Dockerfile. Renovate checks that image reference and the workflow
 actions weekly, waits 7 days after a release, and groups minor and patch updates
@@ -419,6 +427,10 @@ docker build \
 ```
 
 ## Validation Commands
+
+- `bash scripts/test-published-promotion.sh` executes the real promotion shell
+  with a disposable Docker adapter, proving an invalid pair causes no alias
+  changes and valid records promote their exact checked manifests.
 
 - `bash scripts/test-ghcr-retention.sh` executes registry cleanup against
   disposable API/manifest fixtures, including retained children and unavailable
@@ -476,3 +488,29 @@ docker build \
   vendored packages and expand the runtime vulnerability and supply-chain
   surface. Standard-library virtual environment bootstrapping with bundled
   `pip` is intentionally unavailable; use `uv venv` instead.
+
+Publishing jobs share GitHub's native queued concurrency group through alias
+promotion and downstream dispatch. Each candidate records the workflow run
+number in an OCI `io.github.cbusillo.build-run-number` annotation. Promotion
+reads each alias directly from the registry and compares each family
+independently. A newer stable or nightly alias on either target protects the
+whole pair; unrelated families do not suppress one another. Both eligible
+mappings are planned before writes and verified before dispatch. A failed-jobs
+retry can repair a partial pair using the already checked candidates from
+successful jobs, including candidates from different attempts of the same run.
+The source resolver fixes the nightly date for both legs and failed-job retries.
+Floating and dated nightly aliases have independent pairs. Equal run numbers are
+repairs, not supersession. Unique build aliases are independent of shared source
+aliases. Community dispatch flags reflect only the families actually delivered
+by that execution.
+
+Existing images without that annotation are the legacy baseline (order zero).
+Only an exact registry tag-not-found result means an absent alias. Present but
+invalid annotations and other registry errors stop promotion. Before deploying
+this workflow, allow older publishing executions to finish; rerunning workflows
+from before this migration is not supported. Use the current workflow for
+subsequent builds.
+
+Run-number ordering belongs to this workflow identity. Keep `build.yml` in place
+when reorganizing jobs; recreating it requires an ordering migration before
+publication. Superseded families are visible as Actions notices.

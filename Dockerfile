@@ -162,7 +162,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -f /tmp/wkhtmltox.deb \
     && rm -rf /var/lib/apt/lists/*
 
-RUN if [ -n "${RESOLVER_CUTOFF:-}" ]; then \
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    if [ -n "${RESOLVER_CUTOFF:-}" ]; then \
       npm install --global --before="${RESOLVER_CUTOFF}" rtlcss@4.3.0; \
     else \
       npm install --global rtlcss@4.3.0; \
