@@ -1,15 +1,18 @@
-# Temporary Odoo 19.0 Python 3.13 requirement overrides.
+# Temporary Odoo 19.0/20.0 Python 3.13 requirement overrides.
 # Keep these at reviewed secure or downstream-compatible versions; do not chase
 # broad latest releases. scripts/check-requirements-overrides.py fails CI once upstream
 # Odoo catches up so entries can be removed instead of silently downgrading packages.
 cbor2==5.9.0
 cryptography==50.0.0  # Fixes CVE-2026-69247 and CVE-2026-69249.
 idna==3.18  # Fixes CVE-2024-3651 and CVE-2026-45409.
+Jinja2==3.1.6
 lxml==6.1.1  # Required by lxml-html-clean>=0.4.5 for CVE-2026-49825.
 lxml-html-clean==0.4.5
 Pillow==13.0.0
 pyopenssl==26.4.0  # Required for cryptography>=49 compatibility.
 pypdf==6.21.2
+python-ldap==3.4.5
 requests==2.34.2
 urllib3==2.8.0  # Fixes CVE-2026-97687, CVE-2026-97688, and CVE-2026-97689.
 Werkzeug==3.1.9
+zeep==4.3.3
