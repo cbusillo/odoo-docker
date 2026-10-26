@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -362,6 +363,18 @@ class VerificationPairTest(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
         workflow = yaml.safe_load((HELPER_PATH.parents[1] / ".github/workflows/build.yml").read_text())
+        self.run_id = "123"
+        self.attempt = "1"
+        self.upload_path = next(
+            step["with"]["path"]
+            for step in workflow["jobs"]["verify"]["steps"]
+            if step.get("name") == "Upload verification dependency evidence"
+        )
+        self.download_path = next(
+            step["with"]["path"]
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name") == "Download both verification proofs for this series"
+        )
         self.steps = {
             identifier: next(step["run"] for step in workflow["jobs"][job]["steps"] if step.get("id") == identifier)
             for identifier, job in (("verification_pass", "verify"), ("verified_pair", "publish"))
@@ -373,7 +386,7 @@ class VerificationPairTest(unittest.TestCase):
         self.configuration = hashlib.sha256(self.inputs.read_bytes()).hexdigest()
         self.commit = "c" * 40
 
-    def run_step(self, identifier: str, variant: promotion.ImageVariant, suffix: str) -> subprocess.CompletedProcess[str]:
+    def render(self, value: str, variant: promotion.ImageVariant, suffix: str) -> str:
         target = "runtime-devtools" if suffix == "devtools" else suffix
         key = f"{variant.series}-{suffix}"
         bindings = {
@@ -381,10 +394,18 @@ class VerificationPairTest(unittest.TestCase):
             "github.event.pull_request.head.sha || github.sha": self.commit,
             "matrix.target": target,
             "needs.resolve_inputs.outputs.scan_configuration_sha256": self.configuration,
+            "runner.temp": str(self.root),
+            "github.run_id": self.run_id,
+            "github.run_attempt": self.attempt,
         }
-        script = self.steps[identifier]
-        for name, value in bindings.items():
-            script = script.replace("${{ " + name + " }}", value)
+        for name, binding in bindings.items():
+            value = value.replace("${{ " + name + " }}", binding)
+        if "${{" in value:
+            raise ValueError(f"Unresolved workflow expression: {value}")
+        return value
+
+    def run_step(self, identifier: str, variant: promotion.ImageVariant, suffix: str) -> subprocess.CompletedProcess[str]:
+        script = self.render(self.steps[identifier], variant, suffix)
         return subprocess.run(
             ["bash", "-euo", "pipefail", "-c", script],
             env={
@@ -393,18 +414,19 @@ class VerificationPairTest(unittest.TestCase):
                 "ODOO_SERIES": variant.series,
                 "ODOO_SOURCE_REV": SOURCE_REVISION,
                 "GITHUB_SHA": self.commit,
-                "GITHUB_RUN_ID": "123",
+                "GITHUB_RUN_ID": self.run_id,
+                "GITHUB_RUN_ATTEMPT": self.attempt,
             },
             capture_output=True,
             text=True,
         )
 
     def qualify(self, variant: promotion.ImageVariant) -> Path:
-        selected = self.root / f"verified-{variant.series}-runtime"
+        selected = Path(self.render(self.download_path, variant, "runtime"))
         for suffix in promotion.TARGETS:
             key = f"{variant.series}-{suffix}"
-            health = self.root / f"dependency-health-{key}"
-            health.mkdir(exist_ok=True)
+            health = Path(self.render(self.upload_path, variant, suffix))
+            health.mkdir(parents=True, exist_ok=True)
             provenance = health / "build-provenance.json"
             provenance.write_text(json.dumps({"resolved_inputs": json.loads(self.inputs.read_text())}))
             result = self.run_step("verification_pass", variant, suffix)
@@ -413,6 +435,19 @@ class VerificationPairTest(unittest.TestCase):
             proof.mkdir(parents=True, exist_ok=True)
             (proof / "build-provenance.json").write_bytes(provenance.read_bytes())
         return selected
+
+    def test_new_attempt_excludes_stale_local_proofs_but_accepts_downloaded_successes(self) -> None:
+        variant = VARIANTS[-1]
+        previous = self.qualify(variant)
+        self.attempt = "2"
+        self.assertFalse(Path(self.render(self.upload_path, variant, "runtime")).exists())
+        self.assertNotEqual(self.run_step("verified_pair", variant, "runtime").returncode, 0)
+        selected = Path(self.render(self.download_path, variant, "runtime"))
+        shutil.copytree(previous, selected)
+        self.assertEqual(self.run_step("verified_pair", variant, "runtime").returncode, 0)
+        self.run_id = "124"
+        self.assertFalse(Path(self.render(self.upload_path, variant, "runtime")).exists())
+        self.assertNotEqual(self.run_step("verified_pair", variant, "runtime").returncode, 0)
 
     def test_each_series_requires_its_complete_pair_without_another_series(self) -> None:
         for variant in VARIANTS:

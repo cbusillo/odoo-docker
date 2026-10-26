@@ -548,6 +548,9 @@ mappings are planned before writes and verified before dispatch. A failed-jobs
 retry can repair a partial pair using the already checked candidates from
 successful jobs, including candidates from different attempts of the same run.
 The source resolver fixes the nightly date for both legs and failed-job retries.
+Local verification, publication and proof-download outputs are isolated by run
+and attempt; artifact names remain stable so failed-job retries can reuse
+successful jobs from earlier attempts of the same run.
 Floating and dated nightly aliases have independent pairs. Equal run numbers are
 repairs, not supersession. Unique build aliases are independent of shared source
 aliases. Community dispatch flags reflect only the families actually delivered
