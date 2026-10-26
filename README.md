@@ -2,7 +2,8 @@
 
 Base Odoo runtime image.
 
-This repository owns the base runtime build for Odoo 19. It builds a
+This repository owns the Community base runtime builds declared in
+[image-variants.json](image-variants.json). It builds a
 runtime from resolved upstream Odoo source, then layers in `uv`,
 PostgreSQL 17 client tools, and compatibility paths used by downstream
 deployment tooling. The runtime also includes the Launchplane substrate needed
@@ -308,12 +309,14 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
 ## CI Release Model
 
 - Every run builds test images first and executes smoke checks.
+  Each declared series resolves its own exact Odoo revision and verifies both
+  runtime targets. Smoke tests check the actual installed Odoo series.
 - Pull-request builds resolve one Ubuntu snapshot, exact PostgreSQL package set,
   Python/npm cutoff, scanner image, and Trivy database for the comparison.
   Exact base and head commits use those same inputs. The merge gate blocks
   introduced or worsened high/critical findings without blaming a pull request
   for unchanged inherited findings. Causal comparison runs only when the base
-  has native resolver support and its workflow, scanner, and evaluator match
+  declares that same series, has native resolver support, and its workflow, scanner, and evaluator match
   the head. The comparison uses the base copies of that tooling. Otherwise,
   verification retains the stricter candidate absolute gate, using base scanner
   tooling and its pinned scanner image when available. Scanner upgrades are
@@ -325,7 +328,7 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   once; matching tooling reuses the scan, while differing tooling scans that
   same image with its separately bound scanner profile and database. Both
   evaluations must pass. Multi-architecture images are pushed first under a unique
-  `candidate-<run>-<repository-sha>-*` tag, then the exact registry manifest and
+  `<alias-prefix>candidate-<run>-<repository-sha>-*` tag, then the exact registry manifest and
   its `linux/amd64` and `linux/arm64` child digests are scanned. Stable, nightly,
   source `sha-*`, and validated `build-*` aliases move only after that evidence
   passes and each alias is verified against the scanned manifest digest. Each exact
@@ -338,19 +341,32 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   database; the installed gettext packages remain covered by the Ubuntu OS
   advisory scan.
 - `schedule` (weekly) promotes `nightly-*`, `sha-*`, and `build-*` tags.
-- `push` to `main` promotes stable `19.0-*`, `sha-*`, and `build-*` tags.
+- `push` to `main` promotes each series' stable, source and build tags.
 - Manual `workflow_dispatch` runs promote `sha-*` and `build-*` tags, and also
-  stable `19.0-*` tags unless `publish_stable` is turned off (it defaults on).
+  each series' stable tags unless `publish_stable` is turned off (it defaults on).
+  The legacy series keeps its existing unqualified nightly/source/build/cache
+  names. Other series qualify candidate, nightly, source, build and cache names with their configured alias prefix;
+  all stable tags use the series. Local verification tags, evidence and artifacts
+  include the series to prevent cross-version collisions.
 - Train candidates run full validation through their generated batch PR,
   reporting `image-verification` without publishing or a second train-push
   build. This repository uses merge commits without CODEOWNERS assignments;
   restore a candidate-push route before adopting a mode that omits the batch PR.
-- After a publishing run, the workflow dispatches the `odoo-enterprise-docker`
+- Each publisher first requires both targets' successful verification provenance
+  for its exact series, Odoo revision, repository commit, run and resolved inputs.
+  A failure in one series cannot publish an unchecked target or prevent the
+  other qualified pair from progressing. Published evidence uploads precede
+  the digest records that permit alias promotion. Index and platform annotations
+  bind the series and Odoo revision; promotion checks them and alias readback.
+- Only the variant with Enterprise follow-up enabled dispatches `odoo-enterprise-docker`
   build with the exact published runtime and devtools digests. It passes on
   the same stable decision, and asks for nightly tags only on scheduled runs.
+  Community 20 never triggers an Enterprise 19 build. Base-image aliases mean
+  image qualification; tenant testing, Client acceptance and production release
+  remain on their own gated paths.
 - `pull_request` runs verify-only (no image publishing) and reports one stable
   `image-verification` merge gate after lint, source resolution, override
-  validation, both image builds when resolver parity is available, smoke tests,
+  validation inside each selected series, all supported image builds, smoke tests,
   and dependency-health evaluation pass.
 - Fork pull requests fail closed before using trusted self-hosted runners. A
   maintainer must recreate an accepted fork change on a branch in this
@@ -377,7 +393,11 @@ while still giving us a recoverable remote cache when a builder is recreated.
 
 The GHCR retention workflow keeps stable, nightly, and registry-cache tags,
 preserves the newest 10 `sha-*`, validated `build-*`, and `candidate-*` tags per
-image suffix, and prunes unreferenced untagged versions older than 7 days.
+series and image suffix, and prunes unreferenced untagged versions older than 7 days.
+Tag grammar comes from the same variant file; unreadable or invalid variant
+configuration stops cleanup before any deletion.
+Stable series tags and their referenced manifests remain protected even when
+that series is removed from the active build list.
 Platform manifests referenced by retained indexes are preserved regardless of
 age. Cleanup stops before deleting anything when a retained index cannot be
 inspected or a readable child cannot be reconciled with package inventory.
@@ -405,8 +425,8 @@ records.
 
 ## Source Pinning
 
-The workflow resolves the current `odoo/odoo` `19.0` commit and pins that exact
-revision into the build. This gives repeatable artifacts per run and makes
+The workflow resolves each declared `odoo/odoo` series' current commit and pins
+that exact revision into its builds. This gives repeatable artifacts per run and makes
 scheduled updates explicit.
 
 The Dockerfile pins artifact-affecting base and build images by digest, uses an
@@ -439,6 +459,18 @@ docker build \
   .
 ```
 
+For a pinned Community 20 build, set `ODOO_SOURCE_REV` to the full upstream
+commit to qualify, then use:
+
+```bash
+docker build --target runtime \
+  --build-arg ODOO_SOURCE_REF=20.0 \
+  --build-arg ODOO_SOURCE_REV="${ODOO_SOURCE_REV:?Set an exact upstream commit}" \
+  -t odoo-local:20.0-runtime .
+```
+
+Use `--target runtime-devtools` and a separate local tag for its browser layer.
+
 ## Validation Commands
 
 - `bash scripts/test-published-promotion.sh` executes the real promotion shell
@@ -458,10 +490,12 @@ docker build \
   advisory handling, and multi-architecture artifact binding.
 - `scripts/test-odoo-bin-wrapper.sh` checks wrapper argument handling without a
   container build.
-- `scripts/smoke-runtime.sh <image-reference>` checks the runtime image helper
-  contract and Odoo CLI availability.
-- `scripts/smoke-devtools.sh <image-reference>` checks the runtime contract
-  before checking the devtools image browser tooling and addon path setup.
+- `scripts/smoke-runtime.sh <image-reference> [odoo-series]` checks the runtime
+  image helper contract and Odoo CLI availability. Supply the selected series
+  to also verify the installed Odoo identity, as CI does for each matrix row.
+- `scripts/smoke-devtools.sh <image-reference> [odoo-series]` checks the runtime
+  contract and selected series before checking the devtools image browser
+  tooling and addon path setup.
 - `scripts/smoke-db-init.sh <image-reference>` checks database-backed Odoo
   initialization and the installed state of `base` and `launchplane_runtime_health`,
   authenticated shell and database dump commands, and that
@@ -514,6 +548,9 @@ mappings are planned before writes and verified before dispatch. A failed-jobs
 retry can repair a partial pair using the already checked candidates from
 successful jobs, including candidates from different attempts of the same run.
 The source resolver fixes the nightly date for both legs and failed-job retries.
+Local verification, publication and proof-download outputs are isolated by run
+and attempt; artifact names remain stable so failed-job retries can reuse
+successful jobs from earlier attempts of the same run.
 Floating and dated nightly aliases have independent pairs. Equal run numbers are
 repairs, not supersession. Unique build aliases are independent of shared source
 aliases. Community dispatch flags reflect only the families actually delivered

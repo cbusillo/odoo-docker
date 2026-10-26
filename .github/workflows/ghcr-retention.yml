@@ -25,14 +25,24 @@ jobs:
       KEEP_UNTAGGED_DAYS: "7"
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Read validated image variants
+        id: variants
+        run: |
+          set -euo pipefail
+          variants="$(python3 -c 'import json, runpy; from dataclasses import asdict; from pathlib import Path; module = runpy.run_path("scripts/promote-published-images.py"); print(json.dumps([asdict(variant) for variant in module["read_variants"](Path("image-variants.json"))]))')"
+          echo "value=${variants}" >> "${GITHUB_OUTPUT}"
       - name: Prune old GHCR versions
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          IMAGE_VARIANTS: ${{ steps.variants.outputs.value }}
         with:
           script: |
             const packageName = process.env.PACKAGE_NAME;
             const keepShaCount = Number.parseInt(process.env.KEEP_SHA_COUNT || "10", 10);
             const keepUntaggedDays = Number.parseInt(process.env.KEEP_UNTAGGED_DAYS || "7", 10);
             const dryRun = String(process.env.DRY_RUN).toLowerCase() === "true";
+            const variants = JSON.parse(process.env.IMAGE_VARIANTS);
             const owner = context.repo.owner;
             const ownerType = String(context.payload.repository?.owner?.type || "User").toLowerCase();
 
@@ -61,12 +71,16 @@ jobs:
             );
 
             const keepIds = new Set();
-            const keepTagRegexes = [
-              /^19\.0-(runtime|devtools)$/,
-              /^nightly-(runtime|devtools)$/,
-              /^nightly-\d{8}-(runtime|devtools)$/,
-              /^buildcache-(runtime|devtools)$/,
-            ];
+            const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const keepTagRegexes = [/^[1-9][0-9]*\.[0-9]+-(runtime|devtools)$/];
+            keepTagRegexes.push(...variants.flatMap((variant) => {
+              const prefix = escapeRegex(variant.alias_prefix);
+              return [
+                new RegExp(`^${prefix}nightly-(runtime|devtools)$`),
+                new RegExp(`^${prefix}nightly-\\d{8}-(runtime|devtools)$`),
+                new RegExp(`^buildcache-${prefix}(runtime|devtools)$`),
+              ];
+            }));
 
             const shouldKeepByTag = (tags) =>
               tags.some((tag) => keepTagRegexes.some((regex) => regex.test(tag)));
@@ -78,16 +92,19 @@ jobs:
               }
             }
 
-            for (const suffix of ["runtime", "devtools"]) {
-              for (const prefix of ["sha", "build", "candidate"]) {
-                const immutableRegex = prefix === "sha"
-                  ? new RegExp(`^sha-[0-9a-f]+-${suffix}$`)
-                  : new RegExp(`^${prefix}-[0-9]+-[0-9a-f]+-${suffix}$`);
-                const recentVersions = taggedVersions.filter((version) =>
-                  version.metadata.container.tags.some((tag) => immutableRegex.test(tag)),
-                );
-                for (const version of recentVersions.slice(0, keepShaCount)) {
-                  keepIds.add(version.id);
+            for (const variant of variants) {
+              const namespace = escapeRegex(variant.alias_prefix);
+              for (const suffix of ["runtime", "devtools"]) {
+                for (const prefix of ["sha", "build", "candidate"]) {
+                  const immutableRegex = prefix === "sha"
+                    ? new RegExp(`^${namespace}sha-[0-9a-f]+-${suffix}$`)
+                    : new RegExp(`^${namespace}${prefix}-[0-9]+-[0-9a-f]+-${suffix}$`);
+                  const recentVersions = taggedVersions.filter((version) =>
+                    version.metadata.container.tags.some((tag) => immutableRegex.test(tag)),
+                  );
+                  for (const version of recentVersions.slice(0, keepShaCount)) {
+                    keepIds.add(version.id);
+                  }
                 }
               }
             }

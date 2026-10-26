@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,13 +46,36 @@ def run_retention(scenario: dict[str, Any]) -> RetentionRun:
         script_path.write_text(script_step["with"]["script"], encoding="utf-8")
         scenario_path = Path(temporary_directory) / "scenario.json"
         scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
+        (Path(temporary_directory) / "image-variants.json").write_text(
+            scenario.get("variants_json", (REPO_ROOT / "image-variants.json").read_text()), encoding="utf-8"
+        )
+        scripts = Path(temporary_directory) / "scripts"
+        scripts.mkdir()
+        (scripts / "promote-published-images.py").write_bytes((REPO_ROOT / "scripts/promote-published-images.py").read_bytes())
+        tools = Path(temporary_directory) / "bin"
+        tools.mkdir()
+        (tools / "python3").symlink_to(sys.executable)
+        validated = Path(temporary_directory) / "validated"
+        validator = next(step["run"] for step in job["steps"] if step.get("id") == "variants")
+        validation = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", validator],
+            env={"PATH": f"{tools}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(validated)},
+            cwd=temporary_directory,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if validation.returncode != 0:
+            return RetentionRun(set(), validation.stderr)
+        variant_output = dict(line.split("=", 1) for line in validated.read_text().splitlines())["value"]
         result = subprocess.run(
             ["node", str(RETENTION_HARNESS), str(script_path), str(scenario_path)],
-            env={"PATH": os.environ["PATH"], **job["env"], "DRY_RUN": "false"},
+            env={"PATH": os.environ["PATH"], **job["env"], "DRY_RUN": "false", "IMAGE_VARIANTS": variant_output},
             check=False,
             capture_output=True,
             text=True,
             timeout=60,
+            cwd=temporary_directory,
         )
     if result.returncode != 0:
         raise AssertionError(result.stderr)
@@ -65,6 +89,59 @@ class GhcrRetentionTest(unittest.TestCase):
     CHILD_ATTESTATION = "sha256:child-attestation"
     RUNTIME_CACHE = "sha256:runtime-cache"
     ORPHAN_ID = 8
+
+    def test_each_series_keeps_its_channels_cache_and_independent_immutable_slots(self) -> None:
+        variants = json.loads((REPO_ROOT / "image-variants.json").read_text())
+        keep_count = int(load_workflow(RETENTION_WORKFLOW)["jobs"]["cleanup"]["env"]["KEEP_SHA_COUNT"])
+        scenario: dict[str, Any] = {"versions": [], "rawInspections": {}}
+        expected_deleted = set()
+        identity = 0
+        for variant in variants:
+            for target in ("runtime", "devtools"):
+                prefix = variant["alias_prefix"]
+                tags = [
+                    f"{variant['series']}-{target}",
+                    f"{prefix}nightly-{target}",
+                    f"{prefix}nightly-20261025-{target}",
+                    f"buildcache-{prefix}{target}",
+                ]
+                for family in ("sha", "build", "candidate"):
+                    for index in range(keep_count + 1):
+                        identity += 1
+                        immutable = f"{prefix}{family}-" + ("" if family == "sha" else f"{identity}-") + f"{identity:x}-{target}"
+                        digest = f"sha256:fixture-{identity}"
+                        scenario["versions"].append(package_version(identity, digest, immutable))
+                        scenario["rawInspections"][digest] = manifest_inspection({"layers": []})
+                        if index == keep_count:
+                            expected_deleted.add(identity)
+                for tag in tags:
+                    identity += 1
+                    digest = f"sha256:fixture-{identity}"
+                    scenario["versions"].append(package_version(identity, digest, tag))
+                    scenario["rawInspections"][digest] = manifest_inspection({"layers": []})
+        run = run_retention(scenario)
+        self.assertIsNone(run.failure)
+        self.assertEqual(run.deleted_ids, expected_deleted)
+
+    def test_invalid_variant_configuration_deletes_nothing(self) -> None:
+        for configuration in ("not json", "[]", '[{"series":"malformed"}]'):
+            with self.subTest(configuration=configuration):
+                scenario = self.published_package()
+                scenario["variants_json"] = configuration
+                run = run_retention(scenario)
+                self.assertIsNotNone(run.failure)
+                self.assertFalse(run.deleted_ids)
+
+    def test_a_series_removed_from_active_builds_keeps_its_stable_manifest(self) -> None:
+        variants = json.loads((REPO_ROOT / "image-variants.json").read_text())
+        retired = next(variant for variant in variants if variant["alias_prefix"])
+        scenario = self.published_package()
+        scenario["variants_json"] = json.dumps([variant for variant in variants if variant != retired])
+        scenario["versions"][0]["metadata"]["container"]["tags"] = [f"{retired['series']}-runtime"]
+        scenario["versions"][0]["created_at"] = OUTSIDE_RETENTION_WINDOW
+        run = run_retention(scenario)
+        self.assertIsNone(run.failure)
+        self.assertEqual(run.deleted_ids, {self.ORPHAN_ID})
 
     def published_package(self) -> dict[str, Any]:
         return {

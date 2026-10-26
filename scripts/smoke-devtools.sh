@@ -4,7 +4,7 @@ set -euo pipefail
 image_reference="${1:?Usage: scripts/smoke-devtools.sh <image-reference>}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-"${script_dir}/smoke-runtime.sh" "${image_reference}"
+"${script_dir}/smoke-runtime.sh" "${image_reference}" "${2:-}"
 
 docker run --rm --entrypoint /bin/bash "${image_reference}" -lc '
 set -euo pipefail
