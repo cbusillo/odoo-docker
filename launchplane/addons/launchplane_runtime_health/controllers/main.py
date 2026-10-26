@@ -6,17 +6,30 @@ import os
 from ipaddress import ip_address
 
 import psycopg2
-
-from odoo.tools import config
-
 from odoo import http
 from odoo.http import request
+from odoo.tools import config
+from urllib3.util import parse_url
 
 from .readiness import ReadinessFailure, validate_contract, validate_observations
 
-
 RUNTIME_IDENTITY_ENV_KEY = "LAUNCHPLANE_RUNTIME_IDENTITY_JSON"
 _logger = logging.getLogger(__name__)
+
+
+def _website_id_for_host(website: "odoo.model.website", host: str) -> int | None:
+    website = website.sudo()
+    resolver = getattr(website, "_get_current_website_id", None)
+    if callable(resolver):
+        return resolver(host, fallback=False)
+    website_id = website.env["ir.http"]._get_host_id_from_domain(host)
+    domain = website.browse(website_id).domain if website_id else None
+    if not domain:
+        return None
+    domain_url = domain if "://" in domain else f"//{domain}"
+    if parse_url(domain_url).host != parse_url(f"//{host}").host:
+        return None
+    return website_id
 
 
 class LaunchplaneRuntimeHealthController(http.Controller):
@@ -30,7 +43,7 @@ class LaunchplaneRuntimeHealthController(http.Controller):
         readonly=True,
         max_content_length=65536,
     )
-    def launchplane_readiness(self, **_params) -> http.Response:
+    def launchplane_readiness(self, **_params: object) -> http.Response:
         # Use the transport peer, never the address substituted by ProxyFix.
         environ = request.httprequest.environ
         original = environ.get("werkzeug.proxy_fix.orig", environ)
@@ -39,10 +52,7 @@ class LaunchplaneRuntimeHealthController(http.Controller):
             local = ip_address(peer).is_loopback
         except ValueError:
             local = False
-        forwarded = any(
-            key == "HTTP_FORWARDED" or key.startswith("HTTP_X_FORWARDED_")
-            for key in environ
-        )
+        forwarded = any(key == "HTTP_FORWARDED" or key.startswith("HTTP_X_FORWARDED_") for key in environ)
         if not local or forwarded:
             return self._readiness_response("private_probe_required", 403)
 
@@ -55,7 +65,7 @@ class LaunchplaneRuntimeHealthController(http.Controller):
             if (
                 request.db != database
                 or request.httprequest.headers.get("X-Odoo-Database") != database
-                or http.db_filter([database], host=contract["host"]) != [database]
+                or getattr(http, "router", http).db_filter([database], host=contract["host"]) != [database]
                 or request.httprequest.cookies
             ):
                 raise ReadinessFailure("database_mismatch")
@@ -72,9 +82,12 @@ class LaunchplaneRuntimeHealthController(http.Controller):
 
             # SQL only: no registry creation, ORM hooks, render, warming or writes.
             cr = request.env.cr
-            cr.execute("SELECT key, value FROM ir_config_parameter WHERE key IN %s", [
-                ("database.uuid", "launchplane.readiness.release", "base.partially_updated_database"),
-            ])
+            cr.execute(
+                "SELECT key, value FROM ir_config_parameter WHERE key IN %s",
+                [
+                    ("database.uuid", "launchplane.readiness.release", "base.partially_updated_database"),
+                ],
+            )
             parameters = dict(cr.fetchall())
             if parameters.get("database.uuid") != contract["database_uuid"]:
                 raise ReadinessFailure("database_identity_mismatch")
@@ -86,16 +99,10 @@ class LaunchplaneRuntimeHealthController(http.Controller):
                 raise ReadinessFailure("update_pending")
             if any(states.get(name) != "installed" for name in contract["modules"]):
                 raise ReadinessFailure("modules_not_installed")
-            # Use Odoo's Host-to-Website resolver, explicitly prohibiting fallback.
-            # Website remains optional for liveness; readiness needs its native
-            # strict Host resolver, without installing business modules here.
             website = request.env.get("website")
             if website is None:
                 raise ReadinessFailure("website_unavailable")
-            resolver = getattr(website.sudo(), "_get_current_website_id")
-            if not callable(resolver):
-                raise ReadinessFailure("website_unavailable")
-            if resolver(contract["host"], fallback=False) != contract["website_id"]:
+            if _website_id_for_host(website, contract["host"]) != contract["website_id"]:
                 raise ReadinessFailure("website_mismatch")
             release = json.loads(parameters.get("launchplane.readiness.release", "null"))
             if release != contract["release"]:
