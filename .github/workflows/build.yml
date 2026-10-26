@@ -315,9 +315,9 @@ jobs:
       - name: Check selected source requirement overrides
         run: |
           set -euo pipefail
-          bash scripts/test-check-requirements-overrides.sh
+          uv run --no-project --python "${PYTHON_VERSION}" --with packaging bash scripts/test-check-requirements-overrides.sh
           curl -fsSL "https://raw.githubusercontent.com/odoo/odoo/${ODOO_SOURCE_REV}/requirements.txt" -o "${RUNNER_TEMP}/odoo-requirements-${ODOO_SERIES}.txt"
-          uv run --no-project --with packaging python scripts/check-requirements-overrides.py --requirements "${RUNNER_TEMP}/odoo-requirements-${ODOO_SERIES}.txt" --overrides requirements-overrides.txt --python-version "${PYTHON_VERSION%.*}"
+          uv run --no-project --python "${PYTHON_VERSION}" --with packaging python scripts/check-requirements-overrides.py --requirements "${RUNNER_TEMP}/odoo-requirements-${ODOO_SERIES}.txt" --overrides requirements-overrides.txt --python-version "${PYTHON_VERSION%.*}"
 
       - name: Materialize exact pull-request baseline
         if: github.event_name == 'pull_request'
