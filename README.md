@@ -140,11 +140,18 @@ identity (artifact, image digest, source commit, slot and release), exact update
 receipt, and representative homepage/login/public paths with content assertions.
 There are no tenant route or content defaults. The request sends both the real
 Host and `X-Odoo-Database`; database filtering and Website selection must agree,
-with no Website fallback or session cookie. All pending install/update/removal
+with no Website fallback or session cookie. Odoo 19's strict resolver and
+Odoo 20's core resolver must bind the configured domain to the requested Host;
+an unknown Host or a Website without a domain fails readiness. All pending install/update/removal
 states and Odoo's [partially-updated marker](https://github.com/odoo/odoo/blob/e55c653b4dbafba45de5434c8da96db5952b42cb/odoo/modules/loading.py#L604)
 fail readiness. Odoo writes that marker when module actions remain pending after
 an update, and [registry startup](https://github.com/odoo/odoo/blob/e55c653b4dbafba45de5434c8da96db5952b42cb/odoo/orm/registry.py#L174)
 consumes it to force another update.
+
+The probe sends compact JSON without dropping asset evidence. Receipts remain
+subject to the endpoint's request bound; an oversized receipt fails closed and
+the CLI identifies that size failure. Each tenant must qualify its own receipt,
+since additional theme assets can exceed the bare-image fixture's envelope.
 
 The maintenance producer records `launchplane.readiness.release` in
 `ir.config_parameter` **after** successful exact-release updates and the committed

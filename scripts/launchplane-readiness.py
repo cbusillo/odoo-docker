@@ -1,25 +1,31 @@
 #!/venv/bin/python
 """Controlled render/asset preparation and direct, observational readiness probing."""
+
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
-from html.parser import HTMLParser
-from pathlib import Path
 import re
 import sys
 import time
+from html.parser import HTMLParser
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, OpenerDirector, ProxyHandler, Request, build_opener
 
 sys.path[:0] = ["/odoo", "/opt"]
-from launchplane.addons.launchplane_runtime_health.controllers.readiness import fingerprint, resource_allowed, validate_contract, validate_observations
+from launchplane.addons.launchplane_runtime_health.controllers.readiness import (
+    fingerprint,
+    resource_allowed,
+    validate_contract,
+    validate_observations,
+)
 
 
 class NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl) -> None:
+    def redirect_request(self, req: Request, fp: object, code: int, msg: str, headers: object, newurl: str) -> None:
         return None
 
 
@@ -75,11 +81,17 @@ def prepare(opener: OpenerDirector, origin: str, contract: dict, browser: dict) 
     # This rejection occurs only after all current database/fence checks pass.
     # It permits preparation without pretending the candidate is traffic-ready.
     try:
-        fetch(opener, origin, contract, "/launchplane/readiness",
-              json.dumps({"contract": contract, "observations": None}).encode())
+        fetch(
+            opener,
+            origin,
+            contract,
+            "/launchplane/readiness",
+            json.dumps({"contract": contract, "observations": None}, separators=(",", ":")).encode(),
+        )
     except HTTPError as error:
         if error.code != 503 or json.loads(error.read()) != {
-            "status": "fail", "reason": "probe_evidence_missing",
+            "status": "fail",
+            "reason": "probe_evidence_missing",
         }:
             raise ValueError("Candidate preparation preflight failed") from None
     else:
@@ -91,8 +103,7 @@ def prepare(opener: OpenerDirector, origin: str, contract: dict, browser: dict) 
         text = body.decode()
         if content_type != "text/html" or route["contains"] not in text:
             raise ValueError("Render or expected content failed")
-        routes.append({"path": route["path"], "status": 200, "content_match": True,
-                       "sha256": hashlib.sha256(body).hexdigest()})
+        routes.append({"path": route["path"], "status": 200, "content_match": True, "sha256": hashlib.sha256(body).hexdigest()})
         parser = References()
         parser.feed(text)
         for reference, kind in parser.references:
@@ -115,8 +126,7 @@ def prepare(opener: OpenerDirector, origin: str, contract: dict, browser: dict) 
             raise ValueError("Script returned the wrong content type")
         if kind == "media" and content_type == "text/html":
             raise ValueError("Media returned an HTML error page")
-        assets.append({"path": path, "kind": kind, "status": 200, "bytes": len(body),
-                       "sha256": hashlib.sha256(body).hexdigest()})
+        assets.append({"path": path, "kind": kind, "status": 200, "bytes": len(body), "sha256": hashlib.sha256(body).hexdigest()})
         if kind == "css":
             text = body.decode()
             references = re.findall(r"url[(]\s*['\"]?([^'\")]+)['\"]?\s*[)]", text)
@@ -125,8 +135,13 @@ def prepare(opener: OpenerDirector, origin: str, contract: dict, browser: dict) 
                 nested = resource_path(reference.strip(), path, contract)
                 if nested:
                     pending.append((nested, "css" if urlsplit(nested).path.endswith(".css") else "media"))
-    observations = {"contract_sha256": fingerprint(contract), "checked_at": checked_at,
-                    "routes": routes, "assets": assets, "browser": browser}
+    observations = {
+        "contract_sha256": fingerprint(contract),
+        "checked_at": checked_at,
+        "routes": routes,
+        "assets": assets,
+        "browser": browser,
+    }
     validate_observations(contract, observations)
     return observations
 
@@ -135,12 +150,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("prepare", "check"))
     parser.add_argument("--contract", type=Path, required=True)
-    parser.add_argument("--evidence", type=Path, required=True,
-                        help="Browser receipt for prepare; preparation observations for check")
+    parser.add_argument(
+        "--evidence", type=Path, required=True, help="Browser receipt for prepare; preparation observations for check"
+    )
     parser.add_argument("--origin", default="http://127.0.0.1:8069")
     args = parser.parse_args()
     origin = urlsplit(args.origin)
-    if origin.scheme != "http" or origin.hostname not in {"127.0.0.1", "::1"} or origin.path or origin.query or origin.fragment or origin.username is not None:
+    if (
+        origin.scheme != "http"
+        or origin.hostname not in {"127.0.0.1", "::1"}
+        or origin.path
+        or origin.query
+        or origin.fragment
+        or origin.username is not None
+    ):
         parser.error("Use a direct loopback HTTP origin inside the candidate")
     contract = validate_contract(json.loads(args.contract.read_text()))
     evidence = json.loads(args.evidence.read_text())
@@ -150,13 +173,21 @@ def main() -> int:
             result = prepare(opener, args.origin, contract, evidence)
         else:
             validate_observations(contract, evidence)
-            body, _ = fetch(opener, args.origin, contract, "/launchplane/readiness",
-                            json.dumps({"contract": contract, "observations": evidence}).encode())
+            body, _ = fetch(
+                opener,
+                args.origin,
+                contract,
+                "/launchplane/readiness",
+                json.dumps({"contract": contract, "observations": evidence}, separators=(",", ":")).encode(),
+            )
             result = json.loads(body)
             if result != {"status": "pass"}:
                 raise ValueError("Readiness failed")
-    except (HTTPError, ValueError, OSError):
-        print("Readiness preparation/check failed", file=sys.stderr)
+    except (HTTPError, ValueError, OSError) as error:
+        if isinstance(error, HTTPError) and error.code == 413:
+            print("Readiness evidence exceeds the candidate request bound", file=sys.stderr)
+        else:
+            print("Readiness preparation/check failed", file=sys.stderr)
         return 1
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return 0
