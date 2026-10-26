@@ -114,7 +114,6 @@ jobs:
         id: inputs
         env:
           BASELINE_COMMIT: ${{ github.event.pull_request.base.sha || '' }}
-          TRAIN_CANDIDATE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'launchplane/train/') }}
         run: |
           set -euo pipefail
 
@@ -136,7 +135,7 @@ jobs:
             fi
           fi
           scanner_images=("${trivy_image}")
-          if [ "${TRAIN_CANDIDATE}" = "true" ]; then
+          if [ -n "${BASELINE_COMMIT}" ]; then
             scanner_images+=("${TRIVY_IMAGE}")
           fi
           for image in "${scanner_images[@]}"; do
@@ -238,7 +237,7 @@ jobs:
             "${RUNNER_TEMP}/dependency-health-inputs/trivy-cache.tar.gz" \
             trivy-cache
 
-          if [ "${TRAIN_CANDIDATE}" = "true" ]; then
+          if [ -n "${BASELINE_COMMIT}" ]; then
             candidate_trivy_version="${trivy_version}"
             candidate_trivy_db_sha256="${trivy_db_sha256}"
             if [ "${TRIVY_IMAGE}" != "${trivy_image}" ]; then
@@ -654,7 +653,6 @@ jobs:
       - name: Enforce candidate-tooling absolute health before merge
         id: candidate_absolute
         env:
-          TRAIN_CANDIDATE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'launchplane/train/') }}
           SCANNER_PARITY: ${{ steps.resolver_parity.outputs.scanner_parity || 'false' }}
           BASELINE_COMMIT: ${{ github.event.pull_request.base.sha || '' }}
           SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -667,7 +665,7 @@ jobs:
           HEALTH_ROOT: ${{ runner.temp }}/dependency-health-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.VARIANT_KEY }}
         run: |
           set -euo pipefail
-          if [ "${TRAIN_CANDIDATE}" != "true" ]; then
+          if [ -z "${BASELINE_COMMIT}" ]; then
             exit 0
           fi
           evidence_root="${HEALTH_ROOT}/candidate-tooling"

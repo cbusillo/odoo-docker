@@ -319,12 +319,11 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   declares that same series, has native resolver support, and its workflow, scanner, and evaluator match
   the head. The comparison uses the base copies of that tooling. Otherwise,
   verification retains the stricter candidate absolute gate, using base scanner
-  tooling and its pinned scanner image when available. Scanner upgrades are
-  therefore validated by the prior scanner on the upgrade pull request and
-  become active for absolute default-branch health after merge.
+  tooling and its pinned scanner image when available.
 - Default-branch, scheduled, and dispatch runs retain absolute high/critical
-  health. Train batch PRs retain both base-tooling comparison/fallback checks
-  and candidate-tooling absolute health before merge. They build each target
+  health. Every same-repository PR retains both base-tooling comparison/fallback
+  checks and candidate-tooling absolute health before merge, including source
+  heads eligible for single-entry train reuse. They build each target
   once; matching tooling reuses the scan, while differing tooling scans that
   same image with its separately bound scanner profile and database. Both
   evaluations must pass. Multi-architecture images are pushed first under a unique
