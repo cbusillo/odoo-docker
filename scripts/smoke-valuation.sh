@@ -11,8 +11,13 @@ if [[ "$major" != 20 ]]; then
 fi
 name="odoo-valuation-${RANDOM}-$$"
 cleanup() {
+  local smoke_status=$?
+  if (( smoke_status != 0 )); then
+    docker logs --tail 80 "${name}-db" >&2 || true
+  fi
   docker rm -fv "${name}-tests" "${name}-db" >/dev/null 2>&1 || true
   docker network rm "$name" >/dev/null 2>&1 || true
+  return "$smoke_status"
 }
 trap cleanup EXIT
 docker network create --internal "$name" >/dev/null
@@ -20,10 +25,10 @@ docker run -d --name "${name}-db" --network "$name" \
   -e POSTGRES_USER=odoo -e POSTGRES_PASSWORD=synthetic-valuation \
   ghcr.io/baosystems/postgis:17-3.5 >/dev/null
 for _ in {1..60}; do
-  if docker exec "${name}-db" pg_isready -U odoo >/dev/null 2>&1; then break; fi
+  if docker exec "${name}-db" pg_isready -h 127.0.0.1 -U odoo >/dev/null 2>&1; then break; fi
   sleep 1
 done
-docker exec "${name}-db" pg_isready -U odoo >/dev/null
+docker exec "${name}-db" pg_isready -h 127.0.0.1 -U odoo >/dev/null
 odoo_run=(docker run --rm --name "${name}-tests" --network "$name"
   -v "$fixture:/opt/valuation-tests:ro" -v "$patch_file:/opt/native-valuation.patch:ro"
   -e VALUATION_TEST_TAGS="$test_tags"
