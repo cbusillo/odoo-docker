@@ -575,12 +575,11 @@ publication. Superseded families are visible as Actions notices.
 The Community 20 source build applies
 [`20.0-valuation-checkpoints.patch`](patches/20.0-valuation-checkpoints.patch)
 inside `stock_account` and its historical stock quantity reader. Odoo 19 source
-is unchanged. The build checks the patch before applying it and fails if upstream
-source no longer matches; qualify the native tests before refreshing the patch.
+is unchanged. The build fails if upstream source no longer accepts the patch; qualify the native tests before refreshing the patch.
 The extension belongs to the runtime, so removing an importer cannot remove its
 valuation semantics. It contains no tenant costing rules or replacement AVCO loop.
 
-A manual `product.value` can set `after_move_id` and its unit `value`. For example:
+For average-cost products, a manual `product.value` can set `after_move_id` and its unit `value`. For example:
 
 ```python
 env["product.value"].create({"after_move_id": completed_move.id, "value": unit_cost})
@@ -588,19 +587,33 @@ env["product.value"].create({"after_move_id": completed_move.id, "value": unit_c
 
 The anchor supplies the product, company and exact date. The checkpoint applies
 after that move and before a greater-ID move at the same timestamp. It is separate
-from `move_id`, which overrides an incoming move's total value. Native valued
-quantities retain company, owner and lot filtering; `lot_id` selects a lot-specific
+from `move_id`, which overrides an incoming move's total value. Native current valued quantities, with batched backout of moves after each
+position, retain company, owner and lot filtering; `lot_id` selects a lot-specific
 cost checkpoint. No dates, outgoing values or source chronology are rewritten.
 
-Manual checkpoints without an anchor retain their end-of-timestamp seed/skip
-placement. Correction history uses that same placement, including at exact ties.
+Unanchored manual costs retain native behavior, including applying before
+equal-timestamp moves during correction. Only anchored costs use after-move
+positioning.
 Multiple checkpoints at one position use their record IDs as the final ordering.
 Checkpoint edits/deletions and anchor date/state changes replay native valuation;
 anchor dates remain synchronized. Clear a checkpoint before deleting its anchor.
-Changing a product's cost method uses the existing native revaluation path.
+Changing a product's cost method uses the existing native revaluation path;
+the positioned AVCO behavior resumes if the product returns to average cost.
+Assign an anchor only after it is completed. Changing an anchor's product or
+company requires removing its checkpoint first. Create multiple checkpoints
+in one batch when replaying multiple products.
 This interface does not qualify nonmonotonic source chronology or timezone folds.
 
-`bash scripts/smoke-valuation.sh <runtime-image>` installs only a disposable test
+The patch bumps the native `stock_account` manifest version. Existing20 databases
+must run the normal gated `stock_account` module update when adopting this runtime;
+include it in the tenant's resolved update list before starting the candidate.
+An image replacement alone does not create the new field. Fresh foundations
+install the schema normally. Tenant owners keep their existing update, backup,
+release and acceptance gates; this source PR performs no lane update.
+
+`bash scripts/smoke-valuation.sh <runtime-image>` first creates a synthetic database
+with the patch reversed, then upgrades `stock_account` on the patched image and
+proves existing unanchored costs/dates survive. It installs a disposable test
 addon on a private internal network, runs the native valuation regression class
 and checkpoint tests, and removes its containers/network. Odoo 19 skips this
 20-specific extension. Supply an optional second argument of native test tags for

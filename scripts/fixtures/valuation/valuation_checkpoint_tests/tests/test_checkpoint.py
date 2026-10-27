@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from freezegun import freeze_time
 from odoo import Command
 from odoo.addons.stock_account.tests.common import TestStockValuationCommon
+from odoo.exceptions import ValidationError
 
 
 class TestValuationCheckpoint(TestStockValuationCommon):
@@ -75,6 +76,8 @@ class TestValuationCheckpoint(TestStockValuationCommon):
                 self.assertFalse(self.product_avco._correct_inventory_valuation(at))
                 self.env.invalidate_all()
                 self.assertEqual(shipment.value, -30)
+                self.assertEqual(self.product_avco.standard_price, 30)
+                self.assertEqual(self.product_avco.total_value, 60)
                 self.assertEqual(receipt.date, at + gap)
                 self.assertEqual(receipt.move_line_ids.date, at + gap)
 
@@ -98,10 +101,9 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         cancellation.date = at + timedelta(seconds=2)
         cancellation.move_line_ids.date = cancellation.date
         self.assertEqual(checkpoint.date, cancellation.date)
-        self.product_avco._update_standard_price()
         self.assertEqual(shipment.value, -30)
         checkpoint.unlink()
-        self.product_avco._correct_inventory_valuation(datetime.min)
+        self.assertEqual(self.product_avco.standard_price, 30)
         self._assert_cold_value(at + timedelta(seconds=3), 1, 30)
 
     def test_scoped_opening_quantity_ignores_consignment(self) -> None:
@@ -111,7 +113,7 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         cancellation = self._shipment(at)
         checkpoint = self._checkpoint(cancellation)
         shipment = self._shipment(at)
-        self.assertEqual(self.product_avco._get_valued_quantity_at_position(checkpoint), 2)
+        self.assertEqual(self.product_avco._get_valued_quantities_at_positions(checkpoint)[self.product_avco.id], 2)
         self.assertEqual(shipment.value, -40)
         self._assert_cold_value(at, 1, 40)
 
@@ -124,7 +126,7 @@ class TestValuationCheckpoint(TestStockValuationCommon):
             other_move = self._make_in_move(self.product_avco, 50, unit_cost=100, company=company)
         cancellation = self._shipment(at)
         checkpoint = self._checkpoint(cancellation)
-        self.assertEqual(self.product_avco._get_valued_quantity_at_position(checkpoint), 2)
+        self.assertEqual(self.product_avco._get_valued_quantities_at_positions(checkpoint)[self.product_avco.id], 2)
         self.assertEqual(other_move.value, 5000)
         self._assert_cold_value(at, 2, 80)
         self.env.invalidate_all()
@@ -140,7 +142,7 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         with freeze_time(at):
             first = self._make_in_move(product, 2, unit_cost=10, lot_ids=lots[:1])
             second = self._make_in_move(product, 2, unit_cost=100, lot_ids=lots[1:])
-        self.env["product.value"].create({"after_move_id": first.id, "lot_id": lots[0].id, "value": 40})
+        lot_checkpoint = self.env["product.value"].create({"after_move_id": first.id, "lot_id": lots[0].id, "value": 40})
         with freeze_time(at + timedelta(seconds=1)):
             shipment = self._make_out_move(product, 1, lot_ids=lots[1:])
         self.assertEqual(shipment.value, -100)
@@ -150,12 +152,20 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         self.assertEqual(second.value, 200)
         self.assertEqual(lots[0].total_value, 80)
         self.assertEqual(lots[1].total_value, 100)
+        lot_checkpoint.lot_id = lots[1]
+        self.assertEqual(lots[0].total_value, 20)
+        self.assertEqual(shipment.value, -100)
+        lot_checkpoint.after_move_id = second
+        self.assertEqual(shipment.value, -40)
         with freeze_time(at + timedelta(seconds=1, microseconds=200)):
             next_shipment = self._make_out_move(product, 1, lot_ids=lots[1:])
         next_shipment.date = at + timedelta(seconds=1, microseconds=200)
         next_shipment.move_line_ids.date = next_shipment.date
         product._correct_inventory_valuation(next_shipment.date)
-        self.assertEqual((shipment.value, next_shipment.value), (-100, -100))
+        self.assertEqual((shipment.value, next_shipment.value), (-40, -40))
+        before_next = lots[1].with_context(to_date=at + timedelta(seconds=1, microseconds=100))
+        self.assertEqual(before_next.product_qty, 1)
+        self.assertEqual(before_next.total_value, 40)
 
     def test_unanchored_cost_and_cost_method_round_trip(self) -> None:
         at = self._opening_stock()
@@ -211,3 +221,105 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         self.product_avco._correct_inventory_valuation(datetime.min)
         self._assert_cold_value(at + timedelta(seconds=2), 1, 20)
         self.assertEqual(anchor.value, -10)
+
+    def test_unanchored_same_timestamp_cost_keeps_native_correction_order(self) -> None:
+        at = datetime(2024, 1, 2, 12)
+        for product in self.product_standard | self.product_avco | self.product_fifo:
+            with self.subTest(method=product.cost_method):
+                with freeze_time(at):
+                    product.standard_price = 10
+                    self._make_in_move(product, 3, unit_cost=10)
+                with freeze_time(at + timedelta(seconds=1)):
+                    product.standard_price = 40
+                    if product.cost_method == "fifo":
+                        self.env["product.value"].create(
+                            {
+                                "product_id": product.id,
+                                "company_id": self.env.company.id,
+                                "date": at + timedelta(seconds=1),
+                                "value": 40,
+                            }
+                        )
+                    shipment = self._make_out_move(product, 1)
+                product._correct_inventory_valuation(datetime.min)
+                self.assertEqual(shipment.value, -40)
+
+    def test_reanchoring_replays_the_old_position(self) -> None:
+        at = self._opening_stock()
+        first = self._shipment(at)
+        checkpoint = self._checkpoint(first)
+        second = self._shipment(at)
+        self.assertEqual(second.value, -40)
+        checkpoint.after_move_id = second
+        self.assertEqual((first.value, second.value), (-30, -30))
+        self._assert_cold_value(at, 1, 40)
+        checkpoint.unlink()
+        self.assertEqual(self.product_avco.standard_price, 30)
+        self._assert_cold_value(at, 1, 30)
+
+    def test_batch_positions_keep_product_quantities_separate(self) -> None:
+        at = self._opening_stock()
+        first_product = self.product_avco
+        first = self._shipment(at)
+        self.product_avco = self.product_avco.copy()
+        self._receipt(at - timedelta(seconds=1), 100)
+        second = self._receipt(at, 100)
+        checkpoints = self.env["product.value"].create(
+            [{"after_move_id": first.id, "value": 40}, {"after_move_id": second.id, "value": 50}]
+        )
+        quantities = (first_product | self.product_avco)._get_valued_quantities_at_positions(checkpoints)
+        self.assertEqual(quantities, {first_product.id: 2, self.product_avco.id: 2})
+        self.assertEqual((first_product.total_value, self.product_avco.total_value), (80, 100))
+
+    def test_opening_quantity_uses_the_native_move_position(self) -> None:
+        at = self._opening_stock()
+        anchor = self._shipment(at)
+        checkpoint = self._checkpoint(anchor)
+        anchor.move_line_ids.date = at + timedelta(seconds=5)
+        quantities = self.product_avco._get_valued_quantities_at_positions(checkpoint)
+        self.assertEqual(quantities[self.product_avco.id], 2)
+        costs, values = self.product_avco._run_avco(at_date=at)
+        self.assertEqual((costs[self.product_avco.id], values[self.product_avco.id]), (40, 80))
+        self.assertEqual(anchor.move_line_ids.date, at + timedelta(seconds=5))
+
+    def test_checkpoint_assignment_requires_a_completed_anchor(self) -> None:
+        draft = self.env["stock.move"].create(
+            {
+                "product_id": self.product_avco.id,
+                "uom_id": self.product_avco.uom_id.id,
+                "product_uom_qty": 1,
+                "location_id": self.stock_location.id,
+                "location_dest_id": self.customer_location.id,
+            }
+        )
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            self._checkpoint(draft)
+
+    def test_stock_user_can_validate_and_read_with_an_anchored_cost(self) -> None:
+        at = self._opening_stock()
+        self._checkpoint(self._shipment(at))
+        self.env.invalidate_all()
+        with freeze_time(at):
+            shipment = (
+                self.env["stock.move"]
+                .with_user(self.inventory_user)
+                .create(
+                    {
+                        "product_id": self.product_avco.id,
+                        "uom_id": self.product_avco.uom_id.id,
+                        "product_uom_qty": 1,
+                        "location_id": self.stock_location.id,
+                        "location_dest_id": self.customer_location.id,
+                    }
+                )
+            )
+            shipment._action_confirm()
+            shipment._action_assign()
+            shipment.quantity = 1
+            shipment.picked = True
+            shipment._action_done()
+        self.assertEqual(shipment.value, -40)
+        self.env.invalidate_all()
+        product = self.product_avco.with_user(self.inventory_user)._with_valuation_context()
+        costs, values = product._run_avco(at_date=at)
+        self.assertEqual((costs[product.id], values[product.id]), (40, 40))
