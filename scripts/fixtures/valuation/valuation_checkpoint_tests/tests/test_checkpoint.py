@@ -465,6 +465,6 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         shipment = self._shipment(at + timedelta(seconds=3))
         ordinary.value = 36
         refreshed = shipment.value, self.product_avco.standard_price
-        self.product_avco._correct_inventory_valuation(ordinary.date + timedelta(microseconds=1))
+        self.product_avco._correct_inventory_valuation(ordinary.date)
         self.product_avco._update_standard_price()
         self.assertEqual(refreshed, (shipment.value, self.product_avco.standard_price))
