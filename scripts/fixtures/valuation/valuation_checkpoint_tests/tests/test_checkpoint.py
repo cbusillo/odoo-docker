@@ -460,7 +460,7 @@ class TestValuationCheckpoint(TestStockValuationCommon):
                 with freeze_time(at + timedelta(seconds=3)):
                     self._make_in_move(product, 7, unit_cost=999, owner_id=owner.id, **move_values)
                 seed_date = at + timedelta(seconds=4)
-                seed_values = {"product_id": product.id, "date": seed_date, "value": 20}
+                seed_values = {"product_id": product.id, "company_id": self.env.company.id, "date": seed_date, "value": 20}
                 if lot:
                     seed_values["lot_id"] = lot.id
                 with freeze_time(seed_date):
