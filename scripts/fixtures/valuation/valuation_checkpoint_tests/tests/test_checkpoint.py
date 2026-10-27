@@ -323,3 +323,132 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         product = self.product_avco.with_user(self.inventory_user)._with_valuation_context()
         costs, values = product._run_avco(at_date=at)
         self.assertEqual((costs[product.id], values[product.id]), (40, 40))
+
+    def test_mixed_costs_share_current_seed_and_correction_order(self) -> None:
+        original = self.product_avco
+        for ordinary_first in (True, False):
+            with self.subTest(ordinary_first=ordinary_first):
+                self.product_avco = original.copy()
+                at = self._opening_stock()
+                if ordinary_first:
+                    with freeze_time(at):
+                        self.product_avco.standard_price = 35
+                anchor = self._shipment(at)
+                self._checkpoint(anchor)
+                shipment = self._shipment(at)
+                if not ordinary_first:
+                    with freeze_time(at):
+                        self.product_avco.standard_price = 35
+                self.assertEqual((anchor.value, shipment.value), (-35, -40))
+                self.assertEqual((self.product_avco.standard_price, self.product_avco.total_value), (40, 40))
+                self._assert_cold_value(at, 1, 40)
+                self.assertFalse(self.product_avco._correct_inventory_valuation(datetime.min))
+                ordinary = self.env["product.value"].search(
+                    [
+                        ("product_id", "=", self.product_avco.id),
+                        ("date", "=", at),
+                        ("move_id", "=", False),
+                        ("after_move_id", "=", False),
+                    ]
+                )
+                moved = self.env["product.value"].create(
+                    {"product_id": original.copy().id, "company_id": self.env.company.id, "date": at, "value": 36}
+                )
+                moved.write({"product_id": self.product_avco.id, "company_id": self.env.company.id})
+                self.assertEqual((anchor.value, shipment.value), (-36, -40))
+                moved.unlink()
+                self.assertEqual((anchor.value, shipment.value), (-35, -40))
+                ordinary.value = 36
+                self.assertEqual((anchor.value, shipment.value), (-36, -40))
+                self.assertEqual(self.product_avco.standard_price, 40)
+                ordinary.unlink()
+                self.assertEqual((anchor.value, shipment.value), (-30, -40))
+                self.assertEqual(self.product_avco.standard_price, 40)
+                self._assert_cold_value(at, 1, 40)
+
+    def test_positioned_quantity_ignores_lot_and_warehouse_view_selectors(self) -> None:
+        product = self.product_avco.copy({"tracking": "lot", "lot_valuated": False})
+        lots = self.env["stock.lot"].create(
+            [
+                {"name": "Scoped quantity first lot", "product_id": product.id},
+                {"name": "Scoped quantity second lot", "product_id": product.id},
+            ]
+        )
+        at = datetime(2024, 1, 2, 12)
+        with freeze_time(at):
+            self._make_in_move(product, 2, unit_cost=10, lot_ids=lots[:1])
+            self._make_in_move(product, 1, unit_cost=40, lot_ids=lots[1:])
+            anchor = self._make_out_move(product, 1, lot_ids=lots[:1])
+        checkpoint = self._checkpoint(anchor)
+        with freeze_time(at + timedelta(seconds=1)):
+            self._make_in_move(product, 1, unit_cost=50, lot_ids=lots[1:])
+        warehouse = self.env["stock.warehouse"].sudo().create({"name": "Quantity scope warehouse", "code": "QSC"})
+        cached_view = product.with_context(
+            to_date=False, warehouse_id=False, search_warehouse=warehouse.id
+        )._with_valuation_context()
+        self.assertEqual(cached_view.qty_available, 0)
+        scoped = product.with_context(lot_id=lots[0].id, search_warehouse=warehouse.id, search_location=warehouse.lot_stock_id.id)
+        self.assertEqual(scoped._get_valued_quantities_at_positions(checkpoint)[product.id], 2)
+        costs, values = scoped._run_avco(at_date=at)
+        self.assertEqual((costs[product.id], values[product.id]), (40, 80))
+
+    def test_global_lot_checkpoint_prices_each_first_later_shipment(self) -> None:
+        product = self.product_avco.copy({"tracking": "lot", "lot_valuated": True})
+        lots = self.env["stock.lot"].create(
+            [
+                {"name": "Global cost first lot", "product_id": product.id},
+                {"name": "Global cost second lot", "product_id": product.id},
+            ]
+        )
+        at = datetime(2024, 1, 2, 12)
+        with freeze_time(at):
+            self._make_in_move(product, 2, unit_cost=10, lot_ids=lots[:1])
+            anchor = self._make_in_move(product, 2, unit_cost=100, lot_ids=lots[1:])
+        warehouse = self.env["stock.warehouse"].sudo().create({"name": "Global price view warehouse", "code": "GPV"})
+        checkpoint = (
+            self.env["product.value"].with_context(search_warehouse=warehouse.id).create({"after_move_id": anchor.id, "value": 40})
+        )
+        self.assertEqual(product.standard_price, 40)
+        self.assertEqual(product.with_context(to_date=False, warehouse_id=False).avg_cost, 40)
+        checkpoint.value = 45
+        self.assertEqual(product.standard_price, 45)
+        checkpoint.value = 40
+        self.assertEqual(product.standard_price, 40)
+        self.assertEqual(lots.mapped("standard_price"), [40, 40])
+        with freeze_time(at + timedelta(seconds=1)):
+            first = self._make_out_move(product, 1, lot_ids=lots[:1])
+            second = self._make_out_move(product, 1, lot_ids=lots[1:])
+        self.assertEqual((first.value, second.value), (-40, -40))
+        self.assertFalse(product._correct_inventory_valuation(datetime.min))
+        self.env.invalidate_all()
+        self.assertEqual((first.value, second.value), (-40, -40))
+
+    def test_native_reset_and_revalidation_move_the_checkpoint_with_its_anchor(self) -> None:
+        at = self._opening_stock()
+        anchor = self._shipment(at)
+        checkpoint = self._checkpoint(anchor)
+        shipment = self._shipment(at + timedelta(seconds=1))
+        self.assertEqual(shipment.value, -40)
+        anchor._action_reset_to_progress()
+        with freeze_time(at + timedelta(seconds=2)):
+            anchor.quantity = 1
+            anchor.picked = True
+            anchor._action_done()
+        self.assertEqual(checkpoint.date, anchor.date)
+        self.assertEqual(anchor.date, at + timedelta(seconds=2))
+        self.assertEqual((anchor.value, shipment.value), (-30, -30))
+        self.assertEqual((self.product_avco.standard_price, self.product_avco.total_value), (40, 40))
+        self.assertFalse(self.product_avco._correct_inventory_valuation(datetime.min))
+        self._assert_cold_value(at + timedelta(seconds=3), 1, 40)
+
+    def test_new_associations_require_supported_cost_and_lot_modes(self) -> None:
+        at = datetime(2024, 1, 2, 12)
+        with freeze_time(at):
+            standard = self._make_in_move(self.product_standard, 1, unit_cost=10)
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            self._checkpoint(standard)
+        at = self._opening_stock()
+        anchor = self._shipment(at)
+        lot = self.env["stock.lot"].create({"name": "Unvalued checkpoint lot", "product_id": self.product_avco.id})
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            self.env["product.value"].create({"after_move_id": anchor.id, "lot_id": lot.id, "value": 40})

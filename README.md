@@ -594,17 +594,26 @@ cost checkpoint. No dates, outgoing values or source chronology are rewritten.
 Unanchored manual costs retain native behavior, including applying before
 equal-timestamp moves during correction. Only anchored costs use after-move
 positioning.
-Multiple checkpoints at one position use their record IDs as the final ordering.
+At a shared timestamp, an anchored checkpoint wins the historical seed over
+an ordinary manual cost, matching correction history's ordinary-before-moves
+placement. Ordinary cost edits at positioned products refresh the same native
+valuation. Multiple checkpoints at one position use their record IDs as the
+final ordering.
 Checkpoint edits/deletions and anchor date/state changes replay native valuation;
 anchor dates remain synchronized. Clear a checkpoint before deleting its anchor.
 Changing a product's cost method uses the existing native revaluation path;
 the positioned AVCO behavior resumes if the product returns to average cost.
 Assign an anchor only after it is completed. Changing an anchor's product or
-company requires removing its checkpoint first. Create multiple checkpoints
-in one batch when replaying multiple products.
+company requires removing its checkpoint first. Assign new positions only to average-cost products, with a lot only when
+lot valuation is enabled. Global positions on lot-valuated products refresh all
+of their lots. Create multiple checkpoints in one batch when replaying products.
+A native reset/revalidation moves the anchor and checkpoint to the new validation
+time. Native move-line dates retain their existing separate behavior. Historical
+replay follows the existing native accounting path; this is not a new closing
+or authorization policy.
 This interface does not qualify nonmonotonic source chronology or timezone folds.
 
-The patch bumps the native `stock_account` manifest version. Existing20 databases
+The patch bumps the native `stock_account` manifest version. Existing 20 databases
 must run the normal gated `stock_account` module update when adopting this runtime;
 include it in the tenant's resolved update list before starting the candidate.
 An image replacement alone does not create the new field. Fresh foundations
