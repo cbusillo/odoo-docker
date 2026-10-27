@@ -591,9 +591,11 @@ from `move_id`, which overrides an incoming move's total value. Native current v
 position, retain company, owner and lot filtering; `lot_id` selects a lot-specific
 cost checkpoint. No dates, outgoing values or source chronology are rewritten.
 
-Unanchored manual costs retain native behavior, including applying before
-equal-timestamp moves during correction. Only anchored costs use after-move
-positioning.
+Unanchored manual costs apply before equal-timestamp moves during correction.
+Their opening quantity uses the same valued company stock scope as the replayed
+moves, excluding consigned stock. Only anchored costs use after-move positioning.
+On existing databases, the next native AVCO refresh updates current cost; past
+outgoing values keep their stored amounts until a native correction runs.
 At a shared timestamp, an anchored checkpoint wins the historical seed over
 an ordinary manual cost, matching correction history's ordinary-before-moves
 placement. Ordinary cost edits at positioned products refresh the same native
