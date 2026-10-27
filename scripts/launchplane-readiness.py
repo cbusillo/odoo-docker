@@ -17,6 +17,7 @@ from urllib.request import HTTPRedirectHandler, OpenerDirector, ProxyHandler, Re
 
 sys.path[:0] = ["/odoo", "/opt"]
 from launchplane.addons.launchplane_runtime_health.controllers.readiness import (
+    ReadinessFailure,
     fingerprint,
     resource_allowed,
     validate_contract,
@@ -186,6 +187,8 @@ def main() -> int:
     except (HTTPError, ValueError, OSError) as error:
         if isinstance(error, HTTPError) and error.code == 413:
             print("Readiness evidence exceeds the candidate request bound", file=sys.stderr)
+        elif isinstance(error, ReadinessFailure):
+            print(f"Readiness preparation/check failed: {error.code}", file=sys.stderr)
         else:
             print("Readiness preparation/check failed", file=sys.stderr)
         return 1

@@ -1,8 +1,29 @@
 """Run only through Odoo shell against a newly created, isolated fixture database."""
+import hashlib
 import json
 from pathlib import Path
 
 from odoo.api import Environment
+
+
+def create_gallery(env: Environment) -> str:
+    contents = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><title>Gallery image {index}</title>'
+        f'<rect width="2" height="2" fill="#{index:06x}"/></svg>'.encode()
+        for index in range(128)
+    ]
+    attachments = env["ir.attachment"].create(
+        [
+            {"name": f"readiness-gallery-{index}.svg", "raw": content, "mimetype": "image/svg+xml", "public": True}
+            for index, content in enumerate(contents)
+        ]
+    )
+    media = {
+        f"/web/content/{attachment.id}/{attachment.name}": hashlib.sha256(content).hexdigest()
+        for attachment, content in zip(attachments, contents, strict=True)
+    }
+    Path("/fixture/media.json").write_text(json.dumps(media))
+    return "".join(f'<img src="{path}" alt="Gallery fixture"/>' for path in media)
 
 
 def setup(env: Environment) -> None:
@@ -14,6 +35,7 @@ def setup(env: Environment) -> None:
             "navbar-font": "'SYSTEM_FONTS'", "buttons-font": "'SYSTEM_FONTS'",
         },
     )
+    gallery = create_gallery(env)
     for path, marker, key in [
         ("/", "Readiness fixture homepage", "fixture.home"),
         ("/readiness-fixture", "Readiness fixture public page", "fixture.public"),
@@ -23,6 +45,7 @@ def setup(env: Environment) -> None:
             "arch": f'<t t-name="{key}"><t t-call="website.layout"><div id="wrap">'
                     f'<h1>{marker}</h1><img src="/web/image/website/1/logo" alt="Fixture logo"/>'
                     '<img src="/web/static/img/favicon.ico" alt="Fixture static media"/>'
+                    f'{gallery}'
                     '</div></t></t>',
         })
         env["website.page"].create({

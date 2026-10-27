@@ -14,6 +14,7 @@ from urllib3.util import parse_url
 from .readiness import ReadinessFailure, validate_contract, validate_observations
 
 RUNTIME_IDENTITY_ENV_KEY = "LAUNCHPLANE_RUNTIME_IDENTITY_JSON"
+READINESS_REQUEST_LIMIT_BYTES = 1024 * 1024
 _logger = logging.getLogger(__name__)
 
 
@@ -41,7 +42,7 @@ class LaunchplaneRuntimeHealthController(http.Controller):
         save_session=False,
         csrf=False,
         readonly=True,
-        max_content_length=65536,
+        max_content_length=READINESS_REQUEST_LIMIT_BYTES,
     )
     def launchplane_readiness(self, **_params: object) -> http.Response:
         # Use the transport peer, never the address substituted by ProxyFix.
