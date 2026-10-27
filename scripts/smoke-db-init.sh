@@ -35,7 +35,7 @@ assert_password_absent_from_processes() {
 
 docker network create "${network_name}" >/dev/null
 
-docker run -d \
+docker run --rm -d \
 	--name "${postgres_container}" \
 	--network "${network_name}" \
 	-e POSTGRES_DB=postgres \

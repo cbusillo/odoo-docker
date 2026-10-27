@@ -30,7 +30,7 @@ docker run --rm -v "${repo_root}:/source:ro" --entrypoint uv "${browser_image}" 
 docker run --rm -v "${fixture_dir}:/fixture" --entrypoint uv "${browser_image}" \
     pip install --target /fixture/browser-driver -r /fixture/browser-requirements.txt >/dev/null
 docker network create --internal "${network}" >/dev/null
-docker run -d --name "${postgres}" --network "${network}" \
+docker run --rm -d --name "${postgres}" --network "${network}" \
     -e POSTGRES_USER=odoo -e POSTGRES_PASSWORD=isolated-fixture \
     ghcr.io/baosystems/postgis:17-3.5@sha256:75e3391d48e13538928fd26141b30f12c7587d937919c6656f3967f176af7701 >/dev/null
 for _ in {1..60}; do
