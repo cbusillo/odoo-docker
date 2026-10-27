@@ -142,7 +142,7 @@
          std_price_by_product_id = defaultdict(float)
          value_by_product_id = defaultdict(float)
          quantity_by_product_id = {}
-@@ -398,19 +442,23 @@
+@@ -398,27 +442,31 @@
                  ('move_line_ids.lot_id', 'in', lot.id),
              ])
          if at_date and not correction:
@@ -162,17 +162,20 @@
 +            pv.id for pv in last_manual_value_by_product.values() if pv.after_move_id
 +        ])
 +        positioned_quantities = self._get_valued_quantities_at_positions(anchored_values, lot)
++        valuation_products = self._with_company_stock_context()._with_valuation_context()
          for manual_value in last_manual_value_by_product.values():
              product = manual_value.product_id
-             # scope the opening qty to the current company, like the replayed moves
+-            # scope the opening qty to the current company, like the replayed moves
 -            if lot:
+-                quantity = lot.with_context(to_date=manual_value.date, allowed_company_ids=self.env.company.ids).product_qty
 +            if manual_value.after_move_id:
 +                quantity = positioned_quantities.get(product.id, 0.0)
 +            elif lot:
-                 quantity = lot.with_context(to_date=manual_value.date, allowed_company_ids=self.env.company.ids).product_qty
++                quantity = lot.with_env(valuation_products.env).with_context(to_date=manual_value.date).product_qty
              else:
-                 quantity = product.with_context(to_date=manual_value.date, allowed_company_ids=self.env.company.ids).qty_available
-@@ -418,7 +466,7 @@
+-                quantity = product.with_context(to_date=manual_value.date, allowed_company_ids=self.env.company.ids).qty_available
++                quantity = product.with_env(valuation_products.env).with_context(to_date=manual_value.date).qty_available
+
              std_price_by_product_id[product.id] = manual_value.value
              quantity_by_product_id[product.id] = quantity
              value_by_product_id[product.id] = manual_value.value * quantity

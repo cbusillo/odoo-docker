@@ -449,7 +449,7 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         owner = self.env["res.partner"].create({"name": "Ordinary seed consignment"})
         for lot_valuated in (False, True):
             with self.subTest(lot_valuated=lot_valuated), self.cr.savepoint():
-                product = self.product_avco.copy({"tracking": "lot" if lot_valuated else "none", "lot_valuated": lot_valuated})
+                product = self.product_avco.copy({"tracking": "lot" if lot_valuated else False, "lot_valuated": lot_valuated})
                 lot = (
                     self.env["stock.lot"].create({"name": "Ordinary seed lot", "product_id": product.id}) if lot_valuated else False
                 )
