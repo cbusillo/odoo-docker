@@ -15,7 +15,7 @@ cleanup() {
 	if [[ "${exit_status}" != 0 ]] && docker inspect "${candidate}" >/dev/null 2>&1; then
 		docker logs "${candidate}" >&2 || true
 	fi
-    docker rm -f "${candidate}" "${postgres}" >/dev/null 2>&1 || true
+    docker rm -fv "${candidate}" "${postgres}" >/dev/null 2>&1 || true
     docker network rm "${network}" >/dev/null 2>&1 || true
     rm -rf "${fixture_dir}"
 }
@@ -30,7 +30,7 @@ docker run --rm -v "${repo_root}:/source:ro" --entrypoint uv "${browser_image}" 
 docker run --rm -v "${fixture_dir}:/fixture" --entrypoint uv "${browser_image}" \
     pip install --target /fixture/browser-driver -r /fixture/browser-requirements.txt >/dev/null
 docker network create --internal "${network}" >/dev/null
-docker run --rm -d --name "${postgres}" --network "${network}" \
+docker run -d --name "${postgres}" --network "${network}" \
     -e POSTGRES_USER=odoo -e POSTGRES_PASSWORD=isolated-fixture \
     ghcr.io/baosystems/postgis:17-3.5@sha256:75e3391d48e13538928fd26141b30f12c7587d937919c6656f3967f176af7701 >/dev/null
 for _ in {1..60}; do

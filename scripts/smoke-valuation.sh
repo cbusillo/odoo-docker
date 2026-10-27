@@ -11,12 +11,12 @@ if [[ "$major" != 20 ]]; then
 fi
 name="odoo-valuation-${RANDOM}-$$"
 cleanup() {
-  docker rm -f "${name}-tests" "${name}-db" >/dev/null 2>&1 || true
+  docker rm -fv "${name}-tests" "${name}-db" >/dev/null 2>&1 || true
   docker network rm "$name" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 docker network create --internal "$name" >/dev/null
-docker run --rm -d --name "${name}-db" --network "$name" \
+docker run -d --name "${name}-db" --network "$name" \
   -e POSTGRES_USER=odoo -e POSTGRES_PASSWORD=synthetic-valuation \
   ghcr.io/baosystems/postgis:17-3.5 >/dev/null
 for _ in {1..60}; do

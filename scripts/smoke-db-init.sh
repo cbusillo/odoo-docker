@@ -16,7 +16,7 @@ db_password=$'synthetic smoke password $ # \\ \' " %'
 cleanup() {
 	docker rm -f "${odoo_container}" >/dev/null 2>&1 || true
 	docker rm -f "${shell_container}" >/dev/null 2>&1 || true
-	docker rm -f "${postgres_container}" >/dev/null 2>&1 || true
+	docker rm -fv "${postgres_container}" >/dev/null 2>&1 || true
 	docker network rm "${network_name}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -35,7 +35,7 @@ assert_password_absent_from_processes() {
 
 docker network create "${network_name}" >/dev/null
 
-docker run --rm -d \
+docker run -d \
 	--name "${postgres_container}" \
 	--network "${network_name}" \
 	-e POSTGRES_DB=postgres \
