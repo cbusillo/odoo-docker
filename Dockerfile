@@ -27,6 +27,10 @@ RUN set -eux; \
     fi; \
     git -C odoo checkout --detach FETCH_HEAD; \
     rm -rf odoo/.git
+COPY patches /patches
+RUN if grep -Eq '^version_info = \(20,' odoo/odoo/release.py; then \
+      git -C odoo apply /patches/20.0-valuation-checkpoints.patch; \
+    fi
 
 FROM --platform=$BUILDPLATFORM alpine/curl:8.22.0@sha256:a39f52cab21d7e283448a9f73032dfb578ffcea9edaaa90c1d637117149b337f AS wkhtmltox
 ARG TARGETARCH

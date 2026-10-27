@@ -569,3 +569,62 @@ subsequent builds.
 Run-number ordering belongs to this workflow identity. Keep `build.yml` in place
 when reorganizing jobs; recreating it requires an ordering migration before
 publication. Superseded families are visible as Actions notices.
+
+## Native Community 20 valuation checkpoints
+
+The Community 20 source build applies
+[`20.0-valuation-checkpoints.patch`](patches/20.0-valuation-checkpoints.patch)
+inside `stock_account` and its historical stock quantity reader. Odoo 19 source
+is unchanged. The build fails if upstream source no longer accepts the patch; qualify the native tests before refreshing the patch.
+The extension belongs to the runtime, so removing an importer cannot remove its
+valuation semantics. It contains no tenant costing rules or replacement AVCO loop.
+
+For average-cost products, a manual `product.value` can set `after_move_id` and its unit `value`. For example:
+
+```python
+env["product.value"].create({"after_move_id": completed_move.id, "value": unit_cost})
+```
+
+The anchor supplies the product, company and exact date. The checkpoint applies
+after that move and before a greater-ID move at the same timestamp. It is separate
+from `move_id`, which overrides an incoming move's total value. Native current valued quantities, with batched backout of moves after each
+position, retain company, owner and lot filtering; `lot_id` selects a lot-specific
+cost checkpoint. No dates, outgoing values or source chronology are rewritten.
+
+Unanchored manual costs retain native behavior, including applying before
+equal-timestamp moves during correction. Only anchored costs use after-move
+positioning.
+At a shared timestamp, an anchored checkpoint wins the historical seed over
+an ordinary manual cost, matching correction history's ordinary-before-moves
+placement. Ordinary cost edits at positioned products refresh the same native
+valuation. Multiple checkpoints at one position use their record IDs as the
+final ordering.
+Checkpoint edits/deletions and anchor date/state changes replay native valuation;
+anchor dates remain synchronized. Clear a checkpoint before deleting its anchor.
+Changing a product's cost method uses the existing native revaluation path;
+the positioned AVCO behavior resumes if the product returns to average cost.
+Assign an anchor only after it is completed. Changing an anchor's product
+requires removing its checkpoint first. Assign new positions only to average-cost products, with a lot only when
+lot valuation is enabled. Global positions on lot-valuated products refresh all
+of their lots. Create multiple checkpoints in one batch when replaying products.
+A native reset/revalidation moves the anchor and checkpoint to the new validation
+time. Native move-line dates retain their existing separate behavior. Historical
+replay follows the existing native accounting path; this is not a new closing
+or authorization policy.
+This interface does not qualify nonmonotonic source chronology or timezone folds.
+
+The patch bumps the native `stock_account` manifest version. Existing 20 databases
+must run the normal gated `stock_account` module update when adopting this runtime;
+include it in the tenant's resolved update list before starting the candidate.
+An image replacement alone does not create the new field. Fresh foundations
+install the schema normally. Tenant owners keep their existing update, backup,
+release and acceptance gates; this source PR performs no lane update.
+
+`bash scripts/smoke-valuation.sh <runtime-image>` first creates a synthetic database
+with the patch reversed, then upgrades `stock_account` on the patched image and
+proves existing unanchored costs/dates survive. It installs a disposable test
+addon on a private internal network, runs all native accounting tests, affected stock classes
+and checkpoint tests, and removes its containers/network. Odoo 19 skips this
+20-specific extension. Supply an optional second argument of native test tags for
+a focused local run, for example `/valuation_checkpoint_tests`. CI runs the full
+script for each runtime image. The fixtures use synthetic stock and no host ports.

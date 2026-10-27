@@ -15,7 +15,7 @@ cleanup() {
 	if [[ "${exit_status}" != 0 ]] && docker inspect "${candidate}" >/dev/null 2>&1; then
 		docker logs "${candidate}" >&2 || true
 	fi
-    docker rm -f "${candidate}" "${postgres}" >/dev/null 2>&1 || true
+    docker rm -fv "${candidate}" "${postgres}" >/dev/null 2>&1 || true
     docker network rm "${network}" >/dev/null 2>&1 || true
     rm -rf "${fixture_dir}"
 }

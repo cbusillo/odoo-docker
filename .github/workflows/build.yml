@@ -527,6 +527,10 @@ jobs:
         if: matrix.target == 'runtime'
         run: scripts/smoke-db-init.sh odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant.series }}-runtime
 
+      - name: Smoke test native valuation checkpoints
+        if: matrix.target == 'runtime'
+        run: bash scripts/smoke-valuation.sh odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant.series }}-runtime
+
       - name: Smoke test database-bound readiness and Chromium
         if: matrix.target == 'runtime-devtools'
         run: bash scripts/smoke-readiness.sh odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant.series }}-devtools odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.variant.series }}-devtools
