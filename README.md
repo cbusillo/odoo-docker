@@ -594,8 +594,8 @@ cost checkpoint. No dates, outgoing values or source chronology are rewritten.
 Unanchored manual costs apply before equal-timestamp moves during correction.
 Their opening quantity uses the same valued company stock scope as the replayed
 moves, excluding consigned stock. Only anchored costs use after-move positioning.
-Existing ordinary costs refresh on the next native AVCO update; historical
-outgoing values change through native correction, without a new migration.
+On existing databases, the next native AVCO refresh updates current cost; past
+outgoing values keep their stored amounts until a native correction runs.
 At a shared timestamp, an anchored checkpoint wins the historical seed over
 an ordinary manual cost, matching correction history's ordinary-before-moves
 placement. Ordinary cost edits at positioned products refresh the same native
