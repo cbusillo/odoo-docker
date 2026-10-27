@@ -603,8 +603,8 @@ Checkpoint edits/deletions and anchor date/state changes replay native valuation
 anchor dates remain synchronized. Clear a checkpoint before deleting its anchor.
 Changing a product's cost method uses the existing native revaluation path;
 the positioned AVCO behavior resumes if the product returns to average cost.
-Assign an anchor only after it is completed. Changing an anchor's product or
-company requires removing its checkpoint first. Assign new positions only to average-cost products, with a lot only when
+Assign an anchor only after it is completed. Changing an anchor's product
+requires removing its checkpoint first. Assign new positions only to average-cost products, with a lot only when
 lot valuation is enabled. Global positions on lot-valuated products refresh all
 of their lots. Create multiple checkpoints in one batch when replaying products.
 A native reset/revalidation moves the anchor and checkpoint to the new validation
@@ -623,7 +623,7 @@ release and acceptance gates; this source PR performs no lane update.
 `bash scripts/smoke-valuation.sh <runtime-image>` first creates a synthetic database
 with the patch reversed, then upgrades `stock_account` on the patched image and
 proves existing unanchored costs/dates survive. It installs a disposable test
-addon on a private internal network, runs the native valuation regression class
+addon on a private internal network, runs all native accounting tests, affected stock classes
 and checkpoint tests, and removes its containers/network. Odoo 19 skips this
 20-specific extension. Supply an optional second argument of native test tags for
 a focused local run, for example `/valuation_checkpoint_tests`. CI runs the full
