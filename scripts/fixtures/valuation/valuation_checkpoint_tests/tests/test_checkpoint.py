@@ -444,27 +444,39 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         with self.assertRaises(ValidationError), self.cr.savepoint():
             self.env["product.value"].create({"after_move_id": anchor.id, "lot_id": lot.id, "value": 40})
 
-    def test_ordinary_seed_replay_keeps_native_consignment_scope(self) -> None:
-        at = self._opening_stock()
-        owner = self.env["res.partner"].create({"name": "Mixed checkpoint consignment"})
-        self._receipt(at - timedelta(seconds=1), 999, owner_id=owner.id)
-        anchor = self._shipment(at)
-        self._checkpoint(anchor)
-        with freeze_time(at + timedelta(seconds=1)):
-            self.product_avco.standard_price = 35
-        ordinary = self.env["product.value"].search(
-            [
-                ("product_id", "=", self.product_avco.id),
-                ("after_move_id", "=", False),
-                ("move_id", "=", False),
-            ],
-            order="date desc, id desc",
-            limit=1,
-        )
-        self._receipt(at + timedelta(seconds=2), 100)
-        shipment = self._shipment(at + timedelta(seconds=3))
-        ordinary.value = 36
-        refreshed = shipment.value, self.product_avco.standard_price
-        self.product_avco._correct_inventory_valuation(ordinary.date)
-        self.product_avco._update_standard_price()
-        self.assertEqual(refreshed, (shipment.value, self.product_avco.standard_price))
+    def test_ordinary_seeds_use_owned_valued_quantity(self) -> None:
+        at = datetime(2024, 1, 2, 12)
+        owner = self.env["res.partner"].create({"name": "Ordinary seed consignment"})
+        for lot_valuated in (False, True):
+            with self.subTest(lot_valuated=lot_valuated), self.cr.savepoint():
+                product = self.product_avco.copy({"tracking": "lot" if lot_valuated else "none", "lot_valuated": lot_valuated})
+                lot = (
+                    self.env["stock.lot"].create({"name": "Ordinary seed lot", "product_id": product.id}) if lot_valuated else False
+                )
+                move_values = {"lot_ids": lot} if lot else {}
+                for index, cost in enumerate((10, 30, 50)):
+                    with freeze_time(at + timedelta(seconds=index)):
+                        self._make_in_move(product, 1, unit_cost=cost, **move_values)
+                with freeze_time(at + timedelta(seconds=3)):
+                    self._make_in_move(product, 7, unit_cost=999, owner_id=owner.id, **move_values)
+                seed_date = at + timedelta(seconds=4)
+                seed_values = {"product_id": product.id, "date": seed_date, "value": 20}
+                if lot:
+                    seed_values["lot_id"] = lot.id
+                with freeze_time(seed_date):
+                    self.env["product.value"].create(seed_values)
+                with freeze_time(at + timedelta(seconds=5)):
+                    self._make_in_move(product, 1, unit_cost=100, **move_values)
+                with freeze_time(at + timedelta(seconds=6)):
+                    shipment = self._make_out_move(product, 1, **move_values)
+                self.assertEqual(shipment.value, -40)
+                self.assertEqual((lot or product).standard_price, 40)
+                self.assertFalse(product._correct_inventory_valuation(seed_date))
+                self.env.invalidate_all()
+                self.assertEqual(shipment.value, -40)
+                scoped_product = (
+                    product._with_company_stock_context()._with_valuation_context().with_context(to_date=at + timedelta(seconds=6))
+                )
+                scoped = lot.with_env(scoped_product.env) if lot else scoped_product
+                self.assertEqual(scoped["product_qty" if lot else "qty_available"], 3)
+                self.assertEqual(scoped.total_value, 120)
