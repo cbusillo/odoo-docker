@@ -6,7 +6,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 "${script_dir}/smoke-runtime.sh" "${image_reference}" "${2:-}"
 
-docker run --rm --entrypoint /bin/bash "${image_reference}" -lc '
+docker run --rm --network none --entrypoint /bin/bash "${image_reference}" -lc '
 set -euo pipefail
 binary="${CHROME_BIN:-/usr/bin/chromium}"
 if [[ ! -x "${binary}" ]]; then
