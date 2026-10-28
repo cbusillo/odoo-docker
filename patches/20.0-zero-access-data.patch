@@ -1,0 +1,124 @@
+diff --git a/odoo/addons/base/security/ir.access.csv b/odoo/addons/base/security/ir.access.csv
+--- a/odoo/addons/base/security/ir.access.csv
++++ b/odoo/addons/base/security/ir.access.csv
+@@ -140,3 +140,13 @@
+ properties_base_definition_rule_admin,properties.base.definition: system all access,properties.base.definition,base.group_system,crud,
+ access_website_public_public,website.public,website,base.group_everyone,r,
+ access_website_system,website.public,website,base.group_system,crud,
++access_ir_attachment_group_portal_public,ir_attachment group_portal_public,ir.attachment,,r,
++access_ir_model_inherit,ir_model_inherit nobody,ir.model.inherit,,r,
++access_ir_model_user,ir_model_all,ir.model,base.group_user,r,"[(0, '=', 1)]"
++access_ir_model_data_user,ir_model_data user,ir.model.data,base.group_user,r,"[(0, '=', 1)]"
++access_ir_model_fields_user,ir_model_fields all,ir.model.fields,base.group_user,r,"[(0, '=', 1)]"
++access_ir_model_fields_selection_user,ir_model_fields_selection all,ir.model.fields.selection,base.group_user,r,"[(0, '=', 1)]"
++access_ir_ui_view_group_user,ir_ui_view group_user,ir.ui.view,,r,
++access_ir_default_all,ir_default all,ir.default,,r,
++access_res_users_deletion_all,res_users_deletion all,res.users.deletion,,r,
++access_res_users_settings_all,res.users.settings,res.users.settings,,r,
+diff --git a/addons/auth_totp/security/ir.access.csv b/addons/auth_totp/security/ir.access.csv
+--- a/addons/auth_totp/security/ir.access.csv
++++ b/addons/auth_totp/security/ir.access.csv
+@@ -4,3 +4,4 @@
+ api_key_user,Users can read and delete their own keys,auth_totp.device,base.group_user,r,"[('user_id', '=', user.id)]"
+ api_key_admin,Administrators can view user keys to revoke them,auth_totp.device,base.group_system,r,
+ api_key_user_1,Users can read and delete their own keys,auth_totp.device,base.group_portal,r,"[('user_id', '=', user.id)]"
++access_auth_totp_rate_limit_log,access_auth_totp_rate_limit_log,auth.totp.rate.limit.log,base.group_user,r,"[(0, '=', 1)]"
+diff --git a/addons/bus/security/ir.access.csv b/addons/bus/security/ir.access.csv
+new file mode 100644
+--- /dev/null
++++ b/addons/bus/security/ir.access.csv
+@@ -0,0 +1,2 @@
++id,name,model_id,group_id/id,operation,domain
++access_bus_bus,bus.bus public,bus.bus,,r,
+diff --git a/addons/onboarding/security/ir.access.csv b/addons/onboarding/security/ir.access.csv
+--- a/addons/onboarding/security/ir.access.csv
++++ b/addons/onboarding/security/ir.access.csv
+@@ -3,3 +3,11 @@
+ access_onboarding_step_manager,onboarding.onboarding.step.manager,onboarding.onboarding.step,base.group_system,crud,
+ access_onboarding_progress_manager,onboarding.progress.manager,onboarding.progress,base.group_system,crud,
+ access_onboarding_progress_step_manager,onboarding.progress.step.manager,onboarding.progress.step,base.group_system,crud,
++access_onboarding_all,onboarding.onboarding.all,onboarding.onboarding,,r,
++access_onboarding_user,onboarding.onboarding.user,onboarding.onboarding,base.group_user,r,"[(0, '=', 1)]"
++access_onboarding_step_all,onboarding.onboarding.step.all,onboarding.onboarding.step,,r,
++access_onboarding_step_user,onboarding.onboarding.step.user,onboarding.onboarding.step,base.group_user,r,"[(0, '=', 1)]"
++access_onboarding_progress_all,onboarding.progress.all,onboarding.progress,,r,
++access_onboarding_progress_user,onboarding.progress.user,onboarding.progress,base.group_user,r,"[(0, '=', 1)]"
++access_onboarding_progress_step_all,onboarding.progress.step.all,onboarding.progress.step,,r,
++access_onboarding_progress_step_user,onboarding.progress.step.user,onboarding.progress.step,base.group_user,r,"[(0, '=', 1)]"
+diff --git a/addons/phone_validation/security/ir.access.csv b/addons/phone_validation/security/ir.access.csv
+--- a/addons/phone_validation/security/ir.access.csv
++++ b/addons/phone_validation/security/ir.access.csv
+@@ -1,3 +1,4 @@
+ id,name,model_id,group_id/id,operation,domain
+ access_phone_blacklist_system,access.phone.blacklist.system,phone.blacklist,base.group_system,crud,
+ access_phone_blacklist_remove_system,acesss.phone.blacklist.remove.system,phone.blacklist.remove,base.group_system,crud,
++access_phone_blacklist_all,access.phone.blacklist.all,phone.blacklist,,r,
+diff --git a/addons/rating/security/ir.access.csv b/addons/rating/security/ir.access.csv
+--- a/addons/rating/security/ir.access.csv
++++ b/addons/rating/security/ir.access.csv
+@@ -1,3 +1,5 @@
+ id,name,model_id,group_id/id,operation,domain
+ access_rating_user,rating.rating.user,rating.rating,base.group_user,cru,
+ rating_rating_access_system,rating.rating.access.system,rating.rating,base.group_system,crud,
++access_rating_public,rating.rating.public,rating.rating,base.group_public,r,"[(0, '=', 1)]"
++access_rating_portal,rating.rating.portal,rating.rating,base.group_portal,r,"[(0, '=', 1)]"
+diff --git a/addons/sales_team/security/ir.access.csv b/addons/sales_team/security/ir.access.csv
+--- a/addons/sales_team/security/ir.access.csv
++++ b/addons/sales_team/security/ir.access.csv
+@@ -6,3 +6,5 @@
+ access_crm_team_member_manager,access.crm.team.member.manager,crm.team.member,sales_team.group_sale_manager,crud,
+ access_crm_tag_salesman,crm_tag salesman,crm.tag,sales_team.group_sale_salesman,cru,
+ access_crm_tag_manager,crm_tag manager,crm.tag,sales_team.group_sale_manager,crud,
++access_crm_team_member_all,access.crm.team.member.all,crm.team.member,,r,
++access_crm_tag,crm_tag,crm.tag,base.group_user,r,"[(0, '=', 1)]"
+diff --git a/addons/sms/security/ir.access.csv b/addons/sms/security/ir.access.csv
+--- a/addons/sms/security/ir.access.csv
++++ b/addons/sms/security/ir.access.csv
+@@ -9,3 +9,6 @@
+ access_sms_account_registration_phone_number_wizard_system,access.sms.account.phone.system,sms.account.phone,base.group_system,crud,
+ access_sms_account_verification_code_wizard_system,access.sms.account.code.system,sms.account.code,base.group_system,crud,
+ access_sms_account_sender_name_wizard_system,access.sms.account.sender.system,sms.account.sender,base.group_system,crud,
++access_sms_sms_all,access.sms.sms.all,sms.sms,,r,
++access_sms_template_all,access.sms.template.all,sms.template,,r,
++access_sms_tracker_all,access.sms.tracker.all,sms.tracker,,r,
+diff --git a/addons/payment/security/ir.access.csv b/addons/payment/security/ir.access.csv
+--- a/addons/payment/security/ir.access.csv
++++ b/addons/payment/security/ir.access.csv
+@@ -11,3 +11,4 @@
+ payment_token_company_rule,Access tokens in own companies only,payment.token,,crud,"[('company_id', 'parent_of', company_ids)]"
+ payment_transaction_system,payment.transaction.system,payment.transaction,base.group_system,crud,
+ transaction_company_rule,Access transactions in own companies only,payment.transaction,,crud,"[('company_id', 'in', company_ids)]"
++access_payment_link_wizard,access_payment_link_wizard,payment.link.wizard,base.group_user,r,"[(0, '=', 1)]"
+diff --git a/addons/website/security/ir.access.csv b/addons/website/security/ir.access.csv
+--- a/addons/website/security/ir.access.csv
++++ b/addons/website/security/ir.access.csv
+@@ -32,3 +32,9 @@
+ access_website_custom_blocked_third_party_domains,access_website_custom_blocked_third_party_domains,website.custom_blocked_third_party_domains,website.group_website_designer,cru,
+ access_website_technical_page,access_website_technical_page,website.technical.page,base.group_system,r,
+ access_portal_entry,access.portal.entry.designer,portal.entry,website.group_website_designer,crud,
++access_website_rewrite,access_website_rewrite,website.rewrite,,r,
++access_website_page_properties_public,access_website_page_properties,website.page.properties,base.group_public,r,"[(0, '=', 1)]"
++access_website_page_properties_portal,access_website_page_properties,website.page.properties,base.group_portal,r,"[(0, '=', 1)]"
++access_website_page_properties_base_public,access_website_page_properties_base,website.page.properties.base,base.group_public,r,"[(0, '=', 1)]"
++access_website_page_properties_base_portal,access_website_page_properties_base,website.page.properties.base,base.group_portal,r,"[(0, '=', 1)]"
++access_website_dynamic_filter_public,access_website_dynamic_filter,website.snippet.filter,,r,
+diff --git a/addons/bus/__manifest__.py b/addons/bus/__manifest__.py
+--- a/addons/bus/__manifest__.py
++++ b/addons/bus/__manifest__.py
+@@ -4,6 +4,7 @@
+     'description': "Instant Messaging Bus allow you to send messages to users, in live.",
+     'depends': ['base', 'web'],
+     'auto_install': True,
++    'data': ['security/ir.access.csv'],
+     'assets': {
+         'web.assets_backend': [
+             'bus/static/src/*.js',
+diff --git a/addons/website_sale/security/ir.access.csv b/addons/website_sale/security/ir.access.csv
+--- a/addons/website_sale/security/ir.access.csv
++++ b/addons/website_sale/security/ir.access.csv
+@@ -37,3 +37,5 @@
+ access_product_attribute_category_public_public,product.attribute.category public,product.attribute.category,base.group_everyone,r,
+ access_product_attribute_category_public_saleman,product.attribute.category sale manager,product.attribute.category,sales_team.group_sale_manager,crud,
+ access_withdrawal_request_system,withdrawal.request system,withdrawal.request,base.group_system,r,
++website_sale_wishlist.access_product_wishlist_default,access_product_wishlist_default,product.wishlist,,r,
++website_sale_wishlist.access_product_wishlist_public,access_product_wishlist_public,product.wishlist,base.group_public,r,"[(0, '=', 1)]"
