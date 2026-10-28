@@ -53,7 +53,7 @@
          query._ids = tuple(id_ for id_, in self.env.execute_query(query.select(query_select)))
          product_values = self.env['product.value'].browse(query._ids)
 -        product_values.sudo().fetch(['product_id', 'value', 'date'])
-+        product_values.sudo().fetch(['product_id', 'value', 'new_cost', 'date', 'after_move_id'])
++        product_values.sudo().fetch(['product_id', 'value', 'after_move_cost', 'date', 'after_move_id'])
          return {pv.product_id: pv for pv in product_values}
 
      def _get_last_in(self, date=None):
@@ -280,16 +280,17 @@
 
 
  class ProductValue(models.Model):
-@@ -19,6 +29,8 @@
+@@ -19,6 +29,9 @@
      lot_id = fields.Many2one('stock.lot', string='Lot')
      move_id = fields.Many2one('stock.move', string='Move', index='btree_not_null')
 
 +    after_move_id = fields.Many2one('stock.move', ondelete='restrict', index='btree_not_null', copy=False)
++    after_move_cost = fields.Float(min_display_digits='Product Price', copy=False, readonly=True)
 +
      quantity = fields.Float('Quantity', digits='Product Unit')
      old_cost = fields.Float('Old Unit Cost', min_display_digits='Product Price')
      new_cost = fields.Float('New Unit Cost', min_display_digits='Product Price')
-@@ -30,7 +42,8 @@
+@@ -30,7 +43,8 @@
          'res.company', string='Company', compute='_compute_company_id',
          store=True, required=True, index=True, precompute=True, readonly=False)
      currency_id = fields.Many2one('res.currency', related='company_id.currency_id', string='Currency')
@@ -299,7 +300,7 @@
      user_id = fields.Many2one('res.users', string='User', default=lambda self: self.env.user, required=True)
 
      description = fields.Char(string='Description')
-@@ -45,10 +58,117 @@
+@@ -45,10 +59,117 @@
 
      account_move_id = fields.Many2one('account.move', string='Account Move', copy=False, index="btree_not_null")
 
@@ -315,7 +316,7 @@
 +
 +    def _unit_cost(self) -> float:
 +        self.ensure_one()
-+        return self.new_cost if self.after_move_id else self.value
++        return self.after_move_cost if self.after_move_id else self.value
 +
 +    def _applies_before_move(self, move: "odoo.model.stock_move") -> bool:
 +        self.ensure_one()
@@ -384,19 +385,19 @@
 +        replay_records = self.browse()
 +        if valuation_change:
 +            replay_records = self
-+        elif 'new_cost' in vals:
++        elif 'after_move_cost' in vals:
 +            replay_records = self.filtered('after_move_id')
 +        scopes = replay_records._positioned_replay_scopes()
 +        attached = self.filtered(lambda record: not record.after_move_id) if vals.get('after_move_id') else self.browse()
 +        result = super().write(vals)
 +        positioned = self.filtered('after_move_id')
 +        if 'value' in vals:
-+            super(ProductValue, positioned).write({'new_cost': vals['value']})
-+        elif 'new_cost' in vals:
-+            super(ProductValue, positioned).write({'value': vals['new_cost']})
++            super(ProductValue, positioned).write({'after_move_cost': vals['value']})
++        elif 'after_move_cost' in vals:
++            super(ProductValue, positioned).write({'value': vals['after_move_cost']})
 +        elif attached:
 +            for value, records in attached.grouped('value').items():
-+                super(ProductValue, records).write({'new_cost': value})
++                super(ProductValue, records).write({'after_move_cost': value})
 +        if vals.get('after_move_id') or vals.get('lot_id'):
 +            self._check_checkpoint_assignment()
 +        if replay_records:
@@ -419,23 +420,24 @@
                  product_value.company_id = product_value.move_id.company_id
              elif product_value.lot_id:
                  product_value.company_id = product_value.lot_id.company_id
-@@ -89,7 +209,15 @@
+@@ -89,7 +210,16 @@
      @api.model_create_multi
      def create(self, vals_list):
          now = fields.Datetime.now()
-+        missing_cost = any(vals.get('after_move_id') and 'value' not in vals for vals in vals_list)
-+        default_cost = self.default_get(['value']).get('value', 0.0) if missing_cost else 0.0
++        defaults = self.default_get(['after_move_id', 'value'])
          for vals in vals_list:
-+            if vals.get('after_move_id'):
-+                vals['new_cost'] = vals.get('value', default_cost)
-+                anchor = self.env['stock.move'].browse(vals['after_move_id'])
++            anchor_id = vals.get('after_move_id', defaults.get('after_move_id'))
++            if anchor_id:
++                vals.setdefault('after_move_id', anchor_id)
++                vals['after_move_cost'] = vals.get('value', defaults.get('value', 0.0))
++                anchor = self.env['stock.move'].browse(anchor_id)
 +                vals.setdefault('product_id', anchor.product_id.id)
 +                vals.setdefault('company_id', anchor.company_id.id)
 +                vals.setdefault('date', anchor.date)
              if vals.get('move_id'):
                  move = self.env['stock.move'].browse(vals['move_id'])
                  vals['product_id'] = move.product_id.id
-@@ -104,13 +232,14 @@
+@@ -104,13 +234,14 @@
                      move=move.reference, old_value=vals['old_value'], new_value=vals['value'], quantity=vals['quantity'], user=self.env.user.name)
 
          product_values = super().create(vals_list)
@@ -451,7 +453,7 @@
                  moves, _first_move_remaining_qty = pv.product_id._get_fifo_stack(pv.lot_id, pv.date)
                  if moves:
                      move_ids.update(self.env['stock.move'].concat(moves).ids)
-@@ -118,6 +247,7 @@
+@@ -118,6 +249,7 @@
          if move_ids:
              moves = self.env['stock.move'].browse(move_ids)
              moves._set_value(recompute_date=min(moves.mapped('date')))
@@ -533,13 +535,27 @@
      'summary': 'Inventory, Logistic, Valuation, Accounting',
      'description': """
  WMS Accounting module
+--- a/addons/stock_account/report/stock_avco_audit_report.py
++++ b/addons/stock_account/report/stock_avco_audit_report.py
+@@ -78,7 +78,7 @@
+     pv.user_id,
+     pv.company_id,
+     'Adjustment' AS reference, -- Set a fixed string for the reference
+-    pv.value,
++    CASE WHEN pv.after_move_id IS NOT NULL THEN pv.after_move_cost ELSE pv.value END AS value,
+     0 AS quantity, -- Set quantity to 0 as requested,
+     'product.value' AS res_model_name,
+     pv.description
 --- /dev/null
 +++ b/addons/stock_account/migrations/20.0.1.1.2/pre-preserve-checkpoint-costs.py
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,10 @@
 +from odoo.sql_db import Cursor
 +from odoo.tools import sql
 +
 +
 +def migrate(cr: Cursor, _version: str) -> None:
-+    if sql.column_exists(cr, "product_value", "after_move_id"):
-+        cr.execute("UPDATE product_value SET new_cost = value WHERE after_move_id IS NOT NULL")
++    if not sql.column_exists(cr, "product_value", "after_move_id"):
++        return
++    if not sql.column_exists(cr, "product_value", "after_move_cost"):
++        sql.create_column(cr, "product_value", "after_move_cost", "numeric")
++    cr.execute("UPDATE product_value SET after_move_cost = value WHERE after_move_id IS NOT NULL")

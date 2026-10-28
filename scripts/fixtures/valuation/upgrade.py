@@ -50,7 +50,15 @@ def setup_legacy_checkpoints(env: Environment) -> None:
             "description": f"{LEGACY_DESCRIPTION} {index}",
         }
         if audit_cost is not None:
-            values["new_cost"] = audit_cost
+            values.update(
+                {
+                    "new_cost": audit_cost,
+                    "quantity": move.quantity,
+                    "old_cost": 10,
+                    "old_value": move.value,
+                    "new_value": cost * move.quantity,
+                }
+            )
         if native_positions:
             values["after_move_id"] = move.id
         checkpoint = env["product.value"].create(values)
@@ -95,7 +103,12 @@ def verify(env: Environment) -> None:
         checkpoint = env["product.value"].search([("description", "=", f"{LEGACY_DESCRIPTION} {index}")])
         assert len(checkpoint) == 1
         assert checkpoint.value == checkpoint.currency_id.round(cost)
-        assert checkpoint.new_cost == checkpoint.value
+        assert checkpoint.new_cost == (_audit_cost or 0)
+        if _audit_cost is not None:
+            assert checkpoint.quantity == checkpoint.after_move_id.quantity
+            assert checkpoint.old_cost == 10
+            assert checkpoint.old_value == checkpoint.after_move_id.value
+            assert checkpoint.new_value == checkpoint.currency_id.round(cost * checkpoint.quantity)
         assert checkpoint.date == VALUATION_DATE == checkpoint.after_move_id.date
         product = checkpoint.product_id.with_company(checkpoint.company_id)._with_company_stock_context()._with_valuation_context()
         quantity = product.qty_available

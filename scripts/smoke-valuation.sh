@@ -50,12 +50,15 @@ odoo_run=(docker create --name "${name}-tests" --network "$name"
 run_fixture() {
   local source_proof='
     set -euo pipefail
+    record_sources() {
     sha256sum /opt/native-valuation.patch /odoo/odoo/orm/fields_numeric.py \
       /odoo/addons/stock_account/models/product.py /odoo/addons/stock_account/models/product_value.py \
       /odoo/addons/stock_account/models/stock_move.py /odoo/addons/stock_account/__manifest__.py \
-      /odoo/addons/stock/models/product.py /odoo/addons/stock/models/stock_lot.py
+      /odoo/addons/stock/models/product.py /odoo/addons/stock/models/stock_lot.py \
+      /odoo/addons/stock_account/report/stock_avco_audit_report.py
     find /opt/valuation-tests -type f -name "*.py" -exec sha256sum {} +
     find /odoo/addons/stock_account -path "*/migrations/*" -type f -name "*.py" -exec sha256sum {} +
+    }
   '
   tests_id="$("${odoo_run[@]}" "$1" -lc "$source_proof"$'\n'"$2")"
   docker cp "$fixture" "$tests_id:/opt/valuation-tests"
@@ -69,6 +72,7 @@ run_fixture() {
 run_fixture "$previous_image" '
   set -euo pipefail
   if [[ "$VALUATION_REVERSE_PATCH" == true ]]; then git -C /odoo apply --reverse /opt/native-valuation.patch; fi
+  record_sources
   odoo-bin -d valuation_test --init stock_account --without-demo --stop-after-init \
     --max-cron-threads=0 --http-interface=127.0.0.1 --log-level=warn
   VALUATION_UPGRADE_PHASE=setup odoo-bin shell -d valuation_test --no-http \
@@ -77,6 +81,7 @@ run_fixture "$previous_image" '
 # shellcheck disable=SC2016
 run_fixture "$image" '
   set -euo pipefail
+  record_sources
   odoo-bin -d valuation_test --update stock,stock_account --init valuation_checkpoint_tests --without-demo \
     --test-tags "$VALUATION_TEST_TAGS" --stop-after-init --max-cron-threads=0 \
     --http-interface=127.0.0.1 --log-level=warn --log-handler=odoo.tests:INFO \

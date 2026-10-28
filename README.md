@@ -588,10 +588,12 @@ For average-cost products, a manual `product.value` can set `after_move_id` and 
 env["product.value"].create({"after_move_id": completed_move.id, "value": unit_cost})
 ```
 
-For positioned costs, the existing native `new_cost` Float retains the full unit
-cost; `value` remains its company-currency Monetary projection. Cost edits keep
-those fields coherent. Ordinary manual costs and incoming move-total overrides
-retain their native Monetary semantics.
+For positioned costs, `value` is the full unit-cost input and remains a
+company-currency Monetary projection after storage. A dedicated Float retains
+the unrounded positioned cost. Native `old_cost` and `new_cost` remain audit
+facts, including when an ordinary row is attached to or detached from a move.
+Ordinary manual costs and incoming move-total overrides retain their native
+Monetary semantics.
 
 The anchor supplies the product, company and exact date. The checkpoint applies
 after that move and before a greater-ID move at the same timestamp. It is separate
@@ -622,13 +624,15 @@ time. Native move-line dates retain their existing separate behavior. Historical
 replay follows the existing native accounting path; this is not a new closing
 or authorization policy.
 This interface does not qualify nonmonotonic source chronology or timezone folds.
+The native AVCO audit report retains its existing calendar-date ordering.
 
 The patch bumps the native `stock_account` manifest version. Existing 20 databases
 must run the normal gated `stock_account` module update when adopting this runtime;
 include it in the tenant's resolved update list before starting the candidate.
-The update also initializes existing positioned `new_cost` values from their
-actually stored `value`, including zero. It does not infer precision from an
-old NULL or stale cost field, or recover digits already discarded. An image
+The update initializes the positioned-cost field from each existing anchor's
+actually stored `value`, including zero, while preserving native audit fields.
+It does not infer precision from an old NULL or stale cost field, or recover
+digits already discarded. An image
 replacement alone does not perform that migration or create the position field.
 Fresh foundations install normally. Tenant owners keep their existing update, backup,
 release and acceptance gates; this source PR performs no lane update.
