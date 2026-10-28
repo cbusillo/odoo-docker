@@ -20,7 +20,7 @@ def setup_legacy_checkpoints(env: Environment) -> None:
         [{"name": f"Legacy checkpoint {index}", "categ_id": category.id, "is_storable": True} for index in range(len(LEGACY_COSTS))]
     )
     native_positions = "after_move_id" in env["product.value"]._fields
-    stock_location = env["stock.warehouse"].search([("company_id", "=", env.company.id)], limit=1).lot_stock_id
+    stock_location = env["stock.warehouse"].create({"company_id": company.id}).lot_stock_id
     assert stock_location
     if not sql.column_exists(env.cr, "product_value", "after_move_id"):
         env.cr.execute("ALTER TABLE product_value ADD COLUMN after_move_id integer")
