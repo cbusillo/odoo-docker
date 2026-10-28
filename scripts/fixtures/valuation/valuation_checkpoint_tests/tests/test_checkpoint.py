@@ -104,10 +104,9 @@ class TestValuationCheckpoint(TestStockValuationCommon):
             ),
         )
         for snapshot in snapshots:
-            with self.subTest(phase=snapshot["phase"]):
-                self.assertAlmostEqual(snapshot["quantity"], remaining_quantity)
-                self.assertAlmostEqual(snapshot["current"], source_value, delta=self.env.company.currency_id.rounding)
-                self.assertAlmostEqual(snapshot["dated"], source_value, delta=self.env.company.currency_id.rounding)
+            self.assertAlmostEqual(snapshot["quantity"], remaining_quantity)
+            self.assertAlmostEqual(snapshot["current"], source_value, delta=self.env.company.currency_id.rounding)
+            self.assertAlmostEqual(snapshot["dated"], source_value, delta=self.env.company.currency_id.rounding)
 
     def test_checkpoint_between_tied_outgoing_moves_survives_revaluation(self) -> None:
         at = self._opening_stock()
