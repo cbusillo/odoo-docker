@@ -145,12 +145,35 @@ class TestValuationCheckpoint(TestStockValuationCommon):
                 "new_value": 80,
             }
         )
-        audit_fields = ["quantity", "old_cost", "new_cost", "old_value", "new_value", "adjustment"]
+        audit_fields = ["company_id", "currency_id", "quantity", "old_cost", "new_cost", "old_value", "new_value", "adjustment"]
         audit = value.read(audit_fields)
         for position in (anchor.id, False):
             value.after_move_id = position
             self.env.invalidate_all()
             self.assertEqual(value.read(audit_fields), audit)
+
+    def test_detaching_mixed_company_costs_preserves_their_companies(self) -> None:
+        at = datetime(2024, 1, 2, 12)
+        company = self.env["res.company"].sudo().create({"name": "Detached checkpoint company"})
+        self.env.user.sudo().write({"company_ids": [Command.link(company.id)]})
+        self.product_avco.categ_id.with_company(company).property_cost_method = "average"
+        with freeze_time(at):
+            first = self._make_in_move(self.product_avco, 6, unit_cost=10)
+            second = self._make_in_move(self.product_avco, 6, unit_cost=20, company=company)
+        checkpoints = self.env["product.value"].create([{"after_move_id": move.id, "value": 80 / 6} for move in first | second])
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            checkpoints[0].after_move_id = second
+        checkpoints[0].write({"after_move_id": second.id, "company_id": company.id})
+        self.assertEqual(checkpoints[0].company_id, company)
+        checkpoints[0].write({"after_move_id": first.id, "company_id": first.company_id.id})
+        ordinary = self.env["product.value"].create(
+            {"product_id": self.product_avco.copy().id, "company_id": self.env.company.id, "value": 20}
+        )
+        costs = checkpoints | ordinary
+        facts = costs.read(["company_id", "currency_id", "value"])
+        costs.write({"after_move_id": False})
+        self.env.invalidate_all()
+        self.assertEqual(costs.read(["company_id", "currency_id", "value"]), facts)
 
     def test_avco_audit_uses_the_fractional_positioned_unit_cost(self) -> None:
         product = self.product_avco.copy()

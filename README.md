@@ -595,7 +595,9 @@ facts, including when an ordinary row is attached to or detached from a move.
 Ordinary manual costs and incoming move-total overrides retain their native
 Monetary semantics.
 
-The anchor supplies the product, company and exact date. The checkpoint applies
+Creation derives the product, company and exact date from the anchor. Edits and
+detachment retain the stored company; cross-company reassignment requires an
+explicit matching `company_id`. The checkpoint applies
 after that move and before a greater-ID move at the same timestamp. It is separate
 from `move_id`, which overrides an incoming move's total value. Native current valued quantities, with batched backout of moves after each
 position, retain company, owner and lot filtering; `lot_id` selects a lot-specific
