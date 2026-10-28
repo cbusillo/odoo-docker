@@ -79,9 +79,21 @@ def policy_aliases(policies: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def retained_policies(environment: Any, policies: dict[str, Any]) -> dict[str, Any]:
+def require_neutral_policy(alias: str, row: dict[str, Any]) -> None:
     from odoo import fields
 
+    domain = (
+        fields.Domain(ast.literal_eval(row["domain"]))
+        if row["domain"]
+        else fields.Domain.TRUE
+    )
+    if (row["group_id"] and not domain.is_false()) or (
+        not row["group_id"] and not domain.is_true()
+    ):
+        raise RuntimeError(f"Retained native policy is not neutral: {alias}")
+
+
+def retained_policies(environment: Any, policies: dict[str, Any]) -> dict[str, Any]:
     source = source_policies()
     aliases = policy_aliases(policies)
     group_ids = {
@@ -99,15 +111,7 @@ def retained_policies(environment: Any, policies: dict[str, Any]) -> dict[str, A
             original["group"], False
         ):
             raise RuntimeError(f"Retained native model/group changed: {alias}")
-        domain = (
-            fields.Domain(ast.literal_eval(row["domain"]))
-            if row["domain"]
-            else fields.Domain.TRUE
-        )
-        if (row["group_id"] and not domain.is_false()) or (
-            not row["group_id"] and not domain.is_true()
-        ):
-            raise RuntimeError(f"Retained native policy is not neutral: {alias}")
+        require_neutral_policy(alias, row)
         result[alias] = {"id": identifier, **row}
     if not result or len({row["id"] for row in result.values()}) != len(result):
         raise RuntimeError(
@@ -157,6 +161,10 @@ def capture_controls(environment: Any, parameters: Any) -> None:
     validate_prior_policies(
         saved.get("before"), current, retained, saved["compare_baseline"]
     )
+    prior_aliases = policy_aliases(saved["before"])
+    for alias in retained:
+        if alias in prior_aliases:
+            require_neutral_policy(alias, saved["before"][prior_aliases[alias]])
     if any(row["name"] != source[alias]["name"] for alias, row in retained.items()):
         raise RuntimeError(
             "The first native source update changed a retained source name"
