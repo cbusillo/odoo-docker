@@ -125,19 +125,19 @@ def main(environment: Any) -> None:
         raise RuntimeError("The unpatched native selection accepted the candidate empty operation")
     parameters = environment["ir.config_parameter"]
     if phase == "capture":
-        if parameters.get_param(SNAPSHOT_KEY):
+        if parameters.get_str(SNAPSHOT_KEY):
             raise RuntimeError("Native empty-operation snapshot already exists")
         initial = base_snapshot(environment)
         first = environment["ir.access"].browse(next(iter(initial.values()))["id"])
         first.active = False
         snapshot = base_snapshot(environment)
-        parameters.set_param(SNAPSHOT_KEY, json.dumps(snapshot, sort_keys=True))
+        parameters.set_str(SNAPSHOT_KEY, json.dumps(snapshot, sort_keys=True))
         environment.cr.commit()
         print(json.dumps({"phase": phase, "native_base_records": len(snapshot), "inactive_control": True}, sort_keys=True))
         return
     if phase != "verify":
         raise RuntimeError(f"Unsupported native empty-operation phase: {phase}")
-    expected = json.loads(parameters.get_param(SNAPSHOT_KEY) or "{}")
+    expected = json.loads(parameters.get_str(SNAPSHOT_KEY) or "{}")
     actual = json.loads(json.dumps(base_snapshot(environment)))
     if not expected or actual != expected:
         raise RuntimeError("Native base update changed retained empty-operation records or aliases")
