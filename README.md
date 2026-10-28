@@ -634,7 +634,8 @@ actually stored `value`, including zero, while preserving native audit fields.
 It does not infer precision from an old NULL or stale cost field, or recover
 digits already discarded. An image
 replacement alone does not perform that migration or create the position field.
-Fresh foundations install normally. Tenant owners keep their existing update, backup,
+To roll back across this update, restore the pre-update database backup together
+with the prior image. Fresh foundations install normally. Tenant owners keep their existing update, backup,
 release and acceptance gates; this source PR performs no lane update.
 
 `bash scripts/smoke-valuation.sh <runtime-image>` waits for PostgreSQL TCP readiness,

@@ -558,4 +558,4 @@
 +        return
 +    if not sql.column_exists(cr, "product_value", "after_move_cost"):
 +        sql.create_column(cr, "product_value", "after_move_cost", "numeric")
-+    cr.execute("UPDATE product_value SET after_move_cost = value WHERE after_move_id IS NOT NULL")
++        cr.execute("UPDATE product_value SET after_move_cost = value WHERE after_move_id IS NOT NULL")

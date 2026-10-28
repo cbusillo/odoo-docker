@@ -1,13 +1,9 @@
-import logging
 from datetime import datetime, timedelta
 
 from freezegun import freeze_time
 from odoo import Command
 from odoo.addons.stock_account.tests.common import TestStockValuationCommon
 from odoo.exceptions import ValidationError
-from odoo.tools import SQL
-
-_logger = logging.getLogger(__name__)
 
 
 class TestValuationCheckpoint(TestStockValuationCommon):
@@ -57,24 +53,7 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         remaining_quantity = sum(quantity for quantity, _cost in receipts[:-1])
         anchor = self._shipment(at + timedelta(seconds=3))
         unit_cost = source_value / remaining_quantity
-        checkpoint = self._checkpoint(anchor, unit_cost)
-        scalars = {name: field for name, field in checkpoint._fields.items() if field.store and field.type in {"float", "monetary"}}
-        cached = {name: checkpoint[name] for name in scalars}
-        self.env.flush_all()
-        self.cr.execute(
-            SQL(
-                "SELECT %s FROM %s WHERE id = %s",
-                SQL(", ").join(SQL.identifier(name) for name in scalars),
-                SQL.identifier(checkpoint._table),
-                checkpoint.id,
-            )
-        )
-        _logger.info(
-            "Checkpoint scalar proof: cache=%s columns=%s stored=%s",
-            cached,
-            {name: (field.type, field.column_type) for name, field in scalars.items()},
-            dict(zip(scalars, map(str, self.cr.fetchone()), strict=True)),
-        )
+        self._checkpoint(anchor, unit_cost)
         for correction in range(3):
             if correction:
                 self.assertFalse(self.product_avco._correct_inventory_valuation(datetime.min))
