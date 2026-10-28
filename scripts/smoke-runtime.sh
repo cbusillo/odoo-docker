@@ -3,7 +3,7 @@ set -euo pipefail
 
 image_reference="${1:?Usage: scripts/smoke-runtime.sh <image-reference>}"
 
-docker run --rm --env EXPECTED_ODOO_SERIES="${2:-}" --entrypoint /bin/bash "${image_reference}" -lc '
+docker run --rm --network none --env EXPECTED_ODOO_SERIES="${2:-}" --entrypoint /bin/bash "${image_reference}" -lc '
 set -euo pipefail
 test -x /odoo/odoo-bin
 test -x /usr/local/bin/uv

@@ -588,7 +588,16 @@ For average-cost products, a manual `product.value` can set `after_move_id` and 
 env["product.value"].create({"after_move_id": completed_move.id, "value": unit_cost})
 ```
 
-The anchor supplies the product, company and exact date. The checkpoint applies
+For positioned costs, `value` is the full unit-cost input and remains a
+company-currency Monetary projection after storage. A dedicated Float retains
+the unrounded positioned cost. Native `old_cost` and `new_cost` remain audit
+facts, including when an ordinary row is attached to or detached from a move.
+Ordinary manual costs and incoming move-total overrides retain their native
+Monetary semantics.
+
+Creation derives the product, company and exact date from the anchor. Edits and
+detachment retain the stored company; cross-company reassignment requires an
+explicit matching `company_id`. The checkpoint applies
 after that move and before a greater-ID move at the same timestamp. It is separate
 from `move_id`, which overrides an incoming move's total value. Native current valued quantities, with batched backout of moves after each
 position, retain company, owner and lot filtering; `lot_id` selects a lot-specific
@@ -617,21 +626,33 @@ time. Native move-line dates retain their existing separate behavior. Historical
 replay follows the existing native accounting path; this is not a new closing
 or authorization policy.
 This interface does not qualify nonmonotonic source chronology or timezone folds.
+The native AVCO audit report retains its existing calendar-date ordering.
 
 The patch bumps the native `stock_account` manifest version. Existing 20 databases
 must run the normal gated `stock_account` module update when adopting this runtime;
 include it in the tenant's resolved update list before starting the candidate.
-An image replacement alone does not create the new field. Fresh foundations
-install the schema normally. Tenant owners keep their existing update, backup,
+The update initializes the positioned-cost field from each existing anchor's
+actually stored `value`, including zero, while preserving native audit fields.
+It does not infer precision from an old NULL or stale cost field, or recover
+digits already discarded. An image
+replacement alone does not perform that migration or create the position field.
+To roll back across this update, restore the pre-update database backup together
+with the prior image. Fresh foundations install normally. Tenant owners keep their existing update, backup,
 release and acceptance gates; this source PR performs no lane update.
 
 `bash scripts/smoke-valuation.sh <runtime-image>` waits for PostgreSQL TCP readiness,
 creates a synthetic database
 with the patch reversed, then upgrades `stock_account` on the patched image and
-proves existing unanchored costs/dates survive. It installs a disposable test
+proves existing unanchored costs/dates and legacy positioned values survive.
+Fixtures and the patch are copied into each container without host bind mounts;
+actual source hashes and resource mounts are recorded before native work.
+It installs a disposable test
 addon on a private internal network, runs all native accounting tests, affected stock classes
 and checkpoint tests, and removes its containers/network. Failed runs include a
 bounded PostgreSQL log tail before cleanup. Odoo 19 skips this
 20-specific extension. Supply an optional second argument of native test tags for
 a focused local run, for example `/valuation_checkpoint_tests`. CI runs the full
 script for each runtime image. The fixtures use synthetic stock and no host ports.
+An optional third argument selects an immutable prior Community 20 runtime for
+the setup phase, exercising upgrade from its existing positioned schema. Without
+that argument, setup reverses the patch to retain first-adoption coverage.

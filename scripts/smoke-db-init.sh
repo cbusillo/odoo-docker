@@ -33,7 +33,7 @@ assert_password_absent_from_processes() {
 	printf '%s\n' "${listing}"
 }
 
-docker network create "${network_name}" >/dev/null
+docker network create --internal "${network_name}" >/dev/null
 
 docker run -d \
 	--name "${postgres_container}" \
@@ -42,6 +42,7 @@ docker run -d \
 	-e POSTGRES_USER="${db_user}" \
 	-e POSTGRES_PASSWORD="${db_password}" \
 	ghcr.io/baosystems/postgis:17-3.5 >/dev/null
+docker inspect --format 'Database-init smoke: {{.Id}} image: {{.Image}} mounts: {{json .Mounts}}' "${postgres_container}"
 
 ready=false
 for _ in {1..60}; do
@@ -160,7 +161,7 @@ docker run -d \
 	-e ODOO_ADMIN_PASSWORD="safe-admin" \
 	-e LAUNCHPLANE_RUNTIME_IDENTITY_JSON="${runtime_identity_json}" \
 	"${image_reference}" \
-	odoo-bin --http-interface=0.0.0.0 --log-level=warn >/dev/null
+	odoo-bin --http-interface=0.0.0.0 --max-cron-threads=0 --log-level=warn >/dev/null
 
 health_ready=false
 for _ in {1..90}; do

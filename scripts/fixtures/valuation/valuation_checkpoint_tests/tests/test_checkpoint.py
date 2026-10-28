@@ -43,6 +43,32 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         self.assertAlmostEqual(product.qty_available, quantity)
         self.assertAlmostEqual(product.total_value, value)
 
+    def test_fractional_checkpoint_preserves_current_dated_and_corrected_value(self) -> None:
+        at = datetime(2024, 1, 2, 12)
+        receipts = ((4, 10), (2, 20), (1, 30))
+        for index, (quantity, cost) in enumerate(receipts):
+            with freeze_time(at + timedelta(seconds=index)):
+                self._make_in_move(self.product_avco, quantity, unit_cost=cost)
+        source_value = sum(quantity * cost for quantity, cost in receipts[:-1])
+        remaining_quantity = sum(quantity for quantity, _cost in receipts[:-1])
+        anchor = self._shipment(at + timedelta(seconds=3))
+        unit_cost = source_value / remaining_quantity
+        self._checkpoint(anchor, unit_cost)
+        for correction in range(3):
+            if correction:
+                self.assertFalse(self.product_avco._correct_inventory_valuation(datetime.min))
+            self.env.invalidate_all()
+            self.assertAlmostEqual(self.product_avco._with_valuation_context().qty_available, remaining_quantity)
+            self.assertAlmostEqual(self.product_avco.total_value, source_value, delta=self.env.company.currency_id.rounding)
+            self.assertAlmostEqual(
+                self.product_avco.with_context(to_date=anchor.date).total_value,
+                source_value,
+                delta=self.env.company.currency_id.rounding,
+            )
+        shipment = self._shipment(at + timedelta(seconds=4))
+        self.assertEqual(shipment.value, self.env.company.currency_id.round(-unit_cost))
+        self._assert_cold_value(shipment.date, remaining_quantity - 1, self.env.company.currency_id.round(source_value - unit_cost))
+
     def test_checkpoint_between_tied_outgoing_moves_survives_revaluation(self) -> None:
         at = self._opening_stock()
         cancellation = self._shipment(at)
@@ -59,6 +85,150 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         self.assertEqual(shipment.date, cancellation.date)
         self.assertEqual(shipment.move_line_ids.date, shipment.date)
         self._assert_cold_value(at + timedelta(seconds=1), 2, 50)
+
+    def test_fractional_cost_edits_keep_native_ordinary_adjustments_and_positions(self) -> None:
+        at = datetime(2024, 1, 2, 12)
+        with freeze_time(at):
+            anchor = self._make_in_move(self.product_avco, 6, unit_cost=10)
+        checkpoint = self._checkpoint(anchor, 80 / 6)
+        ordinary = self.env["product.value"].create(
+            {
+                "product_id": self.product_avco.copy().id,
+                "company_id": self.env.company.id,
+                "value": 20,
+                "quantity": 2,
+                "old_cost": 10,
+                "new_cost": 17,
+            }
+        )
+        adjustment = ordinary.adjustment
+        (checkpoint | ordinary).write({"value": 70 / 6})
+        self.assertEqual(ordinary.adjustment, adjustment)
+        self._assert_cold_value(at, 6, 70)
+        checkpoint.new_cost = 80 / 6
+        self._assert_cold_value(at, 6, 70)
+        defaulted = self.env["product.value"].with_context(default_value=80 / 6, default_after_move_id=anchor.id).create({})
+        self._assert_cold_value(at, 6, 80)
+        defaulted.unlink()
+        self._assert_cold_value(at, 6, 70)
+        shipment = self._shipment(at + timedelta(seconds=1))
+        checkpoint.after_move_id = shipment
+        self._assert_cold_value(shipment.date, 5, self.env.company.currency_id.round(5 * 70 / 6))
+        self.assertEqual(shipment.value, -10)
+        checkpoint.value = 0
+        self._assert_cold_value(shipment.date, 5, 0)
+        checkpoint.value = -80 / 6
+        self._assert_cold_value(shipment.date, 5, self.env.company.currency_id.round(-5 * 80 / 6))
+        checkpoint.after_move_id = False
+        monetary_value = checkpoint.value
+        self._assert_cold_value(shipment.date, 5, self.env.company.currency_id.round(5 * monetary_value))
+        checkpoint.after_move_id = shipment
+        self._assert_cold_value(shipment.date, 5, self.env.company.currency_id.round(5 * monetary_value))
+        checkpoint.unlink()
+        self._assert_cold_value(shipment.date, 5, 50)
+
+    def test_attaching_and_detaching_preserves_native_cost_audit(self) -> None:
+        at = datetime(2024, 1, 2, 12)
+        with freeze_time(at):
+            anchor = self._make_in_move(self.product_avco, 6, unit_cost=10)
+        cost = 80 / 6
+        value = self.env["product.value"].create(
+            {
+                "product_id": self.product_avco.id,
+                "company_id": self.env.company.id,
+                "date": at,
+                "value": cost,
+                "quantity": 6,
+                "old_cost": 10,
+                "new_cost": cost,
+                "old_value": 60,
+                "new_value": 80,
+            }
+        )
+        audit_fields = ["company_id", "currency_id", "quantity", "old_cost", "new_cost", "old_value", "new_value", "adjustment"]
+        audit = value.read(audit_fields)
+        for position in (anchor.id, False):
+            value.after_move_id = position
+            self.env.invalidate_all()
+            self.assertEqual(value.read(audit_fields), audit)
+
+    def test_detaching_mixed_company_costs_preserves_their_companies(self) -> None:
+        at = datetime(2024, 1, 2, 12)
+        company = self.env["res.company"].sudo().create({"name": "Detached checkpoint company"})
+        self.env.user.sudo().write({"company_ids": [Command.link(company.id)]})
+        self.product_avco.categ_id.with_company(company).property_cost_method = "average"
+        with freeze_time(at):
+            first = self._make_in_move(self.product_avco, 6, unit_cost=10)
+            second = self._make_in_move(self.product_avco, 6, unit_cost=20, company=company)
+        checkpoints = (
+            self.env["product.value"]
+            .with_context(allowed_company_ids=(self.env.company | company).ids)
+            .create([{"after_move_id": move.id, "value": 80 / 6} for move in first | second])
+        )
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            checkpoints[0].after_move_id = second
+        checkpoints[0].write({"after_move_id": second.id, "company_id": company.id})
+        self.assertEqual(checkpoints[0].company_id, company)
+        checkpoints[0].write({"after_move_id": first.id, "company_id": first.company_id.id})
+        ordinary = self.env["product.value"].create(
+            {"product_id": self.product_avco.copy().id, "company_id": self.env.company.id, "value": 20}
+        )
+        costs = checkpoints | ordinary
+        facts = costs.read(["company_id", "currency_id", "value"])
+        costs.write({"after_move_id": False})
+        self.env.invalidate_all()
+        self.assertEqual(costs.read(["company_id", "currency_id", "value"]), facts)
+
+    def test_avco_audit_uses_the_fractional_positioned_unit_cost(self) -> None:
+        product = self.product_avco.copy()
+        at = datetime(2024, 1, 2, 12)
+        with freeze_time(at - timedelta(days=1)):
+            self._make_in_move(product, 6, unit_cost=10)
+        destination = self.env["stock.location"].create(
+            {"name": "Audit checkpoint location", "usage": "internal", "location_id": self.stock_location.id}
+        )
+        with freeze_time(at):
+            anchor = self.env["stock.move"].create(
+                {
+                    "product_id": product.id,
+                    "uom_id": product.uom_id.id,
+                    "product_uom_qty": 1,
+                    "location_id": self.stock_location.id,
+                    "location_dest_id": destination.id,
+                }
+            )
+            anchor._action_confirm()
+            anchor._action_assign()
+            anchor.quantity = 1
+            anchor.picked = True
+            anchor._action_done()
+        checkpoint = self.env["product.value"].create(
+            {"after_move_id": anchor.id, "value": 80 / 6, "description": "Fractional audit checkpoint"}
+        )
+        self.assertFalse(anchor.is_in or anchor.is_out)
+        report = self.env["stock.avco.report"].search(
+            [("product_id", "=", product.id), ("res_model_name", "=", "product.value"), ("description", "=", checkpoint.description)]
+        )
+        self.assertEqual(len(report), 1)
+        self.assertAlmostEqual(report.value, 80 / 6)
+        self.assertAlmostEqual(report.total_value, 80)
+
+    def test_fractional_signed_lot_checkpoint_keeps_current_and_dated_value(self) -> None:
+        at = datetime(2024, 1, 2, 12)
+        for sign in (1, -1):
+            with self.subTest(sign=sign), self.cr.savepoint():
+                product = self.product_avco.copy({"tracking": "lot", "lot_valuated": True})
+                lot = self.env["stock.lot"].create({"name": "Fractional checkpoint lot", "product_id": product.id})
+                with freeze_time(at):
+                    anchor = self._make_in_move(product, 6, unit_cost=10, lot_ids=lot)
+                unit_cost = sign * 80 / 6
+                self.env["product.value"].create({"after_move_id": anchor.id, "lot_id": lot.id, "value": unit_cost})
+                for _correction in range(2):
+                    self.env.invalidate_all()
+                    for target in (product, lot):
+                        self.assertAlmostEqual(target.total_value, sign * 80)
+                        self.assertAlmostEqual(target.with_context(to_date=at).total_value, sign * 80)
+                    self.assertFalse(product._correct_inventory_valuation(datetime.min))
 
     def test_incoming_tie_and_adjacent_microseconds(self) -> None:
         original_product = self.product_avco
