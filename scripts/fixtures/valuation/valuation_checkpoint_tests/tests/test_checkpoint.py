@@ -58,6 +58,7 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         anchor = self._shipment(at + timedelta(seconds=3))
         unit_cost = source_value / remaining_quantity
         checkpoint = self._checkpoint(anchor, unit_cost)
+        cached_value, cached_new_cost = checkpoint.value, checkpoint.new_cost
         value_field = checkpoint._fields["value"]
         self.env.flush_all()
         self.cr.execute("SELECT value::text, new_cost::text FROM product_value WHERE id = %s", [checkpoint.id])
@@ -93,10 +94,13 @@ class TestValuationCheckpoint(TestStockValuationCommon):
             json.dumps(
                 {
                     "raw": unit_cost,
+                    "source_value": source_value,
+                    "remaining_quantity": remaining_quantity,
+                    "rounding": self.env.company.currency_id.rounding,
                     "cache_conversion": value_field.convert_to_cache(unit_cost, checkpoint),
                     "column_conversion": value_field.convert_to_column_insert(unit_cost, checkpoint),
-                    "cached_value": checkpoint.value,
-                    "cached_new_cost": checkpoint.new_cost,
+                    "cached_value": cached_value,
+                    "cached_new_cost": cached_new_cost,
                     "stored": stored,
                     "fields": fields,
                     "snapshots": snapshots,
