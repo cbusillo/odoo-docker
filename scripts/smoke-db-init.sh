@@ -33,7 +33,7 @@ assert_password_absent_from_processes() {
 	printf '%s\n' "${listing}"
 }
 
-docker network create "${network_name}" >/dev/null
+docker network create --internal "${network_name}" >/dev/null
 
 docker run -d \
 	--name "${postgres_container}" \
