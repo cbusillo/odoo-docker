@@ -511,6 +511,9 @@ Use `--target runtime-devtools` and a separate local tag for its browser layer.
   Website database on a private internal Docker network, exercises Chromium and
   real page/asset preparation, and proves readiness failures. All database keys
   and runtime identities in this fixture are inert, and no ports are published.
+  Inputs cross through `docker cp`; fixture files, browser dependencies and
+  filestore stay in disposable Docker volumes, avoiding retained host handles
+  on Docker Desktop. Cleanup removes only this invocation's resources.
 - `scripts/test-downstream-helpers.sh <image-reference>` checks downstream
   Python sync and external addon fetch behavior, including legacy compatibility,
   strict partial and layered locks, stale and incomplete lock failures, owned
