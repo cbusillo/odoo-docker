@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 SNAPSHOT_KEY = "native_zero_access_replay"
-SOURCE_FILE = Path(__file__).with_name("zero_access_19.csv")
+SOURCE_FILE = Path(os.environ["NATIVE_ACCESS_SOURCE"])
 
 
 def source_policies() -> dict[str, dict[str, str]]:

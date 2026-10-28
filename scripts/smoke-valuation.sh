@@ -53,6 +53,7 @@ odoo_run=(docker create --name "${name}-tests" --network "$name"
   -e VALUATION_TEST_TAGS="$test_tags"
   -e VALUATION_REVERSE_PATCH="$reverse_patch"
   -e NATIVE_ACCESS_SAFETY="$access_safety"
+  -e NATIVE_ACCESS_SOURCE=/opt/access-tests/zero_access_19.csv
   -e ODOO_DB_HOST="${name}-db" -e ODOO_DB_USER=odoo
   -e PGHOST="${name}-db" -e PGUSER=odoo -e PGPORT=5432
   -e ODOO_DB_PASSWORD=synthetic-valuation
