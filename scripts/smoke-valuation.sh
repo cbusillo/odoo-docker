@@ -10,34 +10,58 @@ if [[ "$major" != 20 ]]; then
   exit 0
 fi
 name="odoo-valuation-${RANDOM}-$$"
+tests_id=""
+db_id=""
+network_id=""
 cleanup() {
   local smoke_status=$?
   if (( smoke_status != 0 )); then
-    docker logs --tail 80 "${name}-db" >&2 || true
+    if [[ -n "$db_id" ]]; then docker logs --tail 80 "$db_id" >&2 || true; fi
   fi
-  docker rm -fv "${name}-tests" "${name}-db" >/dev/null 2>&1 || true
-  docker network rm "$name" >/dev/null 2>&1 || true
+  if [[ -n "$tests_id" ]]; then docker rm -fv "$tests_id" >/dev/null 2>&1 || true; fi
+  if [[ -n "$db_id" ]]; then docker rm -fv "$db_id" >/dev/null 2>&1 || true; fi
+  if [[ -n "$network_id" ]]; then docker network rm "$network_id" >/dev/null 2>&1 || true; fi
   return "$smoke_status"
 }
 trap cleanup EXIT
-docker network create --internal "$name" >/dev/null
-docker run -d --name "${name}-db" --network "$name" \
+network_id="$(docker network create --internal "$name")"
+echo "Valuation network: $network_id"
+db_id="$(docker create --name "${name}-db" --network "$name" \
   -e POSTGRES_USER=odoo -e POSTGRES_PASSWORD=synthetic-valuation \
-  ghcr.io/baosystems/postgis:17-3.5 >/dev/null
+  ghcr.io/baosystems/postgis:17-3.5)"
+docker inspect --format 'Valuation database: {{.Id}} mounts: {{json .Mounts}}' "$db_id"
+docker start "$db_id" >/dev/null
 for _ in {1..60}; do
   if docker exec "${name}-db" pg_isready -h 127.0.0.1 -U odoo >/dev/null 2>&1; then break; fi
   sleep 1
 done
 docker exec "${name}-db" pg_isready -h 127.0.0.1 -U odoo >/dev/null
-odoo_run=(docker run --rm --name "${name}-tests" --network "$name"
-  -v "$fixture:/opt/valuation-tests:ro" -v "$patch_file:/opt/native-valuation.patch:ro"
+odoo_run=(docker create --name "${name}-tests" --network "$name"
   -e VALUATION_TEST_TAGS="$test_tags"
   -e ODOO_DB_HOST="${name}-db" -e ODOO_DB_USER=odoo
   -e PGHOST="${name}-db" -e PGUSER=odoo -e PGPORT=5432
   -e ODOO_DB_PASSWORD=synthetic-valuation
-  -e ODOO_ADDONS_PATH=/opt/valuation-tests,/opt/launchplane/addons,/odoo/addons,/odoo/odoo/addons
+  -e 'ODOO_ADDONS_PATH=/opt/valuation-tests,/opt/launchplane/addons,/odoo/addons,/odoo/odoo/addons'
   --entrypoint /bin/bash "$image" -lc)
-"${odoo_run[@]}" '
+run_fixture() {
+  local source_proof='
+    set -euo pipefail
+    sha256sum /opt/native-valuation.patch /odoo/odoo/orm/fields_numeric.py \
+      /odoo/addons/stock_account/models/product.py /odoo/addons/stock_account/models/product_value.py \
+      /odoo/addons/stock_account/models/stock_move.py /odoo/addons/stock_account/__manifest__.py \
+      /odoo/addons/stock/models/product.py /odoo/addons/stock/models/stock_lot.py
+    find /opt/valuation-tests -type f -name "*.py" -exec sha256sum {} +
+    find /odoo/addons/stock_account -path "*/migrations/*" -type f -name "*.py" -exec sha256sum {} +
+  '
+  tests_id="$("${odoo_run[@]}" "$source_proof"$'\n'"$1")"
+  docker cp "$fixture" "$tests_id:/opt/valuation-tests"
+  docker cp "$patch_file" "$tests_id:/opt/native-valuation.patch"
+  docker inspect --format 'Valuation test: {{.Id}} image: {{.Image}} mounts: {{json .Mounts}}' "$tests_id"
+  docker start --attach "$tests_id"
+  docker rm -fv "$tests_id" >/dev/null
+  tests_id=""
+}
+run_fixture '
   set -euo pipefail
   git -C /odoo apply --reverse /opt/native-valuation.patch
   odoo-bin -d valuation_test --init stock_account --without-demo --stop-after-init \
@@ -45,7 +69,8 @@ odoo_run=(docker run --rm --name "${name}-tests" --network "$name"
   VALUATION_UPGRADE_PHASE=setup odoo-bin shell -d valuation_test --no-http \
     --max-cron-threads=0 --log-level=warn < /opt/valuation-tests/upgrade.py
 '
-"${odoo_run[@]}" '
+# shellcheck disable=SC2016
+run_fixture '
   set -euo pipefail
   odoo-bin -d valuation_test --update stock,stock_account --init valuation_checkpoint_tests --without-demo \
     --test-tags "$VALUATION_TEST_TAGS" --stop-after-init --max-cron-threads=0 \

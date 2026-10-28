@@ -1,13 +1,9 @@
-import json
-import logging
 from datetime import datetime, timedelta
 
 from freezegun import freeze_time
 from odoo import Command
 from odoo.addons.stock_account.tests.common import TestStockValuationCommon
 from odoo.exceptions import ValidationError
-
-_logger = logging.getLogger(__name__)
 
 
 class TestValuationCheckpoint(TestStockValuationCommon):
@@ -57,60 +53,21 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         remaining_quantity = sum(quantity for quantity, _cost in receipts[:-1])
         anchor = self._shipment(at + timedelta(seconds=3))
         unit_cost = source_value / remaining_quantity
-        checkpoint = self._checkpoint(anchor, unit_cost)
-        cached_value, cached_new_cost = checkpoint.value, checkpoint.new_cost
-        value_field = checkpoint._fields["value"]
-        self.env.flush_all()
-        self.cr.execute("SELECT value::text, new_cost::text FROM product_value WHERE id = %s", [checkpoint.id])
-        stored = self.cr.fetchone()
-        fields = {
-            name: {
-                "type": field.type,
-                "column_type": field.column_type,
-                "digits": field.get_digits(self.env) if hasattr(field, "get_digits") else None,
-            }
-            for name, field in {
-                "value": value_field,
-                "new_cost": checkpoint._fields["new_cost"],
-                "standard_price": self.product_avco._fields["standard_price"],
-            }.items()
-        }
-        snapshots = []
-        for phase in ("created", "corrected", "recorrected"):
-            if phase != "created":
+        self._checkpoint(anchor, unit_cost)
+        for correction in range(3):
+            if correction:
                 self.assertFalse(self.product_avco._correct_inventory_valuation(datetime.min))
             self.env.invalidate_all()
-            snapshots.append(
-                {
-                    "phase": phase,
-                    "current": self.product_avco.total_value,
-                    "dated": self.product_avco.with_context(to_date=anchor.date).total_value,
-                    "quantity": self.product_avco._with_valuation_context().qty_available,
-                    "cost": self.product_avco.standard_price,
-                }
+            self.assertAlmostEqual(self.product_avco._with_valuation_context().qty_available, remaining_quantity)
+            self.assertAlmostEqual(self.product_avco.total_value, source_value, delta=self.env.company.currency_id.rounding)
+            self.assertAlmostEqual(
+                self.product_avco.with_context(to_date=anchor.date).total_value,
+                source_value,
+                delta=self.env.company.currency_id.rounding,
             )
-        _logger.info(
-            "Fractional checkpoint evidence: %s",
-            json.dumps(
-                {
-                    "raw": unit_cost,
-                    "source_value": source_value,
-                    "remaining_quantity": remaining_quantity,
-                    "rounding": self.env.company.currency_id.rounding,
-                    "cache_conversion": value_field.convert_to_cache(unit_cost, checkpoint),
-                    "column_conversion": value_field.convert_to_column_insert(unit_cost, checkpoint),
-                    "cached_value": cached_value,
-                    "cached_new_cost": cached_new_cost,
-                    "stored": stored,
-                    "fields": fields,
-                    "snapshots": snapshots,
-                }
-            ),
-        )
-        for snapshot in snapshots:
-            self.assertAlmostEqual(snapshot["quantity"], remaining_quantity)
-            self.assertAlmostEqual(snapshot["current"], source_value, delta=self.env.company.currency_id.rounding)
-            self.assertAlmostEqual(snapshot["dated"], source_value, delta=self.env.company.currency_id.rounding)
+        shipment = self._shipment(at + timedelta(seconds=4))
+        self.assertEqual(shipment.value, self.env.company.currency_id.round(-unit_cost))
+        self._assert_cold_value(shipment.date, remaining_quantity - 1, self.env.company.currency_id.round(source_value - unit_cost))
 
     def test_checkpoint_between_tied_outgoing_moves_survives_revaluation(self) -> None:
         at = self._opening_stock()
@@ -128,6 +85,65 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         self.assertEqual(shipment.date, cancellation.date)
         self.assertEqual(shipment.move_line_ids.date, shipment.date)
         self._assert_cold_value(at + timedelta(seconds=1), 2, 50)
+
+    def test_fractional_cost_edits_keep_native_ordinary_adjustments_and_positions(self) -> None:
+        at = datetime(2024, 1, 2, 12)
+        with freeze_time(at):
+            anchor = self._make_in_move(self.product_avco, 6, unit_cost=10)
+        checkpoint = self._checkpoint(anchor, 80 / 6)
+        ordinary = self.env["product.value"].create(
+            {
+                "product_id": self.product_avco.copy().id,
+                "company_id": self.env.company.id,
+                "value": 20,
+                "quantity": 2,
+                "old_cost": 10,
+                "new_cost": 17,
+            }
+        )
+        adjustment = ordinary.adjustment
+        (checkpoint | ordinary).write({"value": 70 / 6})
+        self.assertEqual(ordinary.adjustment, adjustment)
+        self._assert_cold_value(at, 6, 70)
+        checkpoint.new_cost = 80 / 6
+        self._assert_cold_value(at, 6, 80)
+        checkpoint.value = 70 / 6
+        defaulted = self.env["product.value"].with_context(default_value=80 / 6).create({"after_move_id": anchor.id})
+        self._assert_cold_value(at, 6, 80)
+        defaulted.unlink()
+        self._assert_cold_value(at, 6, 70)
+        shipment = self._shipment(at + timedelta(seconds=1))
+        checkpoint.after_move_id = shipment
+        self._assert_cold_value(shipment.date, 5, self.env.company.currency_id.round(5 * 70 / 6))
+        self.assertEqual(shipment.value, -10)
+        checkpoint.value = 0
+        self._assert_cold_value(shipment.date, 5, 0)
+        checkpoint.value = -80 / 6
+        self._assert_cold_value(shipment.date, 5, self.env.company.currency_id.round(-5 * 80 / 6))
+        checkpoint.after_move_id = False
+        monetary_value = checkpoint.value
+        self._assert_cold_value(shipment.date, 5, self.env.company.currency_id.round(5 * monetary_value))
+        checkpoint.after_move_id = shipment
+        self._assert_cold_value(shipment.date, 5, self.env.company.currency_id.round(5 * monetary_value))
+        checkpoint.unlink()
+        self._assert_cold_value(shipment.date, 5, 50)
+
+    def test_fractional_signed_lot_checkpoint_keeps_current_and_dated_value(self) -> None:
+        at = datetime(2024, 1, 2, 12)
+        for sign in (1, -1):
+            with self.subTest(sign=sign), self.cr.savepoint():
+                product = self.product_avco.copy({"tracking": "lot", "lot_valuated": True})
+                lot = self.env["stock.lot"].create({"name": "Fractional checkpoint lot", "product_id": product.id})
+                with freeze_time(at):
+                    anchor = self._make_in_move(product, 6, unit_cost=10, lot_ids=lot)
+                unit_cost = sign * 80 / 6
+                self.env["product.value"].create({"after_move_id": anchor.id, "lot_id": lot.id, "value": unit_cost})
+                for _correction in range(2):
+                    self.env.invalidate_all()
+                    for target in (product, lot):
+                        self.assertAlmostEqual(target.total_value, sign * 80)
+                        self.assertAlmostEqual(target.with_context(to_date=at).total_value, sign * 80)
+                    self.assertFalse(product._correct_inventory_valuation(datetime.min))
 
     def test_incoming_tie_and_adjacent_microseconds(self) -> None:
         original_product = self.product_avco

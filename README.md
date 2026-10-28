@@ -588,6 +588,11 @@ For average-cost products, a manual `product.value` can set `after_move_id` and 
 env["product.value"].create({"after_move_id": completed_move.id, "value": unit_cost})
 ```
 
+For positioned costs, the existing native `new_cost` Float retains the full unit
+cost; `value` remains its company-currency Monetary projection. Cost edits keep
+those fields coherent. Ordinary manual costs and incoming move-total overrides
+retain their native Monetary semantics.
+
 The anchor supplies the product, company and exact date. The checkpoint applies
 after that move and before a greater-ID move at the same timestamp. It is separate
 from `move_id`, which overrides an incoming move's total value. Native current valued quantities, with batched backout of moves after each
@@ -621,14 +626,20 @@ This interface does not qualify nonmonotonic source chronology or timezone folds
 The patch bumps the native `stock_account` manifest version. Existing 20 databases
 must run the normal gated `stock_account` module update when adopting this runtime;
 include it in the tenant's resolved update list before starting the candidate.
-An image replacement alone does not create the new field. Fresh foundations
-install the schema normally. Tenant owners keep their existing update, backup,
+The update also initializes existing positioned `new_cost` values from their
+actually stored `value`, including zero. It does not infer precision from an
+old NULL or stale cost field, or recover digits already discarded. An image
+replacement alone does not perform that migration or create the position field.
+Fresh foundations install normally. Tenant owners keep their existing update, backup,
 release and acceptance gates; this source PR performs no lane update.
 
 `bash scripts/smoke-valuation.sh <runtime-image>` waits for PostgreSQL TCP readiness,
 creates a synthetic database
 with the patch reversed, then upgrades `stock_account` on the patched image and
-proves existing unanchored costs/dates survive. It installs a disposable test
+proves existing unanchored costs/dates and legacy positioned values survive.
+Fixtures and the patch are copied into each container without host bind mounts;
+actual source hashes and resource mounts are recorded before native work.
+It installs a disposable test
 addon on a private internal network, runs all native accounting tests, affected stock classes
 and checkpoint tests, and removes its containers/network. Failed runs include a
 bounded PostgreSQL log tail before cleanup. Odoo 19 skips this
