@@ -598,8 +598,8 @@ introduce unrelated upstream policy changes; retained policy identities, create
 audit, active state and references must still survive. Replay on the candidate
 always compares the complete policy state. The normal image gates still apply.
 
-The CSV fixture is an immutable projection of the captured native 19 inventory,
-not a mirror to edit alongside the port. Its source is image
+The CSV fixture combines captured native 19 definitions with their explicit
+20 owner modules; it is not a mirror to edit alongside the port. Its source is image
 `sha256:723eee28cf5e3dc5e4aec827002acb2d5413556569776c3874eafb43e9ca7b70`;
 the independent captured definition inventory has SHA-256
 `df379e5b40f4eddfff62879fc84feeae8350277c8321f634c1f8d2baf90bbc99`.
