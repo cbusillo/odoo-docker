@@ -573,6 +573,43 @@ Run-number ordering belongs to this workflow identity. Keep `build.yml` in place
 when reorganizing jobs; recreating it requires an ordering migration before
 publication. Superseded families are visible as Actions notices.
 
+## Native Community 20 empty access operations
+
+The Community 20 source build applies
+[`20.0-empty-access.patch`](patches/20.0-empty-access.patch) to the native
+`ir.access` field and its base-owned data. `NO_OPERATION`, exported by
+`odoo.addons.base.models.ir_access`, represents an empty operation set. All four
+`for_*` fields are false, and the record neither grants access nor restricts it.
+An explicit value is required; missing-operation creation keeps its existing
+validation. Existing CRUD values keep their native inverse behavior, including
+the read fallback. An existing empty record's checkbox round trip stays empty.
+
+The base data retains the ten zero-operation definitions captured from native
+19 stock data, with the same aliases, names, models and groups. These are normal
+native records and owner data, not orphan tables or a legacy evaluator. Fresh
+20 installations create them normally. Existing mapped records retain their
+identities through the normal base update. An empty groupless record still has
+native 20's restriction kind; editing its operations follows native 20 semantics,
+not the former groupless ACL editing behavior.
+
+Existing 20 databases must include `base` in their normal gated module update
+before using this data contract. No version reset or direct selection-metadata
+write is needed. Rollback restores the pre-update database backup together with
+the prior image. This does not migrate legacy policy tables, repoint references,
+qualify other source policies or authorize a lane update. Odoo 19 is unchanged;
+other editions need their own qualification before adoption.
+
+The existing `scripts/smoke-valuation.sh` also runs the complete native ACL,
+access, feedback, related-monetary, check-access and rule modules by default.
+Its existing focused tag argument still selects a smaller run. The native empty
+operation cases use ordinary internal, portal, public and ungranted users;
+administrators only prepare synthetic data. A real base update and replay
+preserve record and alias identities, an inactive record and a protected alias.
+The focused replay uses Odoo's own suite factory and result object, requiring
+every discovered method, no failures, errors or skips. Log starts and row counts
+alone do not qualify it. The fixture stays in the existing VM-only smoke flow,
+with no host binds or published ports.
+
 ## Native Community 20 valuation checkpoints
 
 The Community 20 source build applies

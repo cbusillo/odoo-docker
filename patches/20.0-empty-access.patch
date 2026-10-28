@@ -1,0 +1,281 @@
+diff --git a/odoo/addons/base/models/ir_access.py b/odoo/addons/base/models/ir_access.py
+--- a/odoo/addons/base/models/ir_access.py
++++ b/odoo/addons/base/models/ir_access.py
+@@ -31,6 +31,9 @@
+     'd': 'Delete',
+ }
+ 
++NO_OPERATION = '0'
++
++
+ IN_SELECTION = {
+     'read': frozenset(key for key in CRUD_SELECTION if 'r' in key),
+     'write': frozenset(key for key in CRUD_SELECTION if 'u' in key),
+@@ -73,8 +76,8 @@
+     model_id = fields.Many2one('ir.model', string="Model", required=True, ondelete='cascade', index=True)
+     group_id = fields.Many2one('res.groups', string="Group", ondelete='cascade', index=True)
+     operation = fields.Selection(
+-        list(CRUD_SELECTION.items()), required=True,
+-        help="Which operation(s) this access applies to, a subset of 'crud'.",
++        list(CRUD_SELECTION.items()) + [(NO_OPERATION, 'No operations')], required=True,
++        help="Which operation(s) this access applies to, a subset of 'crud', or no operations.",
+     )
+     domain = fields.Char(
+         help="The operations will only be allowed for records in this domain",
+@@ -169,12 +172,13 @@
+     @api.onchange('for_create', 'for_read', 'for_write', 'for_unlink')
+     def _inverse_for_operations(self):
+         for access in self:
++            keep_no_operation = access.operation == NO_OPERATION or access._origin.operation == NO_OPERATION
+             access.operation = ''.join((
+                 'c' if access.for_create else '',
+                 'r' if access.for_read else '',
+                 'u' if access.for_write else '',
+                 'd' if access.for_unlink else '',
+-            )) or 'r'
++            )) or (NO_OPERATION if keep_no_operation else 'r')
+ 
+     @api.constrains('model_id')
+     def _check_model_name(self):
+diff --git a/odoo/addons/base/security/ir.access.csv b/odoo/addons/base/security/ir.access.csv
+--- a/odoo/addons/base/security/ir.access.csv
++++ b/odoo/addons/base/security/ir.access.csv
+@@ -140,3 +140,13 @@
+ properties_base_definition_rule_admin,properties.base.definition: system all access,properties.base.definition,base.group_system,crud,
+ access_website_public_public,website.public,website,base.group_everyone,r,
+ access_website_system,website.public,website,base.group_system,crud,
++access_ir_attachment_group_portal_public,ir_attachment group_portal_public,ir.attachment,,0,
++access_ir_model_inherit,ir_model_inherit nobody,ir.model.inherit,,0,
++access_ir_model_user,ir_model_all,ir.model,base.group_user,0,
++access_ir_model_data_user,ir_model_data user,ir.model.data,base.group_user,0,
++access_ir_model_fields_user,ir_model_fields all,ir.model.fields,base.group_user,0,
++access_ir_model_fields_selection_user,ir_model_fields_selection all,ir.model.fields.selection,base.group_user,0,
++access_ir_ui_view_group_user,ir_ui_view group_user,ir.ui.view,,0,
++access_ir_default_all,ir_default all,ir.default,,0,
++access_res_users_deletion_all,res_users_deletion all,res.users.deletion,,0,
++access_res_users_settings_all,res.users.settings,res.users.settings,,0,
+diff --git a/odoo/addons/test_base/tests/test_orm/test_ir_rules.py b/odoo/addons/test_base/tests/test_orm/test_ir_rules.py
+--- a/odoo/addons/test_base/tests/test_orm/test_ir_rules.py
++++ b/odoo/addons/test_base/tests/test_orm/test_ir_rules.py
+@@ -1,6 +1,11 @@
+ import contextlib
++import csv
++from pathlib import Path
++
++from psycopg2 import IntegrityError
+ 
+ from odoo import Command
++from odoo.addons.base.models.ir_access import CRUD_SELECTION, IN_SELECTION, NO_OPERATION
+ from odoo.exceptions import AccessError, ValidationError
+ from odoo.tests.common import TransactionCase, tagged
+ from odoo.tools import mute_logger
+@@ -250,3 +255,193 @@
+         with contextlib.suppress(AccessError):
+             forbiddens[NB_RECORD - 1].val
+             self.fail('Previous line should raise AccessError')
++
++
++@tagged("post_install", "-at_install")
++class TestNoOperationAccess(TransactionCase):
++    def setUp(self) -> None:
++        super().setUp()
++        self.assertTrue(self.env.registry.ready)
++        self.model = self.env["test_access_right.some_obj"]
++        self.model_id = self.env["ir.model"]._get(self.model._name).id
++        self.env["ir.access"].with_context(active_test=False).search([("model_id", "=", self.model_id)]).unlink()
++        internal = self.env.ref("base.group_user")
++        self.writer_group = self.env["res.groups"].create(
++            {"name": "Zero operation writer", "implied_ids": [Command.link(internal.id)]}
++        )
++        groups = {
++            "reader": internal,
++            "writer": self.writer_group,
++            "portal": self.env.ref("base.group_portal"),
++            "public": self.env.ref("base.group_public"),
++            "ungranted": internal,
++        }
++        self.users = {
++            name: self.env["res.users"]
++            .with_context(no_reset_password=True)
++            .create(
++                {
++                    "name": name,
++                    "login": "zero-operation-" + name,
++                    "group_ids": [Command.set(group.ids)],
++                    "company_id": self.env.company.id,
++                    "company_ids": [Command.set(self.env.company.ids)],
++                }
++            )
++            for name, group in groups.items()
++        }
++        self.allowed, self.forbidden = self.model.create([{"val": 1}, {"val": -1}])
++        self.zero = self.env["ir.access"].create(
++            [
++                {"name": "No operations", "model_id": self.model_id, "group_id": group.id, "operation": NO_OPERATION}
++                for group in internal | self.writer_group | groups["portal"] | groups["public"]
++            ]
++        )
++
++    def _access(self, operation: str, *, group_id: int | None = None, domain: str = "") -> "odoo.model.ir_access":
++        return self.env["ir.access"].create(
++            {
++                "name": "Operation control",
++                "model_id": self.model_id,
++                "group_id": group_id or False,
++                "operation": operation,
++                "domain": domain,
++            }
++        )
++
++    def _decide(self, role: str, operation: str, *, forbidden: bool = False) -> bool:
++        model = self.model.with_user(self.users[role]).with_context(allowed_company_ids=self.env.company.ids)
++        self.assertFalse(model.env.su)
++        self.assertNotEqual(model.env.uid, 1)
++        record = model.browse((self.forbidden if forbidden else self.allowed).id)
++        try:
++            with self.env.cr.savepoint() as savepoint:
++                if operation == "read":
++                    result = bool(record.read(["val"]))
++                elif operation == "search":
++                    result = record.id in model.search([("id", "=", record.id)]).ids
++                elif operation == "create":
++                    result = bool(model.create({"val": 1}))
++                elif operation == "write":
++                    result = record.write({"val": 42})
++                else:
++                    result = record.unlink()
++                savepoint.rollback()
++                return bool(result)
++        except AccessError:
++            return False
++
++    def test_zero_flags_and_sql_filters(self) -> None:
++        for operation in IN_SELECTION:
++            field = "for_" + operation
++            self.assertFalse(any(self.zero.mapped(field)))
++            self.assertFalse(self.env["ir.access"].search([("id", "in", self.zero.ids), (field, "=", True)]))
++            self.assertCountEqual(
++                self.env["ir.access"].search([("id", "in", self.zero.ids), (field, "=", False)]).ids, self.zero.ids
++            )
++
++    def test_zero_permissions_never_grant_and_real_permissions_still_work(self) -> None:
++        for role in self.users:
++            for operation in (*IN_SELECTION, "search"):
++                with self.subTest(role=role, operation=operation):
++                    self.assertFalse(self._decide(role, operation))
++        self._access("crud", group_id=self.writer_group.id)
++        for role in self.users:
++            for operation in (*IN_SELECTION, "search"):
++                with self.subTest(role=role, operation=operation):
++                    self.assertEqual(self._decide(role, operation), role == "writer")
++
++    def test_zero_restriction_is_neutral_and_cache_tracks_real_changes(self) -> None:
++        self._access("crud", group_id=self.writer_group.id)
++        restriction = self._access(NO_OPERATION, domain="[('val', '>', 0)]")
++        self.assertTrue(self._decide("writer", "read", forbidden=True))
++        self.assertTrue(self._decide("writer", "search", forbidden=True))
++        restriction.operation = "r"
++        self.assertTrue(self._decide("writer", "read"))
++        self.assertFalse(self._decide("writer", "read", forbidden=True))
++        self.assertFalse(self._decide("writer", "search", forbidden=True))
++        restriction.operation = NO_OPERATION
++        self.assertTrue(self._decide("writer", "read", forbidden=True))
++        self.assertFalse(self._decide("reader", "read"))
++        self.users["reader"].write({"group_ids": [Command.link(self.writer_group.id)]})
++        self.assertTrue(self._decide("reader", "read"))
++        self.users["reader"].write({"group_ids": [Command.unlink(self.writer_group.id)]})
++        self.assertFalse(self._decide("reader", "read"))
++
++    def test_existing_crud_inverse_keeps_read_restrictions(self) -> None:
++        self._access("crud", group_id=self.writer_group.id)
++        disabled = {"for_" + operation: False for operation in IN_SELECTION}
++        for operation in CRUD_SELECTION:
++            with self.subTest(operation=operation):
++                restriction = self._access(operation, domain="[('val', '>', 0)]")
++                (restriction | self.zero).write(disabled)
++                self.assertTrue(restriction.for_read)
++                self.assertFalse(any(restriction[field] for field in ("for_create", "for_write", "for_unlink")))
++                self.assertTrue(all(access.operation == NO_OPERATION for access in self.zero))
++                self.assertTrue(self._decide("writer", "read"))
++                self.assertFalse(self._decide("writer", "read", forbidden=True))
++                restriction.unlink()
++
++    def test_zero_onchange_round_trip_uses_its_origin(self) -> None:
++        source = self.zero[0]
++        virtual = source.new(
++            {"name": source.name, "model_id": self.model_id, "group_id": source.group_id.id, "operation": NO_OPERATION},
++            origin=source,
++        )
++        virtual.for_read = True
++        virtual._inverse_for_operations()
++        self.assertTrue(virtual.for_read)
++        virtual.for_read = False
++        virtual._inverse_for_operations()
++        self.assertEqual(virtual.operation, NO_OPERATION)
++        self.assertFalse(any(virtual["for_" + operation] for operation in IN_SELECTION))
++        self.assertFalse(self._decide("reader", "read"))
++
++    def test_zero_copy_customization_activation_and_group_edits_stay_neutral(self) -> None:
++        self._access("crud", group_id=self.writer_group.id)
++        source = self.zero[0]
++        self.env["ir.model.data"].create(
++            {"module": "test_base", "name": "zero_fixture", "model": source._name, "res_id": source.id, "noupdate": True}
++        )
++        customized = self.env["ir.access"].browse(source.customize()["res_id"])
++        self.assertFalse(source.active)
++        self.assertEqual(customized.operation, NO_OPERATION)
++        copied = customized.copy()
++        self.assertEqual(copied.operation, NO_OPERATION)
++        source.active = True
++        copied.write({"name": "Renamed no operations", "group_id": self.writer_group.id})
++        self.assertFalse(self._decide("reader", "read"))
++        self.assertTrue(self._decide("writer", "read"))
++
++    @mute_logger("odoo.sql_db")
++    def test_required_operation_and_domain_constraints_remain(self) -> None:
++        with self.assertRaises(IntegrityError), self.env.cr.savepoint():
++            self.env["ir.access"].create(
++                {"name": "Missing operation", "model_id": self.model_id, **{"for_" + operation: False for operation in IN_SELECTION}}
++            )
++        with self.assertRaises(ValidationError):
++            self._access(NO_OPERATION, domain="[('missing_zero_field', '=', True)]")
++        model_id = self.env["ir.model"]._get("ir.access").id
++        self.env["ir.access"].create({"name": "No self operations", "model_id": model_id, "operation": NO_OPERATION})
++        with self.assertRaises(ValidationError):
++            self.env["ir.access"].create(
++                {"name": "Invalid self domain", "model_id": model_id, "operation": NO_OPERATION, "domain": "[]"}
++            )
++
++    def test_original_base_zero_definitions_have_native_records(self) -> None:
++        source_file = Path(__file__).with_name("zero_access_19.csv")
++        with source_file.open(newline="") as stream:
++            rows = list(csv.DictReader(stream))
++        self.assertTrue(rows)
++        for source in rows:
++            with self.subTest(alias=source["id"]):
++                policy = self.env.ref("base." + source["id"])
++                self.assertEqual(policy.name, source["name"])
++                model_ref = source["model_id:id"]
++                model_ref = model_ref if "." in model_ref else "base." + model_ref
++                self.assertEqual(policy.model_id, self.env.ref(model_ref))
++                group_ref = source["group_id:id"]
++                group_ref = group_ref if not group_ref or "." in group_ref else "base." + group_ref
++                self.assertEqual(policy.group_id, self.env.ref(group_ref) if group_ref else self.env["res.groups"])
++                self.assertEqual(policy.operation, NO_OPERATION)
++                self.assertFalse(any(policy["for_" + operation] for operation in IN_SELECTION))
+diff --git a/odoo/addons/test_base/tests/test_orm/zero_access_19.csv b/odoo/addons/test_base/tests/test_orm/zero_access_19.csv
+new file mode 100644
+--- /dev/null
++++ b/odoo/addons/test_base/tests/test_orm/zero_access_19.csv
+@@ -0,0 +1,11 @@
++id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
++access_ir_attachment_group_portal_public,ir_attachment group_portal_public,model_ir_attachment,,0,0,0,0
++access_ir_model_inherit,ir_model_inherit nobody,model_ir_model_inherit,,0,0,0,0
++access_ir_model_user,ir_model_all,model_ir_model,base.group_user,0,0,0,0
++access_ir_model_data_user,ir_model_data user,model_ir_model_data,base.group_user,0,0,0,0
++access_ir_model_fields_user,ir_model_fields all,model_ir_model_fields,base.group_user,0,0,0,0
++access_ir_model_fields_selection_user,ir_model_fields_selection all,model_ir_model_fields_selection,base.group_user,0,0,0,0
++access_ir_ui_view_group_user,ir_ui_view group_user,model_ir_ui_view,,0,0,0,0
++access_ir_default_all,ir_default all,model_ir_default,,0,0,0,0
++access_res_users_deletion_all,res_users_deletion all,model_res_users_deletion,,0,0,0,0
++access_res_users_settings_all,res.users.settings,model_res_users_settings,,0,0,0,0
