@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from odoo import tools
-from odoo.addons.base.models.ir_access import IN_SELECTION
+from odoo.addons.base.models.ir_access import CRUD_SELECTION
 from odoo.tests import loader
 
 SNAPSHOT_KEY = "native_empty_access_snapshot"
@@ -30,7 +30,7 @@ def base_snapshot(environment: Any) -> dict[str, Any]:
     for source in source_rows:
         alias = "base." + source["id"]
         policy = environment.ref(alias)
-        if policy.operation != NO_OPERATION or any(policy["for_" + mode] for mode in IN_SELECTION):
+        if policy.operation != NO_OPERATION:
             raise RuntimeError(f"Expected the native empty bit vector for {alias}")
         aliases = environment["ir.model.data"].search([("model", "=", policy._name), ("res_id", "=", policy.id)], order="id")
         snapshot[alias] = {
@@ -94,18 +94,33 @@ def main(environment: Any) -> None:
         model = environment["ir.access"]
         if operation in dict(model.fields_get(["operation"])["operation"]["selection"]):
             raise RuntimeError("The prior native selection already accepts the candidate operation")
+        with Path("/opt/access-tests/zero_access_19.csv").open(newline="") as stream:
+            aliases = ["base." + row["id"] for row in csv.DictReader(stream)]
+        if not aliases or any(environment.ref(alias, raise_if_not_found=False) for alias in aliases):
+            raise RuntimeError("The pristine unpatched database already holds a candidate base policy alias")
+        values = {
+            "name": "Rejected empty operation",
+            "model_id": environment["ir.model"]._get("res.partner").id,
+            "group_id": environment.ref("base.group_user").id,
+        }
+        with environment.cr.savepoint() as control:
+            model.create(values | {"operation": next(iter(CRUD_SELECTION))})
+            control.rollback()
         try:
             with environment.cr.savepoint():
-                model.create(
-                    {
-                        "name": "Rejected empty operation",
-                        "model_id": environment["ir.model"]._get("res.partner").id,
-                        "group_id": environment.ref("base.group_user").id,
-                        "operation": operation,
-                    }
-                )
+                model.create(values | {"operation": operation})
         except ValueError:
-            print(json.dumps({"phase": phase, "unpatched_native_selection_rejected": operation}, sort_keys=True))
+            print(
+                json.dumps(
+                    {
+                        "phase": phase,
+                        "unpatched_native_selection_rejected": operation,
+                        "valid_operation_positive_control": True,
+                        "candidate_aliases_absent": aliases,
+                    },
+                    sort_keys=True,
+                )
+            )
             return
         raise RuntimeError("The unpatched native selection accepted the candidate empty operation")
     parameters = environment["ir.config_parameter"]

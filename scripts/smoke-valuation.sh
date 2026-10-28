@@ -102,6 +102,7 @@ PY
 )"
     export NATIVE_ACCESS_OPERATION
     git -C /odoo apply --reverse /opt/native-valuation.patch
+    cp /odoo/odoo/addons/test_base/tests/test_orm/zero_access_19.csv /opt/access-tests/zero_access_19.csv
     git -C /odoo apply --reverse /opt/native-empty-access.patch
   fi
   record_sources
@@ -117,6 +118,8 @@ PY
 # shellcheck disable=SC2016
 run_fixture "$image" '
   set -euo pipefail
+  git -C /odoo apply --reverse --check /opt/native-valuation.patch
+  git -C /odoo apply --reverse --check /opt/native-empty-access.patch
   record_sources
   if [[ "$NATIVE_ACCESS_SAFETY" == true ]]; then
     access_tags="$(/venv/bin/python - <<"PY"

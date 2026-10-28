@@ -587,20 +587,29 @@ the read fallback. An existing empty record's checkbox round trip stays empty.
 The base data retains the ten zero-operation definitions captured from native
 19 stock data, with the same aliases, names, models and groups. These are normal
 native records and owner data, not orphan tables or a legacy evaluator. Fresh
-20 installations create them normally. Existing mapped records retain their
-identities through the normal base update. An empty groupless record still has
+20 installations create them normally. A base update rewrites updateable records
+already bound to these aliases to the source values; protected aliases keep their
+values. Databases carrying these aliases from a 19 upgrade, with conflicting
+values or stale model bindings, remain unqualified; their 19-to-20 mapping stays
+refused under OPW345 pending a qualified shared mapping. The replay fixture
+covers newly created native records only.
+An empty groupless record still has
 native 20's restriction kind; editing its operations follows native 20 semantics,
 not the former groupless ACL editing behavior.
 
 Existing 20 databases must include `base` in their normal gated module update
 before using this data contract. No version reset or direct selection-metadata
 write is needed. Rollback restores the pre-update database backup together with
-the prior image. This does not migrate legacy policy tables, repoint references,
+the prior image; image-only rollback is unsupported. This is the required rollback
+procedure, not evidence of a restore drill. Lane adoption must establish that its
+gated rollback restores the database. This does not migrate legacy policy tables, repoint references,
 qualify other source policies or authorize a lane update. Odoo 19 is unchanged;
 other editions need their own qualification before adoption.
 
-The existing `scripts/smoke-valuation.sh` also runs the complete native ACL,
-access, feedback, related-monetary, check-access and rule modules by default.
+The existing `scripts/smoke-valuation.sh` also selects the classes from the native
+ACL, access, feedback, related-monetary, check-access and rule modules by default.
+Native exit status catches their failures and a positive module count confirms
+execution; it does not independently prove every method ran without skips.
 Its existing focused tag argument still selects a smaller run. The native empty
 operation cases use ordinary internal, portal, public and ungranted users;
 administrators only prepare synthetic data. Default setup reverses both source
