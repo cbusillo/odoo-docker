@@ -8,6 +8,7 @@ previous_image="${3:-$image}"
 reverse_patch=true
 if [[ -n "${3:-}" ]]; then reverse_patch=false; fi
 patch_file="$(cd "$(dirname "$0")/../patches" && pwd)/20.0-valuation-checkpoints.patch"
+access_patch_file="$(cd "$(dirname "$0")/../patches" && pwd)/20.0-empty-access.patch"
 fixture="$(cd "$(dirname "$0")/fixtures/valuation" && pwd)"
 access_fixture="$(cd "$(dirname "$0")/fixtures/access" && pwd)"
 name="odoo-valuation-${RANDOM}-$$"
@@ -61,7 +62,7 @@ run_fixture() {
   local source_proof='
     set -euo pipefail
     record_sources() {
-    sha256sum /opt/native-valuation.patch /odoo/odoo/orm/fields_numeric.py \
+    sha256sum /opt/native-valuation.patch /opt/native-empty-access.patch /odoo/odoo/orm/fields_numeric.py \
       /odoo/addons/stock_account/models/product.py /odoo/addons/stock_account/models/product_value.py \
       /odoo/addons/stock_account/models/stock_move.py /odoo/addons/stock_account/__manifest__.py \
       /odoo/addons/stock/models/product.py /odoo/addons/stock/models/stock_lot.py \
@@ -78,6 +79,7 @@ run_fixture() {
   tests_id="$("${odoo_run[@]}" "$1" -lc "$source_proof"$'\n'"$2")"
   docker cp "$fixture" "$tests_id:/opt/valuation-tests"
   docker cp "$patch_file" "$tests_id:/opt/native-valuation.patch"
+  docker cp "$access_patch_file" "$tests_id:/opt/native-empty-access.patch"
   docker cp "$access_fixture" "$tests_id:/opt/access-tests"
   docker inspect --format 'Valuation test: {{.Id}} image: {{.Image}} mounts: {{json .Mounts}}' "$tests_id"
   docker start --attach "$tests_id"
@@ -87,12 +89,30 @@ run_fixture() {
 # shellcheck disable=SC2016
 run_fixture "$previous_image" '
   set -euo pipefail
-  if [[ "$VALUATION_REVERSE_PATCH" == true ]]; then git -C /odoo apply --reverse /opt/native-valuation.patch; fi
+  if [[ "$VALUATION_REVERSE_PATCH" == true ]]; then
+    NATIVE_ACCESS_OPERATION="$(/venv/bin/python - <<"PY"
+import ast
+from pathlib import Path
+tree = ast.parse(Path("/odoo/odoo/addons/base/models/ir_access.py").read_text())
+choices = [node.value for node in tree.body if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "NO_OPERATION" for target in node.targets)]
+if len(choices) != 1:
+    raise RuntimeError("The candidate empty-operation definition is missing or ambiguous")
+print(ast.literal_eval(choices[0]))
+PY
+)"
+    export NATIVE_ACCESS_OPERATION
+    git -C /odoo apply --reverse /opt/native-valuation.patch
+    git -C /odoo apply --reverse /opt/native-empty-access.patch
+  fi
   record_sources
   odoo-bin -d valuation_test --init stock_account --without-demo --stop-after-init \
     --max-cron-threads=0 --http-interface=127.0.0.1 --log-level=warn
   VALUATION_UPGRADE_PHASE=setup odoo-bin shell -d valuation_test --no-http \
     --max-cron-threads=0 --log-level=warn < /opt/valuation-tests/upgrade.py
+  if [[ "$VALUATION_REVERSE_PATCH" == true ]]; then
+    NATIVE_ACCESS_PHASE=reject odoo-bin shell -d valuation_test --no-http \
+      --max-cron-threads=0 --log-level=warn < /opt/access-tests/verify.py
+  fi
 '
 # shellcheck disable=SC2016
 run_fixture "$image" '
@@ -126,10 +146,10 @@ PY
   fi
   VALUATION_UPGRADE_PHASE=verify odoo-bin shell -d valuation_test --no-http \
     --max-cron-threads=0 --log-level=warn < /opt/valuation-tests/upgrade.py
-  NATIVE_ACCESS_PHASE=capture odoo-bin shell -d valuation_test --no-http --test-enable --test-tags=-at_install,-post_install \
+  NATIVE_ACCESS_PHASE=capture odoo-bin shell -d valuation_test --no-http \
     --max-cron-threads=0 --log-level=warn < /opt/access-tests/verify.py
-  odoo-bin -d valuation_test --update base --without-demo --stop-after-init --test-enable --test-tags=-at_install,-post_install \
+  odoo-bin -d valuation_test --update base --without-demo --stop-after-init \
     --max-cron-threads=0 --http-interface=127.0.0.1 --log-level=warn
   NATIVE_ACCESS_PHASE=verify odoo-bin shell -d valuation_test --no-http --test-enable --test-tags=-at_install,-post_install \
-    --max-cron-threads=0 --log-level=warn < /opt/access-tests/verify.py
+    --max-cron-threads=0 --log-level=warn --log-handler=odoo.tests.stats:INFO < /opt/access-tests/verify.py
 '

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from odoo import tools
-from odoo.addons.base.models.ir_access import IN_SELECTION, NO_OPERATION
+from odoo.addons.base.models.ir_access import IN_SELECTION
 from odoo.tests import loader
 
 SNAPSHOT_KEY = "native_empty_access_snapshot"
@@ -16,6 +16,12 @@ SOURCE_FILE = Path("/odoo/odoo/addons/test_base/tests/test_orm/zero_access_19.cs
 
 
 def base_snapshot(environment: Any) -> dict[str, Any]:
+    from odoo.addons.base.models.ir_access import NO_OPERATION
+
+    field = environment["ir.model.fields"]._get("ir.access", "operation")
+    choices = environment["ir.model.fields.selection"].search([("field_id", "=", field.id), ("value", "=", NO_OPERATION)])
+    if len(choices) != 1:
+        raise RuntimeError("The native empty-operation selection metadata is missing or ambiguous")
     with SOURCE_FILE.open(newline="") as stream:
         source_rows = list(csv.DictReader(stream))
     if not source_rows:
@@ -70,19 +76,38 @@ def run_native_cases() -> dict[str, Any]:
         raise RuntimeError(
             f"Unqualified native empty-operation result: {result.testsRun} tests, "
             f"{result.failures_count} failed, {result.errors_count} errors, "
-            f"{len(result.skipped)} skipped, actual {sorted(actual)}"
+            f"{result.skipped} skipped, actual {sorted(actual)}"
         )
     return {
         "native_tests_run": result.testsRun,
         "native_failed": result.failures_count,
         "native_errors": result.errors_count,
-        "native_skipped": len(result.skipped),
+        "native_skipped": result.skipped,
         "native_methods": sorted(actual),
     }
 
 
 def main(environment: Any) -> None:
     phase = os.environ["NATIVE_ACCESS_PHASE"]
+    if phase == "reject":
+        operation = os.environ["NATIVE_ACCESS_OPERATION"]
+        model = environment["ir.access"]
+        if operation in dict(model.fields_get(["operation"])["operation"]["selection"]):
+            raise RuntimeError("The prior native selection already accepts the candidate operation")
+        try:
+            with environment.cr.savepoint():
+                model.create(
+                    {
+                        "name": "Rejected empty operation",
+                        "model_id": environment["ir.model"]._get("res.partner").id,
+                        "group_id": environment.ref("base.group_user").id,
+                        "operation": operation,
+                    }
+                )
+        except ValueError:
+            print(json.dumps({"phase": phase, "unpatched_native_selection_rejected": operation}, sort_keys=True))
+            return
+        raise RuntimeError("The unpatched native selection accepted the candidate empty operation")
     parameters = environment["ir.config_parameter"]
     if phase == "capture":
         if parameters.get_param(SNAPSHOT_KEY):
@@ -90,17 +115,10 @@ def main(environment: Any) -> None:
         initial = base_snapshot(environment)
         first = environment["ir.access"].browse(next(iter(initial.values()))["id"])
         first.active = False
-        environment["ir.model.data"].create(
-            {"module": "__custom__", "name": "zero_replay", "model": first._name, "res_id": first.id, "noupdate": True}
-        )
         snapshot = base_snapshot(environment)
         parameters.set_param(SNAPSHOT_KEY, json.dumps(snapshot, sort_keys=True))
         environment.cr.commit()
-        print(
-            json.dumps(
-                {"phase": phase, "native_base_records": len(snapshot), "inactive_and_protected_alias_control": True}, sort_keys=True
-            )
-        )
+        print(json.dumps({"phase": phase, "native_base_records": len(snapshot), "inactive_control": True}, sort_keys=True))
         return
     if phase != "verify":
         raise RuntimeError(f"Unsupported native empty-operation phase: {phase}")

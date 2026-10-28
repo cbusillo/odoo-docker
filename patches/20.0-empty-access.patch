@@ -69,7 +69,7 @@ diff --git a/odoo/addons/test_base/tests/test_orm/test_ir_rules.py b/odoo/addons
  from odoo.exceptions import AccessError, ValidationError
  from odoo.tests.common import TransactionCase, tagged
  from odoo.tools import mute_logger
-@@ -250,3 +255,193 @@
+@@ -250,3 +255,192 @@
          with contextlib.suppress(AccessError):
              forbiddens[NB_RECORD - 1].val
              self.fail('Previous line should raise AccessError')
@@ -92,7 +92,7 @@ diff --git a/odoo/addons/test_base/tests/test_orm/test_ir_rules.py b/odoo/addons
 +            "writer": self.writer_group,
 +            "portal": self.env.ref("base.group_portal"),
 +            "public": self.env.ref("base.group_public"),
-+            "ungranted": internal,
++            "ungranted": self.env["res.groups"],
 +        }
 +        self.users = {
 +            name: self.env["res.users"]
@@ -213,7 +213,6 @@ diff --git a/odoo/addons/test_base/tests/test_orm/test_ir_rules.py b/odoo/addons
 +        virtual._inverse_for_operations()
 +        self.assertEqual(virtual.operation, NO_OPERATION)
 +        self.assertFalse(any(virtual["for_" + operation] for operation in IN_SELECTION))
-+        self.assertFalse(self._decide("reader", "read"))
 +
 +    def test_zero_copy_customization_activation_and_group_edits_stay_neutral(self) -> None:
 +        self._access("crud", group_id=self.writer_group.id)

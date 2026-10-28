@@ -603,8 +603,12 @@ The existing `scripts/smoke-valuation.sh` also runs the complete native ACL,
 access, feedback, related-monetary, check-access and rule modules by default.
 Its existing focused tag argument still selects a smaller run. The native empty
 operation cases use ordinary internal, portal, public and ungranted users;
-administrators only prepare synthetic data. A real base update and replay
-preserve record and alias identities, an inactive record and a protected alias.
+administrators only prepare synthetic data. Default setup reverses both source
+patches, and actual unpatched native creation must reject the candidate empty
+operation. The candidate's base update must reflect its selection metadata.
+A real base update and replay preserve record identities, existing aliases and
+their protection, and an inactive record. Supplying a separate previous image
+uses that image's database and does not run the patch-reversal rejection control.
 The focused replay uses Odoo's own suite factory and result object, requiring
 every discovered method, no failures, errors or skips. Log starts and row counts
 alone do not qualify it. The fixture stays in the existing VM-only smoke flow,
