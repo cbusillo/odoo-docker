@@ -1,158 +1,222 @@
 from __future__ import annotations
 
+import ast
 import csv
-import importlib
 import json
 import os
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from odoo import tools
-from odoo.addons.base.models.ir_access import CRUD_SELECTION
-from odoo.tests import loader
-
-SNAPSHOT_KEY = "native_empty_access_snapshot"
-SOURCE_FILE = Path("/odoo/odoo/addons/test_base/tests/test_orm/zero_access_19.csv")
+SNAPSHOT_KEY = "native_zero_access_replay"
+SOURCE_FILE = Path(__file__).with_name("zero_access_19.csv")
 
 
-def base_snapshot(environment: Any) -> dict[str, Any]:
-    from odoo.addons.base.models.ir_access import NO_OPERATION
-
-    field = environment["ir.model.fields"]._get("ir.access", "operation")
-    choices = environment["ir.model.fields.selection"].search([("field_id", "=", field.id), ("value", "=", NO_OPERATION)])
-    if len(choices) != 1:
-        raise RuntimeError("The native empty-operation selection metadata is missing or ambiguous")
+def source_policies() -> dict[str, dict[str, str]]:
     with SOURCE_FILE.open(newline="") as stream:
-        source_rows = list(csv.DictReader(stream))
-    if not source_rows:
-        raise RuntimeError("The original native access fixture is empty")
-    snapshot = {}
-    for source in source_rows:
-        alias = "base." + source["id"]
-        policy = environment.ref(alias)
-        if policy.operation != NO_OPERATION:
-            raise RuntimeError(f"Expected the native empty bit vector for {alias}")
-        aliases = environment["ir.model.data"].search([("model", "=", policy._name), ("res_id", "=", policy.id)], order="id")
-        snapshot[alias] = {
-            "id": policy.id,
+        return {row["xmlid"]: row for row in csv.DictReader(stream)}
+
+
+def all_policies(environment: Any) -> dict[str, Any]:
+    policies = (
+        environment["ir.access"].with_context(active_test=False).search([], order="id")
+    )
+    aliases = environment["ir.model.data"].search(
+        [("model", "=", "ir.access"), ("res_id", "in", policies.ids)], order="id"
+    )
+    by_policy = defaultdict(list)
+    for alias in aliases:
+        by_policy[alias.res_id].append(
+            (
+                alias.id,
+                alias.module,
+                alias.name,
+                alias.model,
+                alias.res_id,
+                alias.noupdate,
+                alias.create_uid.id,
+                str(alias.create_date),
+            )
+        )
+    result = {
+        str(policy.id): {
             "name": policy.name,
+            "model": policy.model_id.model,
             "model_id": policy.model_id.id,
             "group_id": policy.group_id.id,
-            "active": policy.active,
             "operation": policy.operation,
             "domain": policy.domain,
+            "active": policy.active,
+            "note": policy.note,
             "create_uid": policy.create_uid.id,
             "create_date": str(policy.create_date),
-            "aliases": [(row.id, row.module, row.name, row.model, row.res_id, row.noupdate) for row in aliases],
+            "aliases": by_policy[policy.id],
         }
-    return snapshot
-
-
-def run_native_cases() -> dict[str, Any]:
-    module = importlib.import_module("odoo.addons.test_base.tests.test_orm.test_ir_rules")
-    test_class = module.TestNoOperationAccess
-    expected = {case.id() for case in loader.get_module_test_cases(module) if type(case) is test_class}
-    if not expected:
-        raise RuntimeError("No native empty-operation test cases were discovered")
-    old_tags = tools.config["test_tags"]
-    tools.config["test_tags"] = "/test_base:" + test_class.__name__
-    try:
-        suite = loader.make_suite(["test_base"], position="post_install")
-        selected = [case.id() for case in suite]
-        if set(selected) != expected or len(selected) != len(expected):
-            raise RuntimeError(f"Unexpected native empty-operation selection: {selected}")
-        result = loader.run_suite(suite)
-    finally:
-        tools.config["test_tags"] = old_tags
-    actual = {str(name) for name in result.stats if str(name).rsplit(".", 1)[-1].startswith("test_")}
-    if (
-        not result.wasSuccessful()
-        or result.failures_count
-        or result.errors_count
-        or result.skipped
-        or result.testsRun != len(expected)
-        or actual != expected
-    ):
-        raise RuntimeError(
-            f"Unqualified native empty-operation result: {result.testsRun} tests, "
-            f"{result.failures_count} failed, {result.errors_count} errors, "
-            f"{result.skipped} skipped, actual {sorted(actual)}"
-        )
-    return {
-        "native_tests_run": result.testsRun,
-        "native_failed": result.failures_count,
-        "native_errors": result.errors_count,
-        "native_skipped": result.skipped,
-        "native_methods": sorted(actual),
+        for policy in policies
     }
+    return json.loads(json.dumps(result))
 
 
-def main(environment: Any) -> None:
-    phase = os.environ["NATIVE_ACCESS_PHASE"]
-    if phase == "reject":
-        operation = os.environ["NATIVE_ACCESS_OPERATION"]
-        model = environment["ir.access"]
-        if operation in dict(model.fields_get(["operation"])["operation"]["selection"]):
-            raise RuntimeError("The prior native selection already accepts the candidate operation")
-        with Path("/opt/access-tests/zero_access_19.csv").open(newline="") as stream:
-            aliases = ["base." + row["id"] for row in csv.DictReader(stream)]
-        if not aliases or any(environment.ref(alias, raise_if_not_found=False) for alias in aliases):
-            raise RuntimeError("The pristine unpatched database already holds a candidate base policy alias")
-        values = {
-            "name": "Rejected empty operation",
-            "model_id": environment["ir.model"]._get("res.partner").id,
-            "group_id": environment.ref("base.group_user").id,
+def retained_policies(environment: Any, policies: dict[str, Any]) -> dict[str, Any]:
+    from odoo import fields
+
+    source = source_policies()
+    aliases = {
+        f"{alias[1]}.{alias[2]}": identifier
+        for identifier, row in policies.items()
+        for alias in row["aliases"]
+    }
+    group_ids = {
+        name: environment.ref(name).id
+        for name in {row["group"] for row in source.values()}
+        if name
+    }
+    result = {}
+    for alias, original in source.items():
+        if alias not in aliases:
+            raise RuntimeError(f"Missing retained native policy: {alias}")
+        identifier = aliases[alias]
+        row = policies[identifier]
+        if row["model"] != original["model"] or row["group_id"] != group_ids.get(
+            original["group"], False
+        ):
+            raise RuntimeError(f"Retained native model/group changed: {alias}")
+        domain = (
+            fields.Domain(ast.literal_eval(row["domain"]))
+            if row["domain"]
+            else fields.Domain.TRUE
+        )
+        if (row["group_id"] and not domain.is_false()) or (
+            not row["group_id"] and not domain.is_true()
+        ):
+            raise RuntimeError(f"Retained native policy is not neutral: {alias}")
+        result[alias] = {"id": identifier, **row}
+    if not result or len({row["id"] for row in result.values()}) != len(result):
+        raise RuntimeError(
+            "Retained source policies do not have distinct native records"
+        )
+    return result
+
+
+def capture_controls(environment: Any, parameters: Any) -> None:
+    saved = json.loads(parameters.get_str(SNAPSHOT_KEY) or "{}")
+    current = all_policies(environment)
+    retained = retained_policies(environment, current)
+    source = source_policies()
+    before = saved.get("before")
+    if before is None or any(
+        current.get(identifier) != row for identifier, row in before.items()
+    ):
+        raise RuntimeError("Native owner update changed a pre-existing policy or alias")
+    if set(current) - set(before) != {row["id"] for row in retained.values()} - set(
+        before
+    ):
+        raise RuntimeError("Native owner update created an unexpected policy")
+    if any(row["name"] != source[alias]["name"] for alias, row in retained.items()):
+        raise RuntimeError(
+            "The first native source update changed a retained source name"
+        )
+    base_alias = next(alias for alias in retained if alias.startswith("base."))
+    other_alias = next(alias for alias in retained if not alias.startswith("base."))
+    base = environment.ref(base_alias)
+    metadata = environment["ir.model.data"].search(
+        [("module", "=", "base"), ("name", "=", base_alias.split(".", 1)[1])]
+    )
+    if len(metadata) != 1:
+        raise RuntimeError("The base protection control is ambiguous")
+    metadata.noupdate = True
+    base.name += " retained protected name"
+    base.active = False
+    environment.ref(other_alias).active = False
+    environment["ir.model.data"].create(
+        {
+            "module": "__custom__",
+            "name": "retained_zero_reference",
+            "model": base._name,
+            "res_id": base.id,
+            "noupdate": True,
         }
-        with environment.cr.savepoint() as control:
-            model.create(values | {"operation": next(iter(CRUD_SELECTION))})
-            control.rollback()
-        try:
-            with environment.cr.savepoint():
-                model.create(values | {"operation": operation})
-        except ValueError:
-            print(
-                json.dumps(
-                    {
-                        "phase": phase,
-                        "unpatched_native_selection_rejected": operation,
-                        "valid_operation_positive_control": True,
-                        "candidate_aliases_absent": aliases,
-                    },
-                    sort_keys=True,
-                )
-            )
-            return
-        raise RuntimeError("The unpatched native selection accepted the candidate empty operation")
-    parameters = environment["ir.config_parameter"]
-    if phase == "capture":
-        if parameters.get_str(SNAPSHOT_KEY):
-            raise RuntimeError("Native empty-operation snapshot already exists")
-        initial = base_snapshot(environment)
-        first = environment["ir.access"].browse(next(iter(initial.values()))["id"])
-        first.active = False
-        snapshot = base_snapshot(environment)
-        parameters.set_str(SNAPSHOT_KEY, json.dumps(snapshot, sort_keys=True))
-        environment.cr.commit()
-        print(json.dumps({"phase": phase, "native_base_records": len(snapshot), "inactive_control": True}, sort_keys=True))
-        return
-    if phase != "verify":
-        raise RuntimeError(f"Unsupported native empty-operation phase: {phase}")
-    expected = json.loads(parameters.get_str(SNAPSHOT_KEY) or "{}")
-    actual = json.loads(json.dumps(base_snapshot(environment)))
-    if not expected or actual != expected:
-        raise RuntimeError("Native base update changed retained empty-operation records or aliases")
-    qualified = run_native_cases()
+    )
+    owners = sorted({row["owner"] for row in source.values()})
+    snapshot = {
+        "policies": all_policies(environment),
+        "owners": environment["ir.module.module"]
+        .search([("name", "in", owners)], order="name")
+        .read(["name", "state", "latest_version"]),
+        "base_inactive": base_alias,
+        "nonbase_inactive": other_alias,
+    }
+    parameters.set_str(SNAPSHOT_KEY, json.dumps(snapshot, sort_keys=True))
+    environment.cr.commit()
     print(
         json.dumps(
             {
-                "phase": phase,
-                "native_base_records": len(actual),
-                "actual_base_update_retained_records_and_aliases": True,
-                **qualified,
-            },
-            sort_keys=True,
+                "phase": "capture",
+                "retained_policies": len(retained),
+                "inactive_and_protected_controls": True,
+            }
         )
     )
 
 
-main(globals()["env"])
+def verify_replay(environment: Any, parameters: Any) -> None:
+    saved = json.loads(parameters.get_str(SNAPSHOT_KEY) or "{}")
+    current = all_policies(environment)
+    retained = retained_policies(environment, current)
+    if not saved or saved["policies"] != current:
+        raise RuntimeError(
+            "Normal native owner replay changed policy/alias identity, protection, state or create audit"
+        )
+    owners = sorted({row["owner"] for row in source_policies().values()})
+    module_state = (
+        environment["ir.module.module"]
+        .search([("name", "in", owners)], order="name")
+        .read(["name", "state", "latest_version"])
+    )
+    if module_state != saved["owners"]:
+        raise RuntimeError("Normal owner replay changed module identity/state/version")
+    if (
+        environment.ref(saved["base_inactive"]).active
+        or environment.ref(saved["nonbase_inactive"]).active
+    ):
+        raise RuntimeError("Inactive native replay controls did not remain inactive")
+    print(
+        json.dumps(
+            {
+                "phase": "verify",
+                "retained_policies": len(retained),
+                "native_policy_and_alias_replay_equal": True,
+                "original_19_migration_qualified": False,
+                "legacy_owner_module_lifecycle_qualified": False,
+            }
+        )
+    )
+
+
+def main(environment: Any, phase: str) -> None:
+    if not environment.registry.ready:
+        raise RuntimeError("The native registry is incomplete")
+    parameters = environment["ir.config_parameter"]
+    if phase == "before":
+        if parameters.get_str(SNAPSHOT_KEY):
+            raise RuntimeError("The native zero-policy snapshot already exists")
+        parameters.set_str(
+            SNAPSHOT_KEY,
+            json.dumps({"before": all_policies(environment)}, sort_keys=True),
+        )
+        environment.cr.commit()
+        return
+    if phase == "capture":
+        capture_controls(environment, parameters)
+        return
+    if phase == "verify":
+        verify_replay(environment, parameters)
+        return
+    raise RuntimeError(f"Unsupported native zero-policy phase: {phase}")
+
+
+phase = os.environ["NATIVE_ACCESS_PHASE"]
+if phase == "owners":
+    print(",".join(sorted({row["owner"] for row in source_policies().values()})))
+else:
+    main(globals()["env"], phase)

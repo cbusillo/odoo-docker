@@ -30,7 +30,7 @@ RUN set -eux; \
 COPY patches /patches
 RUN if grep -Eq '^version_info = \(20,' odoo/odoo/release.py; then \
       git -C odoo apply /patches/20.0-valuation-checkpoints.patch; \
-      git -C odoo apply /patches/20.0-empty-access.patch; \
+      git -C odoo apply /patches/20.0-zero-access-data.patch; \
     fi
 
 FROM --platform=$BUILDPLATFORM alpine/curl:8.22.0@sha256:a39f52cab21d7e283448a9f73032dfb578ffcea9edaaa90c1d637117149b337f AS wkhtmltox

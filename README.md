@@ -573,55 +573,35 @@ Run-number ordering belongs to this workflow identity. Keep `build.yml` in place
 when reorganizing jobs; recreating it requires an ordering migration before
 publication. Superseded families are visible as Actions notices.
 
-## Native Community 20 empty access operations
+## Native Community 20 retained zero-access data
 
-The Community 20 source build applies
-[`20.0-empty-access.patch`](patches/20.0-empty-access.patch) to the native
-`ir.access` field and its base-owned data. `NO_OPERATION`, exported by
-`odoo.addons.base.models.ir_access`, represents an empty operation set. All four
-`for_*` fields are false, and the record neither grants access nor restricts it.
-An explicit value is required; missing-operation creation keeps its existing
-validation. Existing CRUD values keep their native inverse behavior, including
-the read fallback. An existing empty record's checkbox round trip stays empty.
+The Community 20 build applies
+[`20.0-zero-access-data.patch`](patches/20.0-zero-access-data.patch) to normal
+native owner data. It retains 37 zero-operation definitions from native 19,
+including their aliases, names, models and groups. A group-bound row uses a
+FALSE-domain permission; a groupless row uses a TRUE-domain restriction.
+Both are neutral under native 20's existing access decisions. The native
+applicability checkboxes describe that representation, not legacy grant bits.
+No operation selection or core Python behavior changes. Odoo 19 is unchanged.
 
-The base data retains the ten zero-operation definitions captured from native
-19 stock data, with the same aliases, names, models and groups. These are normal
-native records and owner data, not orphan tables or a legacy evaluator. Fresh
-20 installations create them normally. A base update rewrites updateable records
-already bound to these aliases to the source values; protected aliases keep their
-values. Databases carrying these aliases from a 19 upgrade, with conflicting
-values or stale model bindings, remain unqualified; their 19-to-20 mapping stays
-refused under OPW345 pending a qualified shared mapping. The replay fixture
-covers newly created native records only.
-An empty groupless record still has
-native 20's restriction kind; editing its operations follows native 20 semantics,
-not the former groupless ACL editing behavior.
+Existing 20 databases need the affected owners in their normal gated module
+update. The smoke fixture derives that list from its captured source definitions,
+initializes prior owner data, and proves normal update and replay preserve
+policy IDs, create audit, aliases, protection and inactive
+controls. All pre-existing native policies and their aliases must remain intact.
+Its default selection also runs the complete native ACL, access, feedback,
+related-monetary, check-access and rule modules. Focused tags keep their existing
+smaller selection. The normal build/runtime/devtools gates still apply.
 
-Existing 20 databases must include `base` in their normal gated module update
-before using this data contract. No version reset or direct selection-metadata
-write is needed. Rollback restores the pre-update database backup together with
-the prior image; image-only rollback is unsupported. This is the required rollback
-procedure, not evidence of a restore drill. Lane adoption must establish that its
-gated rollback restores the database. This does not migrate legacy policy tables, repoint references,
-qualify other source policies or authorize a lane update. Odoo 19 is unchanged;
-other editions need their own qualification before adoption.
-
-The existing `scripts/smoke-valuation.sh` also selects the classes from the native
-ACL, access, feedback, related-monetary, check-access and rule modules by default.
-Native exit status catches their failures and a positive module count confirms
-execution; it does not independently prove every method ran without skips.
-Its existing focused tag argument still selects a smaller run. The native empty
-operation cases use ordinary internal, portal, public and ungranted users;
-administrators only prepare synthetic data. Default setup reverses both source
-patches, and actual unpatched native creation must reject the candidate empty
-operation. The candidate's base update must reflect its selection metadata.
-A real base update and replay preserve record identities, existing aliases and
-their protection, and an inactive record. Supplying a separate previous image
-uses that image's database and does not run the patch-reversal rejection control.
-The focused replay uses Odoo's own suite factory and result object, requiring
-every discovered method, no failures, errors or skips. Log starts and row counts
-alone do not qualify it. The fixture stays in the existing VM-only smoke flow,
-with no host binds or published ports.
+The two wishlist definitions keep their original `website_sale_wishlist.*`
+aliases while `website_sale` supplies the data. Legacy module cleanup or alias
+renaming can remove these records or references and requires a separate qualified
+migration. This data port does not map old policy tables, alias-model collisions,
+write audit or other references, qualify legacy module lifecycle, or authorize a
+lane update. Unsupported crossings remain refused by the shared migration.
+Future group, checkbox, domain and sibling edits require their own policy review.
+Rollback restores the pre-update database backup and prior image together;
+image-only rollback is unsupported. Other editions need their own qualification.
 
 ## Native Community 20 valuation checkpoints
 

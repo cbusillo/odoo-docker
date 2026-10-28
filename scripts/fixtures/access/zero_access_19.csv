@@ -1,0 +1,38 @@
+xmlid,name,model,group,owner
+auth_totp.access_auth_totp_rate_limit_log,access_auth_totp_rate_limit_log,auth.totp.rate.limit.log,base.group_user,auth_totp
+base.access_ir_attachment_group_portal_public,ir_attachment group_portal_public,ir.attachment,,base
+base.access_ir_default_all,ir_default all,ir.default,,base
+base.access_ir_model_data_user,ir_model_data user,ir.model.data,base.group_user,base
+base.access_ir_model_fields_selection_user,ir_model_fields_selection all,ir.model.fields.selection,base.group_user,base
+base.access_ir_model_fields_user,ir_model_fields all,ir.model.fields,base.group_user,base
+base.access_ir_model_inherit,ir_model_inherit nobody,ir.model.inherit,,base
+base.access_ir_model_user,ir_model_all,ir.model,base.group_user,base
+base.access_ir_ui_view_group_user,ir_ui_view group_user,ir.ui.view,,base
+base.access_res_users_deletion_all,res_users_deletion all,res.users.deletion,,base
+base.access_res_users_settings_all,res.users.settings,res.users.settings,,base
+bus.access_bus_bus,bus.bus public,bus.bus,,bus
+onboarding.access_onboarding_all,onboarding.onboarding.all,onboarding.onboarding,,onboarding
+onboarding.access_onboarding_progress_all,onboarding.progress.all,onboarding.progress,,onboarding
+onboarding.access_onboarding_progress_step_all,onboarding.progress.step.all,onboarding.progress.step,,onboarding
+onboarding.access_onboarding_progress_step_user,onboarding.progress.step.user,onboarding.progress.step,base.group_user,onboarding
+onboarding.access_onboarding_progress_user,onboarding.progress.user,onboarding.progress,base.group_user,onboarding
+onboarding.access_onboarding_step_all,onboarding.onboarding.step.all,onboarding.onboarding.step,,onboarding
+onboarding.access_onboarding_step_user,onboarding.onboarding.step.user,onboarding.onboarding.step,base.group_user,onboarding
+onboarding.access_onboarding_user,onboarding.onboarding.user,onboarding.onboarding,base.group_user,onboarding
+payment.access_payment_link_wizard,access_payment_link_wizard,payment.link.wizard,base.group_user,payment
+phone_validation.access_phone_blacklist_all,access.phone.blacklist.all,phone.blacklist,,phone_validation
+rating.access_rating_portal,rating.rating.portal,rating.rating,base.group_portal,rating
+rating.access_rating_public,rating.rating.public,rating.rating,base.group_public,rating
+sales_team.access_crm_tag,crm_tag,crm.tag,base.group_user,sales_team
+sales_team.access_crm_team_member_all,access.crm.team.member.all,crm.team.member,,sales_team
+sms.access_sms_sms_all,access.sms.sms.all,sms.sms,,sms
+sms.access_sms_template_all,access.sms.template.all,sms.template,,sms
+sms.access_sms_tracker_all,access.sms.tracker.all,sms.tracker,,sms
+website.access_website_dynamic_filter_public,access_website_dynamic_filter,website.snippet.filter,,website
+website.access_website_page_properties_base_portal,access_website_page_properties_base,website.page.properties.base,base.group_portal,website
+website.access_website_page_properties_base_public,access_website_page_properties_base,website.page.properties.base,base.group_public,website
+website.access_website_page_properties_portal,access_website_page_properties,website.page.properties,base.group_portal,website
+website.access_website_page_properties_public,access_website_page_properties,website.page.properties,base.group_public,website
+website.access_website_rewrite,access_website_rewrite,website.rewrite,,website
+website_sale_wishlist.access_product_wishlist_default,access_product_wishlist_default,product.wishlist,,website_sale
+website_sale_wishlist.access_product_wishlist_public,access_product_wishlist_public,product.wishlist,base.group_public,website_sale
