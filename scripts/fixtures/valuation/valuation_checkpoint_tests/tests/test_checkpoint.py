@@ -53,7 +53,11 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         remaining_quantity = sum(quantity for quantity, _cost in receipts[:-1])
         anchor = self._shipment(at + timedelta(seconds=3))
         unit_cost = source_value / remaining_quantity
-        self._checkpoint(anchor, unit_cost)
+        checkpoint = self._checkpoint(anchor, unit_cost)
+        self.assertEqual(checkpoint.new_cost, unit_cost)
+        self.env.flush_all()
+        self.cr.execute("SELECT new_cost FROM product_value WHERE id = %s", [checkpoint.id])
+        self.assertEqual(float(self.cr.fetchone()[0]), unit_cost)
         for correction in range(3):
             if correction:
                 self.assertFalse(self.product_avco._correct_inventory_valuation(datetime.min))

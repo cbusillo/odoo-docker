@@ -646,3 +646,6 @@ bounded PostgreSQL log tail before cleanup. Odoo 19 skips this
 20-specific extension. Supply an optional second argument of native test tags for
 a focused local run, for example `/valuation_checkpoint_tests`. CI runs the full
 script for each runtime image. The fixtures use synthetic stock and no host ports.
+An optional third argument selects an immutable prior Community 20 runtime for
+the setup phase, exercising upgrade from its existing positioned schema. Without
+that argument, setup reverses the patch to retain first-adoption coverage.
