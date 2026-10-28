@@ -8,6 +8,7 @@ network="odd-readiness-${suffix}"
 postgres="${network}-postgres"
 candidate="${network}-candidate"
 preparation="${network}-preparation"
+transient="${network}-transient"
 fixture_volume="${network}-fixture"
 data_volume="${network}-data"
 fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/odd-readiness.XXXXXX")"
@@ -18,12 +19,14 @@ cleanup() {
 	if [[ "${exit_status}" != 0 ]] && docker inspect "${candidate}" >/dev/null 2>&1; then
 		docker logs "${candidate}" >&2 || true
 	fi
-    docker rm -fv "${candidate}" "${postgres}" "${preparation}" >/dev/null 2>&1 || true
+    docker rm -fv "${candidate}" "${postgres}" "${preparation}" "${transient}" >/dev/null 2>&1 || true
     docker network rm "${network}" >/dev/null 2>&1 || true
     docker volume rm "${fixture_volume}" "${data_volume}" >/dev/null 2>&1 || true
     rm -rf "${fixture_dir}"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 docker create --name "${preparation}" --user root \
     -v "${fixture_volume}:/fixture" -v "${data_volume}:/volumes/data" \
     --entrypoint /bin/sh "${browser_image}" -ec '
@@ -47,9 +50,9 @@ docker exec "${postgres}" pg_isready -h 127.0.0.1 -U odoo >/dev/null
 common=(--network "${network}" -e ODOO_DB_HOST="${postgres}" -e ODOO_DB_USER=odoo
     -e ODOO_DB_PASSWORD=isolated-fixture -v "${fixture_volume}:/fixture"
     -v "${data_volume}:/volumes/data")
-docker run --rm "${common[@]}" "${image_reference}" \
+docker run --rm --name "${transient}" "${common[@]}" "${image_reference}" \
     odoo-bin -d readiness_fixture --init website --without-demo --stop-after-init --max-cron-threads=0 --log-level=warn
-docker run --rm -i "${common[@]}" "${image_reference}" \
+docker run --rm -i --name "${transient}" "${common[@]}" "${image_reference}" \
     odoo-bin shell -d readiness_fixture --db_host="${postgres}" --db_user=odoo \
     --max-cron-threads=0 --log-level=warn < "${repo_root}/scripts/fixtures/readiness/setup.py"
 docker cp "${preparation}:/fixture/contract.json" "${fixture_dir}/contract.json"
@@ -64,7 +67,7 @@ done
 docker exec "${candidate}" /venv/bin/python /fixture/scripts/assets.py
 
 refresh_observations() {
-    docker run --rm "${common[@]}" -e PYTHONPATH=/fixture/browser-driver --entrypoint /venv/bin/python "${browser_image}" \
+    docker run --rm --name "${transient}" "${common[@]}" -e PYTHONPATH=/fixture/browser-driver --entrypoint /venv/bin/python "${browser_image}" \
         /fixture/scripts/browser.py
     docker exec "${candidate}" /bin/sh -ec 'exec /usr/local/bin/launchplane-readiness prepare \
         --contract /fixture/contract.json --evidence /fixture/browser.json > /fixture/observations.json'
@@ -72,7 +75,7 @@ refresh_observations() {
 
 # Warm cold bundles first, then collect new evidence. Production freshness stays
 # strict; unrelated fixture stages never renew an old receipt's timestamp.
-docker run --rm "${common[@]}" -e PYTHONPATH=/fixture/browser-driver --entrypoint /venv/bin/python "${browser_image}" \
+docker run --rm --name "${transient}" "${common[@]}" -e PYTHONPATH=/fixture/browser-driver --entrypoint /venv/bin/python "${browser_image}" \
     /fixture/scripts/browser.py
 refresh_observations
 docker exec "${candidate}" /venv/bin/python /fixture/scripts/check.py
@@ -112,7 +115,7 @@ for fault in install update removal stale-update partial-update; do
     docker exec "${postgres}" psql -U odoo -d readiness_fixture -c "${restore}" >/dev/null
 done
 # A separate-container network peer cannot access the loopback-only surface.
-status="$(docker run --rm --network "${network}" --entrypoint curl "${image_reference}" \
+status="$(docker run --rm --name "${transient}" --network "${network}" --entrypoint curl "${image_reference}" \
     -s -o /dev/null -w '%{http_code}' -X POST "http://${candidate}:8069/launchplane/readiness" \
     -H 'Host: fixture.invalid:8069' -H 'X-Odoo-Database: readiness_fixture' -H 'Content-Type: application/json' -d '{}')"
 test "${status}" = 403
