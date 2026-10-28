@@ -17,6 +17,20 @@ def source_policies() -> dict[str, dict[str, str]]:
         return {row["xmlid"]: row for row in csv.DictReader(stream)}
 
 
+def load_snapshot(parameters: Any) -> dict[str, Any]:
+    record = parameters.search([("key", "=", SNAPSHOT_KEY)])
+    return json.loads(record.value or "{}")
+
+
+def store_snapshot(parameters: Any, snapshot: dict[str, Any]) -> None:
+    record = parameters.search([("key", "=", SNAPSHOT_KEY)])
+    value = json.dumps(snapshot, sort_keys=True)
+    if record:
+        record.value = value
+    else:
+        parameters.create({"key": SNAPSHOT_KEY, "value": value})
+
+
 def all_policies(environment: Any) -> dict[str, Any]:
     policies = (
         environment["ir.access"].with_context(active_test=False).search([], order="id")
@@ -57,15 +71,19 @@ def all_policies(environment: Any) -> dict[str, Any]:
     return json.loads(json.dumps(result))
 
 
-def retained_policies(environment: Any, policies: dict[str, Any]) -> dict[str, Any]:
-    from odoo import fields
-
-    source = source_policies()
-    aliases = {
+def policy_aliases(policies: dict[str, Any]) -> dict[str, str]:
+    return {
         f"{alias[1]}.{alias[2]}": identifier
         for identifier, row in policies.items()
         for alias in row["aliases"]
     }
+
+
+def retained_policies(environment: Any, policies: dict[str, Any]) -> dict[str, Any]:
+    from odoo import fields
+
+    source = source_policies()
+    aliases = policy_aliases(policies)
     group_ids = {
         name: environment.ref(name).id
         for name in {row["group"] for row in source.values()}
@@ -98,20 +116,47 @@ def retained_policies(environment: Any, policies: dict[str, Any]) -> dict[str, A
     return result
 
 
+def validate_prior_policies(
+    before: dict[str, Any] | None,
+    current: dict[str, Any],
+    retained: dict[str, Any],
+    compare_baseline: bool,
+) -> None:
+    if before is None:
+        raise RuntimeError("The native policy baseline is missing")
+    if compare_baseline:
+        if any(current.get(identifier) != row for identifier, row in before.items()):
+            raise RuntimeError(
+                "Native owner update changed a pre-existing policy or alias"
+            )
+        if set(current) - set(before) != {row["id"] for row in retained.values()} - set(
+            before
+        ):
+            raise RuntimeError("Native owner update created an unexpected policy")
+    prior_aliases = policy_aliases(before)
+    for alias, row in retained.items():
+        identifier = prior_aliases.get(alias)
+        if identifier is None:
+            continue
+        prior = before[identifier]
+        if row["id"] != identifier or any(
+            row[key] != prior[key] for key in ("active", "create_uid", "create_date")
+        ):
+            raise RuntimeError(
+                f"Prior retained policy identity/state/create audit changed: {alias}"
+            )
+        if any(reference not in row["aliases"] for reference in prior["aliases"]):
+            raise RuntimeError(f"Prior retained policy reference changed: {alias}")
+
+
 def capture_controls(environment: Any, parameters: Any) -> None:
-    saved = json.loads(parameters.get_str(SNAPSHOT_KEY) or "{}")
+    saved = load_snapshot(parameters)
     current = all_policies(environment)
     retained = retained_policies(environment, current)
     source = source_policies()
-    before = saved.get("before")
-    if before is None or any(
-        current.get(identifier) != row for identifier, row in before.items()
-    ):
-        raise RuntimeError("Native owner update changed a pre-existing policy or alias")
-    if set(current) - set(before) != {row["id"] for row in retained.values()} - set(
-        before
-    ):
-        raise RuntimeError("Native owner update created an unexpected policy")
+    validate_prior_policies(
+        saved.get("before"), current, retained, saved["compare_baseline"]
+    )
     if any(row["name"] != source[alias]["name"] for alias, row in retained.items()):
         raise RuntimeError(
             "The first native source update changed a retained source name"
@@ -145,8 +190,9 @@ def capture_controls(environment: Any, parameters: Any) -> None:
         .read(["name", "state", "latest_version"]),
         "base_inactive": base_alias,
         "nonbase_inactive": other_alias,
+        "compare_baseline": saved["compare_baseline"],
     }
-    parameters.set_str(SNAPSHOT_KEY, json.dumps(snapshot, sort_keys=True))
+    store_snapshot(parameters, snapshot)
     environment.cr.commit()
     print(
         json.dumps(
@@ -160,7 +206,7 @@ def capture_controls(environment: Any, parameters: Any) -> None:
 
 
 def verify_replay(environment: Any, parameters: Any) -> None:
-    saved = json.loads(parameters.get_str(SNAPSHOT_KEY) or "{}")
+    saved = load_snapshot(parameters)
     current = all_policies(environment)
     retained = retained_policies(environment, current)
     if not saved or saved["policies"] != current:
@@ -186,6 +232,8 @@ def verify_replay(environment: Any, parameters: Any) -> None:
                 "phase": "verify",
                 "retained_policies": len(retained),
                 "native_policy_and_alias_replay_equal": True,
+                "whole_prior_policy_baseline_compared": saved["compare_baseline"],
+                "ported_model_access_decisions_observed": False,
                 "original_19_migration_qualified": False,
                 "legacy_owner_module_lifecycle_qualified": False,
             }
@@ -198,11 +246,15 @@ def main(environment: Any, phase: str) -> None:
         raise RuntimeError("The native registry is incomplete")
     parameters = environment["ir.config_parameter"]
     if phase == "before":
-        if parameters.get_str(SNAPSHOT_KEY):
+        if load_snapshot(parameters):
             raise RuntimeError("The native zero-policy snapshot already exists")
-        parameters.set_str(
-            SNAPSHOT_KEY,
-            json.dumps({"before": all_policies(environment)}, sort_keys=True),
+        store_snapshot(
+            parameters,
+            {
+                "before": all_policies(environment),
+                "compare_baseline": os.environ.get("VALUATION_REVERSE_PATCH", "true")
+                == "true",
+            },
         )
         environment.cr.commit()
         return

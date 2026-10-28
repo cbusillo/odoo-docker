@@ -580,18 +580,31 @@ The Community 20 build applies
 native owner data. It retains 37 zero-operation definitions from native 19,
 including their aliases, names, models and groups. A group-bound row uses a
 FALSE-domain permission; a groupless row uses a TRUE-domain restriction.
-Both are neutral under native 20's existing access decisions. The native
-applicability checkboxes describe that representation, not legacy grant bits.
+These shapes are neutral in native permission unions and global restriction
+intersections. Ordinary-role probes qualify the core decisions; the data replay
+is not a per-model business-access test. The native applicability checkboxes
+describe that representation, not legacy grant bits.
 No operation selection or core Python behavior changes. Odoo 19 is unchanged.
 
-Existing 20 databases need the affected owners in their normal gated module
-update. The smoke fixture derives that list from its captured source definitions,
+Existing 20 adoption requires an explicit gated `base` update, which updates
+all installed modules and loads their affected owner data. Image replacement or
+version-based AUTO selection alone is insufficient; no owner manifest is bumped.
+The smoke fixture derives its owner list from the captured source definitions,
 initializes prior owner data, and proves normal update and replay preserve
 policy IDs, create audit, aliases, protection and inactive
-controls. All pre-existing native policies and their aliases must remain intact.
-Its default selection also runs the complete native ACL, access, feedback,
-related-monetary, check-access and rule modules. Focused tags keep their existing
-smaller selection. The normal build/runtime/devtools gates still apply.
+controls. With the default reversed-patch baseline, every pre-existing native
+policy and alias must remain intact. A separately supplied prior image may
+introduce unrelated upstream policy changes; retained policy identities, create
+audit, active state and references must still survive. Replay on the candidate
+always compares the complete policy state. The normal image gates still apply.
+
+The CSV fixture is an immutable projection of the captured native 19 inventory,
+not a mirror to edit alongside the port. Its source is image
+`sha256:723eee28cf5e3dc5e4aec827002acb2d5413556569776c3874eafb43e9ca7b70`;
+the independent captured definition inventory has SHA-256
+`df379e5b40f4eddfff62879fc84feeae8350277c8321f634c1f8d2baf90bbc99`.
+The source capture and native qualification are recorded on
+[the producer issue](https://github.com/cbusillo/odoo-docker/issues/192).
 
 The two wishlist definitions keep their original `website_sale_wishlist.*`
 aliases while `website_sale` supplies the data. Legacy module cleanup or alias
@@ -677,12 +690,13 @@ proves existing unanchored costs/dates and legacy positioned values survive.
 Fixtures and the patch are copied into each container without host bind mounts;
 actual source hashes and resource mounts are recorded before native work.
 It installs a disposable test
-addon on a private internal network, runs all native accounting tests, affected stock classes
-and checkpoint tests, and removes its containers/network. Failed runs include a
+addon on a private internal network and runs native accounting tests, affected
+stock classes, checkpoint tests, and the complete native ACL, access, feedback,
+related-monetary, check-access and rule modules. It removes its containers/network. Failed runs include a
 bounded PostgreSQL log tail before cleanup. Odoo 19 skips this
 20-specific extension. Supply an optional second argument of native test tags for
 a focused local run, for example `/valuation_checkpoint_tests`. CI runs the full
 script for each runtime image. The fixtures use synthetic stock and no host ports.
 An optional third argument selects an immutable prior Community 20 runtime for
 the setup phase, exercising upgrade from its existing positioned schema. Without
-that argument, setup reverses the patch to retain first-adoption coverage.
+that argument, setup reverses the source patches to retain first-adoption coverage.

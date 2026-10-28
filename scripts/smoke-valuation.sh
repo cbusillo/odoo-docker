@@ -140,6 +140,6 @@ PY
     --max-cron-threads=0 --log-level=warn < /opt/access-tests/verify.py
   odoo-bin -d valuation_test --update "$access_modules" --without-demo --stop-after-init \
     --max-cron-threads=0 --http-interface=127.0.0.1 --log-level=warn
-  NATIVE_ACCESS_PHASE=verify odoo-bin shell -d valuation_test --no-http --test-enable --test-tags=-at_install,-post_install \
-    --max-cron-threads=0 --log-level=warn --log-handler=odoo.tests.stats:INFO < /opt/access-tests/verify.py
+  NATIVE_ACCESS_PHASE=verify odoo-bin shell -d valuation_test --no-http \
+    --max-cron-threads=0 --log-level=warn < /opt/access-tests/verify.py
 '
