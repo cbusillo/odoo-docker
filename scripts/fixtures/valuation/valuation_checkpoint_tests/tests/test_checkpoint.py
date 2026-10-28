@@ -160,7 +160,11 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         with freeze_time(at):
             first = self._make_in_move(self.product_avco, 6, unit_cost=10)
             second = self._make_in_move(self.product_avco, 6, unit_cost=20, company=company)
-        checkpoints = self.env["product.value"].create([{"after_move_id": move.id, "value": 80 / 6} for move in first | second])
+        checkpoints = (
+            self.env["product.value"]
+            .with_context(allowed_company_ids=(self.env.company | company).ids)
+            .create([{"after_move_id": move.id, "value": 80 / 6} for move in first | second])
+        )
         with self.assertRaises(ValidationError), self.cr.savepoint():
             checkpoints[0].after_move_id = second
         checkpoints[0].write({"after_move_id": second.id, "company_id": company.id})
