@@ -700,3 +700,19 @@ script for each runtime image. The fixtures use synthetic stock and no host port
 An optional third argument selects an immutable prior Community 20 runtime for
 the setup phase, exercising upgrade from its existing positioned schema. Without
 that argument, setup reverses the source patches to retain first-adoption coverage.
+
+
+## Native Community 20 inline defaults
+
+The normal Community 20 build carries
+[`20.0-inline-parent-context.patch`](patches/20.0-inline-parent-context.patch).
+New inline one2many records use the parent's current field defaults after queued
+changes settle, while retaining explicit Add control overrides. This prevents a
+new transfer line from keeping an older destination than its transfer header.
+Community 19, many2many selectors and record dialogs retain their existing path.
+The patch adds no fields or data migration and does not rewrite existing records.
+
+A deferred-parent native Hoot regression covers the context handoff and control
+overrides. [CM266](https://github.com/cbusillo/odoo-tenant-cm/issues/266) supplies the
+ordinary-user purchase-to-count browser consumer; downstream image adoption and
+Client/runtime qualification remain with the program lead.

@@ -1,0 +1,65 @@
+--- a/addons/web/static/src/views/fields/x2many/x2many_field.js
++++ b/addons/web/static/src/views/fields/x2many/x2many_field.js
+@@ -290,6 +290,7 @@
+     }
+ 
+     async onAdd({ context, editable } = {}) {
++        const controlContext = makeContext([context], this.props.context);
+         context = makeContext([this.props.context, context]);
+         if (this.isMany2Many) {
+             const domain = getFieldDomain(this.props.record, this.props.name, this.props.domain);
+@@ -306,7 +307,7 @@
+                 await this.list.leaveEditMode({ canAbandon: false });
+             }
+             if (!this.list.editedRecord) {
+-                return this.addInLine({ context, editable });
++                return this.addInLine({ context: controlContext, editable });
+             }
+             return;
+         }
+--- a/addons/web/static/tests/views/fields/one2many_field.test.js
++++ b/addons/web/static/tests/views/fields/one2many_field.test.js
+@@ -14009,3 +14009,43 @@
+     await clickSave();
+     expect.verifySteps(["web_save"]);
+ });
++
++test("one2many inline creation uses settled parent context", async () => {
++    Partner._records[0].turtles = [];
++    Partner._onChanges = { foo() {} };
++    const pending = Promise.withResolvers();
++    onRpc("partner", "onchange", async ({ args }) => {
++        if (args[2].includes("foo")) {
++            await pending.promise;
++        }
++    });
++    onRpc("turtle", "onchange", ({ kwargs }) => {
++        expect(kwargs.context.default_turtle_int).toBe(14);
++        expect(kwargs.context.default_turtle_foo).toBe("soft");
++    });
++    await mountView({
++        type: "form",
++        resModel: "partner",
++        resId: 1,
++        arch: `
++            <form>
++                <field name="foo"/>
++                <field name="int_field"/>
++                <field name="turtles" context="{'default_turtle_int': int_field, 'default_turtle_foo': 'hard'}">
++                    <list editable="bottom">
++                        <control>
++                            <create string="Add soft" context="{'default_turtle_foo': 'soft'}"/>
++                        </control>
++                        <field name="turtle_int"/>
++                        <field name="turtle_foo"/>
++                    </list>
++                </field>
++            </form>`,
++    });
++    await contains("[name=foo] input").edit("pending", { confirm: false });
++    await contains("[name=int_field] input").edit("14", { confirm: false });
++    await contains(".o_field_x2many_list_row_add button").click();
++    pending.resolve();
++    await animationFrame();
++    expect(".o_data_row [name=turtle_int] input").toHaveValue("14");
++});
