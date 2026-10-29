@@ -123,7 +123,10 @@ def observe_cache_order(case: Any, setup: dict[str, Any], parent_first: bool) ->
         order = list(operations)
         if parent_first:
             order = ["own_partner_write", "other_partner_write"] + [name for name in order if "partner_write" not in name]
-        environment.registry.clear_cache()
+        if hasattr(environment.transaction, "invalidate_ormcache"):
+            environment.transaction.invalidate_ormcache()
+        else:
+            environment.registry.clear_cache()
         probes = {"user": other, "parent": other.partner_id}
         probe_order = ("parent", "user") if parent_first else ("user", "parent")
         cache_probes = {name: probes[name].has_access("write") for name in probe_order}
@@ -185,7 +188,6 @@ def observe_restricted_operations(case: Any, cursor: Any, environment: Any, root
                 "perm_unlink": False,
             }
         )
-    environment.registry.clear_cache()
     read = observe_operation(case, cursor, environment, lambda: other.read(["login"]))
     write = observe_operation(case, cursor, environment, lambda: other.write({"login": "restricted-other-login"}))
     case.assertTrue(read["allowed"])

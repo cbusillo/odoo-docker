@@ -15,6 +15,7 @@ from .nested_profile import NESTED_OBSERVATIONS, observe_nested_commands
 
 PROFILE_OBSERVATIONS: dict[str, Any] = {}
 USER_READ_OBSERVATIONS: dict[str, Any] = {}
+OWN_READ_OBSERVATIONS: dict[str, Any] = {}
 _logger = logging.getLogger(__name__)
 
 
@@ -24,6 +25,79 @@ class RevertOperation(Exception):
 
 @tagged("post_install", "-at_install")
 class TestOwnProfile(TransactionCase):
+    def test_own_safe_reads_across_parent_company_restrictions(self) -> None:
+        selected_company = self.env.company
+        default_company = self.env["res.company"].create({"name": "Own read default company"})
+        users = (
+            self.env["res.users"]
+            .with_context(no_reset_password=True)
+            .create(
+                [
+                    {
+                        "name": "Own read " + role,
+                        "login": "own-read-" + role,
+                        "group_ids": [Command.set(self.env.ref("base.group_portal").ids)],
+                        "company_id": default_company.id,
+                        "company_ids": [Command.set((selected_company | default_company).ids)],
+                    }
+                    for role in ("actor", "other")
+                ]
+            )
+        )
+        users.partner_id.write({"company_id": default_company.id})
+        actor, other = users
+        environment = actor.with_user(actor).with_context(allowed_company_ids=selected_company.ids).env
+        own = environment["res.users"].browse(actor.id)
+        self.assertFalse(own.env.su)
+        self.assertNotEqual(own.env.uid, SUPERUSER_ID)
+        before = self._snapshot(users)
+        parent_read = actor.partner_id.with_env(environment).has_access("read")
+        self.assertFalse(parent_read)
+        self.assertTrue(actor.partner_id.partner_share)
+        OWN_READ_OBSERVATIONS.clear()
+        OWN_READ_OBSERVATIONS.update(
+            actor_id=actor.id,
+            uid=environment.uid,
+            su=environment.su,
+            selected_company_id=environment.company.id,
+            context_company_ids=list(environment.context["allowed_company_ids"]),
+            default_company_id=actor.company_id.id,
+            allowed_company_ids=actor.company_ids.ids,
+            partner_company_id=actor.partner_id.company_id.id,
+            partner_share=actor.partner_id.partner_share,
+            parent_read=parent_read,
+            source_readable_fields=sorted(actor.SELF_READABLE_FIELDS) if hasattr(actor, "SELF_READABLE_FIELDS") else None,
+            operations={},
+        )
+        cases = {
+            "own_base_safe": (own, ["name", "email", "login"]),
+            "own_mail_safe": (own, ["notification_type"]),
+            "own_warehouse_safe": (own, ["property_warehouse_id"]),
+            "own_mixed": (own, ["name", "create_date"]),
+            "own_all_fields": (own, None),
+            "other_safe": (other.with_env(environment), ["name", "login"]),
+            "multiple_safe": (users.with_env(environment), ["name", "login"]),
+        }
+        for name, (record, fields) in cases.items():
+            observation = {"allowed": False, "error": None, "fields": fields}
+            if fields:
+                observation["field_read_access"] = {
+                    field: record._has_field_access(record._fields[field], "read") for field in fields
+                }
+            try:
+                observation["allowed"] = bool(record.read(fields))
+            except UserError as error:
+                observation["error"] = {"type": type(error).__name__, "message": str(error)}
+            self.assertEqual(self._snapshot(users), before)
+            observation["sql_unchanged"] = True
+            OWN_READ_OBSERVATIONS["operations"][name] = observation
+        OWN_READ_OBSERVATIONS["operations"]["own_search"] = {
+            "allowed": bool(own.search([("id", "=", actor.id)])),
+            "error": None,
+            "sql_unchanged": self._snapshot(users) == before,
+        }
+        _logger.info("Native own-read observations: %s", json.dumps(OWN_READ_OBSERVATIONS, sort_keys=True))
+
     def test_delegated_user_operations_preserve_parent_restrictions(self) -> None:
         observe_delegated_access(self)
         _logger.info("Native delegated access observations: %s", json.dumps(DELEGATED_OBSERVATIONS, sort_keys=True))
@@ -262,8 +336,11 @@ class TestOwnProfile(TransactionCase):
     def _observe_marker_write(self, target: Any, users: Any) -> dict[str, Any]:
         field = target._fields["login"]
         with patch.object(field, "user_writeable", True, create=True):
+            field_write_access = target._has_field_access(field, "write")
+            self.assertTrue(field_write_access)
             result = self._observe_write(target, {"login": "profile-marker-login"}, users)
             result["marker_enabled"] = field.user_writeable
+            result["field_write_access"] = field_write_access
         return result
 
     def _observe_profile_operations(self) -> None:
@@ -298,15 +375,9 @@ class TestOwnProfile(TransactionCase):
                 {"name": "Profile warehouse", "code": "PFILE", "company_id": self.env.company.id}
             )
         PROFILE_OBSERVATIONS.clear()
-        if hasattr(user_model, "_self_accessible_fields"):
-            self_writeable = user_model._self_accessible_fields()[1]
-            field_source = "_self_accessible_fields"
-        else:
-            self_writeable = {name for name, field in user_model._fields.items() if getattr(field, "user_writeable", False)}
-            field_source = "user_writeable"
+        native_markers = {name for name, field in user_model._fields.items() if getattr(field, "user_writeable", False)}
         PROFILE_OBSERVATIONS.update(
-            self_writeable_fields=sorted(self_writeable),
-            self_writeable_source=field_source,
+            native_marker_fields=sorted(native_markers),
             self_sudo_fields=sorted(user_model.SELF_WRITEABLE_FIELDS),
             roles={},
         )
