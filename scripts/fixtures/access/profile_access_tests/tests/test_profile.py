@@ -89,7 +89,7 @@ class TestOwnProfile(TransactionCase):
             self.assertEqual(self._snapshot(users), before)
 
     def test_own_profile_preserves_bounded_updates(self) -> None:
-        self.test_profile_and_direct_contact_operations()
+        self._observe_profile_operations()
         for actor in PROFILE_OBSERVATIONS["roles"].values():
             self.assertFalse(actor["partner_model_write"])
             for name, operation in actor["operations"].items():
@@ -190,7 +190,7 @@ class TestOwnProfile(TransactionCase):
         observation["rollback_verified"] = True
         return observation
 
-    def test_profile_and_direct_contact_operations(self) -> None:
+    def _observe_profile_operations(self) -> None:
         user_model = self.env["res.users"].with_context(no_reset_password=True)
         group_field = "group_ids" if "group_ids" in user_model._fields else "groups_id"
         created = user_model.create(
@@ -223,7 +223,12 @@ class TestOwnProfile(TransactionCase):
         else:
             self_writeable = {name for name, field in user_model._fields.items() if getattr(field, "user_writeable", False)}
             field_source = "user_writeable"
-        PROFILE_OBSERVATIONS.update(self_writeable_fields=sorted(self_writeable), self_writeable_source=field_source, roles={})
+        PROFILE_OBSERVATIONS.update(
+            self_writeable_fields=sorted(self_writeable),
+            self_writeable_source=field_source,
+            self_sudo_fields=sorted(user_model.SELF_WRITEABLE_FIELDS),
+            roles={},
+        )
         for role, actor in (("internal", internal), ("portal", portal), ("public", public)):
             membership = {
                 alias: actor.has_group(alias)
