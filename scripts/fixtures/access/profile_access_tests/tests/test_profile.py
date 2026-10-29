@@ -93,7 +93,15 @@ class TestOwnProfile(TransactionCase):
         for actor in PROFILE_OBSERVATIONS["roles"].values():
             self.assertFalse(actor["partner_model_write"])
             for name, operation in actor["operations"].items():
-                if name in {"own_name", "own_signature", "own_action", "unavailable_company", "name_unavailable_company"}:
+                if name in {
+                    "own_name",
+                    "own_signature",
+                    "own_action",
+                    "unavailable_company",
+                    "name_unavailable_company",
+                    "own_mail_preference",
+                    "own_warehouse_preference",
+                }:
                     self.assertTrue(operation["allowed"], name)
                     self.assertTrue(operation["groups_unchanged"], name)
                     self.assertTrue(operation["company_membership_unchanged"], name)
@@ -119,7 +127,8 @@ class TestOwnProfile(TransactionCase):
     def _snapshot(self, users: Any) -> dict[str, Any]:
         self.env.flush_all()
         self.env.cr.execute(
-            "SELECT id, login, signature, action_id, company_id, partner_id, active, create_uid, write_uid, create_date, write_date "
+            "SELECT id, login, signature, action_id, company_id, partner_id, active, create_uid, write_uid, create_date, write_date, "
+            "to_jsonb(res_users)->'notification_type', to_jsonb(res_users)->'property_warehouse_id' "
             "FROM res_users WHERE id=ANY(%s) ORDER BY id",
             (users.ids,),
         )
@@ -175,6 +184,10 @@ class TestOwnProfile(TransactionCase):
                             actual = partner_rows[user_rows[identifier][5]][1]
                         elif field == "street":
                             actual = partner_rows[user_rows[identifier][5]][-1]
+                        elif field == "notification_type":
+                            actual = user_rows[identifier][11]
+                        elif field == "property_warehouse_id":
+                            actual = user_rows[identifier][12].get(str(target.env.company.id))
                         else:
                             actual = user_rows[identifier][{"login": 1, "signature": 2, "action_id": 3}[field]]
                         self.assertEqual(actual, value)
@@ -216,6 +229,11 @@ class TestOwnProfile(TransactionCase):
         action = self.env["ir.actions.act_window"].create(
             {"name": "Profile home action", "res_model": "res.partner", "view_mode": "list,form"}
         )
+        warehouse = None
+        if "property_warehouse_id" in user_model._fields:
+            warehouse = self.env["stock.warehouse"].create(
+                {"name": "Profile warehouse", "code": "PFILE", "company_id": self.env.company.id}
+            )
         PROFILE_OBSERVATIONS.clear()
         if hasattr(user_model, "_self_accessible_fields"):
             self_writeable = user_model._self_accessible_fields()[1]
@@ -262,6 +280,13 @@ class TestOwnProfile(TransactionCase):
                 "direct_own_contact": (actor.partner_id.with_env(own.env), {"name": "Profile direct own witness"}),
                 "direct_other_contact": (other.partner_id.with_env(own.env), {"name": "Profile direct other witness"}),
             }
+            if "notification_type" in user_model._fields:
+                cases["own_mail_preference"] = (own, {"name": "Profile mail preference witness", "notification_type": "email"})
+            if warehouse:
+                cases["own_warehouse_preference"] = (
+                    own,
+                    {"name": "Profile warehouse preference witness", "property_warehouse_id": warehouse.id},
+                )
             observations = {name: self._observe_write(target, values, users) for name, (target, values) in cases.items()}
             PROFILE_OBSERVATIONS["roles"][role] = {
                 "actor_id": actor.id,
