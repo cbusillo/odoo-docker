@@ -56,6 +56,35 @@ def snapshot_keys(cursor: Any, identifiers: list[int]) -> list[Any]:
     return cursor.fetchall()
 
 
+def observe_group_sources(environment: Any, user_id: int) -> dict[str, Any]:
+    cursor = environment.cr
+    cursor.execute("SELECT active FROM res_users WHERE id=%s", (user_id,))
+    user = cursor.fetchone()
+    cursor.execute("SELECT gid FROM res_groups_users_rel WHERE uid=%s ORDER BY gid", (user_id,))
+    groups = [row[0] for row in cursor.fetchall()]
+    cursor.execute("SELECT pg_backend_pid(), txid_current_snapshot()::text")
+    backend, snapshot = cursor.fetchone()
+    root = environment(su=True)
+    record = root["res.users"].browse(user_id)
+    default = environment.transaction.default_env
+    return {
+        "user_exists": user is not None,
+        "active": user[0] if user else None,
+        "sql_group_ids": groups,
+        "orm_group_ids": record.group_ids.ids if user else None,
+        "orm_all_group_ids": record.all_group_ids.ids if user else None,
+        "method_group_ids": list(record._get_group_ids()) if user else None,
+        "group_xmlids": {name: root.ref(name).id for name in ("base.group_user", "base.group_portal", "base.group_public")},
+        "uid": environment.uid,
+        "su": environment.su,
+        "default_env_uid": default.uid if default is not None else None,
+        "default_env_su": default.su if default is not None else None,
+        "cursor_type": type(cursor).__name__,
+        "backend_pid": backend,
+        "transaction_snapshot": snapshot,
+    }
+
+
 def observe_as_first_principal(case: Any, role: str, user_id: int, setup: dict[str, Any]) -> dict[str, Any]:
     with case.registry.cursor() as cursor:
         environment = api.Environment(cursor, user_id, {})
@@ -75,6 +104,12 @@ def observe_as_first_principal(case: Any, role: str, user_id: int, setup: dict[s
                 "base.group_system",
             )
         }
+        actor = {"actor_id": user_id, "membership": membership, "operations": {}, "first_environment_verified": True}
+        NESTED_OBSERVATIONS[role] = actor
+        actor["group_sources"] = {
+            "main": observe_group_sources(case.env, user_id),
+            "fresh": observe_group_sources(environment, user_id),
+        }
         case.assertTrue(membership["base.group_" + ("user" if role == "internal" else role)])
         case.assertFalse(
             any(membership[name] for name in ("base.group_partner_manager", "base.group_erp_manager", "base.group_system"))
@@ -90,7 +125,7 @@ def observe_as_first_principal(case: Any, role: str, user_id: int, setup: dict[s
             "own_clear": Command.clear(),
         }
         before = snapshot_keys(cursor, list(keys.values()))
-        operations = {}
+        operations = actor["operations"]
         for name, command in commands.items():
             observation = {
                 "allowed": False,
@@ -116,13 +151,8 @@ def observe_as_first_principal(case: Any, role: str, user_id: int, setup: dict[s
             case.assertFalse(environment.transaction.default_env.su)
             observation["rollback_verified"] = True
             operations[name] = observation
-        return {
-            "actor_id": user_id,
-            "membership": membership,
-            "operations": operations,
-            "allow_sudo_commands": environment["res.users.apikeys"]._allow_sudo_commands,
-            "first_environment_verified": True,
-        }
+        actor["allow_sudo_commands"] = environment["res.users.apikeys"]._allow_sudo_commands
+        return actor
 
 
 def cleanup_sentinels(case: Any, setup: dict[str, Any]) -> None:
@@ -146,4 +176,4 @@ def observe_nested_commands(case: Any) -> None:
             NESTED_OBSERVATIONS[role] = observe_as_first_principal(case, role, user_id, setup)
     finally:
         cleanup_sentinels(case, setup)
-    NESTED_OBSERVATIONS["cleanup_verified"] = True
+        NESTED_OBSERVATIONS["cleanup_verified"] = True
