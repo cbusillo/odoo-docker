@@ -573,6 +573,27 @@ Run-number ordering belongs to this workflow identity. Keep `build.yml` in place
 when reorganizing jobs; recreating it requires an ordering migration before
 publication. Superseded families are visible as Actions notices.
 
+## Native Community 20 own-profile access
+
+The 20.0 runtime applies
+[`20.0-self-profile-access.patch`](patches/20.0-self-profile-access.patch)
+to preserve Odoo 19's bounded own-user profile updates. The explicit
+`SELF_WRITEABLE_FIELDS` properties in base, mail and sale_stock authorize
+that operation's elevation. Odoo 20's `user_writeable` field markers retain
+their separate field-access purpose; an addon marker does not authorize sudo.
+The source port keeps the allowed-company clamp and native validation,
+cache invalidation and logging.
+
+The User model retains its Odoo 19 delegation boundary through the native
+model-specific inheritance-access hook. Other models keep their parent checks.
+The newer direct self-Partner write policy keeps its record and reference with
+a false domain, so an ordinary user still cannot write the contact directly.
+The native access fixtures exercise profile updates and denials, SQL rollback,
+and nested commands using fresh cursors whose first environment belongs to the
+ordinary principal. They create only unusable synthetic key sentinels and
+remove their committed fixture records. The normal 20.0 valuation smoke selects
+these checks alongside its native access safety tests.
+
 ## Native Community 20 retained zero-access data
 
 The Community 20 build applies

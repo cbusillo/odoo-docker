@@ -57,7 +57,7 @@ odoo_run=(docker create --name "${name}-tests" --network "$name"
   -e ODOO_DB_HOST="${name}-db" -e ODOO_DB_USER=odoo
   -e PGHOST="${name}-db" -e PGUSER=odoo -e PGPORT=5432
   -e ODOO_DB_PASSWORD=synthetic-valuation
-  -e 'ODOO_ADDONS_PATH=/opt/valuation-tests,/opt/launchplane/addons,/odoo/addons,/odoo/odoo/addons'
+  -e 'ODOO_ADDONS_PATH=/opt/valuation-tests,/opt/access-tests,/opt/launchplane/addons,/odoo/addons,/odoo/odoo/addons'
   --entrypoint /bin/bash)
 run_fixture() {
   local source_proof='
@@ -117,10 +117,10 @@ classes = {node.name for name in files for node in ast.parse((root / name).read_
 print(",".join("/test_base:" + name for name in sorted(classes)))
 PY
 )"
-    VALUATION_TEST_TAGS="$VALUATION_TEST_TAGS,$access_tags"
+    VALUATION_TEST_TAGS="$VALUATION_TEST_TAGS,$access_tags,/profile_access_tests:TestOwnProfile.test_own_profile_preserves_bounded_updates,/profile_access_tests:TestOwnProfile.test_nested_api_key_commands_keep_the_original_principal,/profile_access_tests:TestOwnProfile.test_user_read_and_search_boundaries"
   fi
   access_modules="$(NATIVE_ACCESS_PHASE=owners /venv/bin/python /opt/access-tests/verify.py)"
-  odoo-bin -d valuation_test --update "base,stock,stock_account,$access_modules" --init valuation_checkpoint_tests,test_base --without-demo \
+  odoo-bin -d valuation_test --update "base,stock,stock_account,$access_modules" --init valuation_checkpoint_tests,test_base,profile_access_tests --without-demo \
     --test-tags "$VALUATION_TEST_TAGS" --stop-after-init --max-cron-threads=0 \
     --http-interface=127.0.0.1 --log-level=warn --log-handler=odoo.tests:INFO \
     --log-handler=odoo.addons.valuation_checkpoint_tests:INFO 2>&1 | tee /tmp/valuation-tests.log
@@ -133,6 +133,7 @@ PY
   fi
   if [[ "$NATIVE_ACCESS_SAFETY" == true ]]; then
     grep -Eq "odoo[.]tests[.]stats: test_base: [1-9][0-9]* tests" /tmp/valuation-tests.log
+    grep -Eq "odoo[.]tests[.]stats: profile_access_tests: [1-9][0-9]* tests" /tmp/valuation-tests.log
   fi
   VALUATION_UPGRADE_PHASE=verify odoo-bin shell -d valuation_test --no-http \
     --max-cron-threads=0 --log-level=warn < /opt/valuation-tests/upgrade.py

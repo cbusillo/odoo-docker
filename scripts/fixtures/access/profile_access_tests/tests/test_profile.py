@@ -7,7 +7,10 @@ from odoo.exceptions import UserError
 from odoo.tests import tagged
 from odoo.tests.common import TransactionCase
 
+from .nested_profile import NESTED_OBSERVATIONS, observe_nested_commands
+
 PROFILE_OBSERVATIONS: dict[str, Any] = {}
+USER_READ_OBSERVATIONS: dict[str, Any] = {}
 
 
 class RevertOperation(Exception):
@@ -16,6 +19,103 @@ class RevertOperation(Exception):
 
 @tagged("post_install", "-at_install")
 class TestOwnProfile(TransactionCase):
+    def test_user_read_and_search_boundaries(self) -> None:
+        user_model = self.env["res.users"].with_context(no_reset_password=True)
+        roles = {"internal": "base.group_user", "portal": "base.group_portal", "other": "base.group_portal"}
+        users = user_model.create(
+            [
+                {
+                    "name": "Read boundary " + role,
+                    "login": "read-boundary-" + role,
+                    "email": role + "@example.invalid",
+                    "group_ids": [Command.set(self.env.ref(group).ids)],
+                    "company_id": self.env.company.id,
+                    "company_ids": [Command.set(self.env.company.ids)],
+                }
+                for role, group in roles.items()
+            ]
+        )
+        internal, portal, other = users
+        child = user_model.create(
+            {
+                "name": "Read boundary child",
+                "login": "read-boundary-child",
+                "group_ids": [Command.set(self.env.ref("base.group_portal").ids)],
+                "company_id": self.env.company.id,
+                "company_ids": [Command.set(self.env.company.ids)],
+            }
+        )
+        child.partner_id.parent_id = portal.partner_id
+        foreign_company = self.env["res.company"].create({"name": "Read boundary foreign company"})
+        other.partner_id.company_id = foreign_company
+        public = self.env.ref("base.public_user")
+        users |= child | public
+        before = self._snapshot(users)
+        USER_READ_OBSERVATIONS.clear()
+        targets = {"internal": internal, "portal": portal, "other_partner_company": other, "portal_child": child, "public": public}
+        for role, actor in (("internal", internal), ("portal", portal), ("public", public)):
+            environment = actor.with_user(actor).with_context(allowed_company_ids=actor.company_ids.ids).env
+            self.assertFalse(environment.su)
+            self.assertNotEqual(environment.uid, SUPERUSER_ID)
+            observations = {}
+            for label, target in targets.items():
+                record = target.with_env(environment)
+                for operation in ("read", "search"):
+                    error = None
+                    allowed = False
+                    try:
+                        if operation == "read":
+                            allowed = bool(record.read(["name", "email", "login"]))
+                        else:
+                            allowed = record.id in record.search([("id", "=", record.id)]).ids
+                    except UserError as denied:
+                        error = {"type": type(denied).__name__, "message": str(denied)}
+                    observations[label + "/" + operation] = {"allowed": allowed, "error": error}
+            partner = other.partner_id.with_env(environment)
+            partner_allowed = partner.has_access("read")
+            USER_READ_OBSERVATIONS[role] = {
+                "actor_id": actor.id,
+                "uid": environment.uid,
+                "su": environment.su,
+                "company_ids": actor.company_ids.ids,
+                "other_user_company_ids": other.company_ids.ids,
+                "other_partner_company_id": foreign_company.id,
+                "other_partner_read": partner_allowed,
+                "operations": observations,
+            }
+            if role == "internal":
+                self.assertFalse(partner_allowed)
+                self.assertTrue(observations["other_partner_company/read"]["allowed"])
+            self.assertEqual(self._snapshot(users), before)
+
+    def test_own_profile_preserves_bounded_updates(self) -> None:
+        self.test_profile_and_direct_contact_operations()
+        for actor in PROFILE_OBSERVATIONS["roles"].values():
+            self.assertFalse(actor["partner_model_write"])
+            for name, operation in actor["operations"].items():
+                if name in {"own_name", "own_signature", "own_action", "unavailable_company", "name_unavailable_company"}:
+                    self.assertTrue(operation["allowed"], name)
+                    self.assertTrue(operation["groups_unchanged"], name)
+                    self.assertTrue(operation["company_membership_unchanged"], name)
+                    if "company_id" in operation["fields"]:
+                        self.assertFalse(operation["company_changed"], name)
+                    if name != "unavailable_company":
+                        self.assertTrue(operation["flushed_change"], name)
+                else:
+                    self.assertFalse(operation["allowed"], name)
+                    self.assertEqual(operation["error"]["type"], "AccessError", name)
+
+    def test_nested_api_key_commands_keep_the_original_principal(self) -> None:
+        observe_nested_commands(self)
+        self.assertTrue(NESTED_OBSERVATIONS["cleanup_verified"])
+        for role, actor in NESTED_OBSERVATIONS.items():
+            if role == "cleanup_verified":
+                continue
+            self.assertFalse(actor["allow_sudo_commands"])
+            for name, operation in actor["operations"].items():
+                self.assertFalse(operation["allowed"], role + "/" + name)
+                self.assertEqual(operation["error"]["type"], "AccessError", role + "/" + name)
+
     def _snapshot(self, users: Any) -> dict[str, Any]:
         self.env.flush_all()
         self.env.cr.execute(

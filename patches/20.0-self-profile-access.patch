@@ -1,0 +1,84 @@
+diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_users.py
+--- a/odoo/addons/base/models/res_users.py
++++ b/odoo/addons/base/models/res_users.py
+@@ -174,6 +174,7 @@
+     _description = 'User'
+     _explanation = "Represents a person who has access to the system. Users have login credentials, assigned groups for security permissions, and are linked to a partner record for contact information."
+     _inherits = {'res.partner': 'partner_id'}
++    _check_inherits_access = False
+     _order = 'name, login'
+     _allow_sudo_commands = False
+ 
+@@ -186,6 +187,10 @@
+     def _valid_field_parameter(self, field, name):
+         # see `_has_field_access``
+         return name == 'user_writeable' or super()._valid_field_parameter(field, name)
++
++    @property
++    def SELF_WRITEABLE_FIELDS(self) -> list[str]:
++        return ['signature', 'action_id', 'company_id', 'email', 'name', 'image_1920', 'lang', 'tz', 'api_key_ids', 'phone']
+ 
+     def _default_groups(self):
+         """Default groups for employees
+@@ -213,7 +218,7 @@
+     signature = fields.Html(string="Email Signature", compute='_compute_signature', readonly=False, store=True, user_writeable=True)
+     active = fields.Boolean(default=True)
+     active_partner = fields.Boolean(related='partner_id.active', readonly=True, string="Partner is Active")
+-    action_id = fields.Many2one('ir.actions.actions', string='Home Action',
++    action_id = fields.Many2one('ir.actions.actions', string='Home Action', user_writeable=True,
+         help="If specified, this action will be opened at log on for this user, in addition to the standard menu.")
+     log_ids = fields.One2many('res.users.log', 'create_uid', string='User log entries')
+     device_ids = fields.One2many('res.device', 'user_id', string='User devices')
+@@ -687,6 +692,12 @@
+         if vals.get('active'):
+             # unarchive partners before unarchiving the users
+             self.partner_id.action_unarchive()
++
++        if self == self.env.user and set(vals).issubset(self.SELF_WRITEABLE_FIELDS):
++            vals = vals.copy()
++            if 'company_id' in vals and vals['company_id'] not in self.env.user.company_ids.ids:
++                del vals['company_id']
++            self = self.sudo()
+ 
+         if 'company_id' in vals or 'company_ids' in vals:
+             # Access cache depends on the company, clear it
+diff --git a/odoo/addons/base/security/ir.access.csv b/odoo/addons/base/security/ir.access.csv
+--- a/odoo/addons/base/security/ir.access.csv
++++ b/odoo/addons/base/security/ir.access.csv
+@@ -55,7 +55,7 @@
+ res_partner_portal_public_rule,res_partner: portal/public: read access on my commercial partner,res.partner,base.group_everyone,r,"[('id', 'child_of', user.commercial_partner_id.id)]"
+ access_res_partner_group_partner_manager,res_partner group_partner_manager,res.partner,base.group_partner_manager,cd,
+ res_partner_rule_edit_all,edit all,res.partner,base.group_partner_manager,u,
+-res_partner_rule_write_self,self user write access,res.partner,base.group_user,u,"[('id', '=', user.partner_id.id)]"
++res_partner_rule_write_self,self user write access,res.partner,base.group_user,u,"[(0, '=', 1)]"
+ res_partner_rule,res.partner company,res.partner,,crud,"['|', '|', ('partner_share', '=', False), ('company_id', 'parent_of', company_ids), ('company_id', '=', False)]"
+ access_clearing_label_group_everyone,clearing_label_group_everyone,clearing.label,base.group_everyone,r,
+ res_partner_bank_rule_user,Partner bank user rule,res.partner.bank,base.group_user,r,
+diff --git a/addons/mail/models/res_users.py b/addons/mail/models/res_users.py
+--- a/addons/mail/models/res_users.py
++++ b/addons/mail/models/res_users.py
+@@ -22,6 +22,10 @@
+     _name = "res.users"
+     _inherit = ['mail.thread', 'mail.activity.mixin', 'res.users']
+     _mail_post_access = 'read'
++
++    @property
++    def SELF_WRITEABLE_FIELDS(self) -> list[str]:
++        return super().SELF_WRITEABLE_FIELDS + ['notification_type', 'out_of_office_from', 'out_of_office_message', 'out_of_office_to']
+ 
+     name = fields.Char(tracking=1)
+     email = fields.Char(tracking=2)
+diff --git a/addons/sale_stock/models/res_users.py b/addons/sale_stock/models/res_users.py
+--- a/addons/sale_stock/models/res_users.py
++++ b/addons/sale_stock/models/res_users.py
+@@ -6,6 +6,10 @@
+ class ResUsers(models.Model):
+     _inherit = 'res.users'
+ 
++    @property
++    def SELF_WRITEABLE_FIELDS(self) -> list[str]:
++        return super().SELF_WRITEABLE_FIELDS + ['property_warehouse_id']
++
+     property_warehouse_id = fields.Many2one('stock.warehouse', string='Default Warehouse', company_dependent=True, check_company=True, user_writeable=True)
+ 
+     def _get_default_warehouse_id(self):
