@@ -406,6 +406,8 @@ age. Cleanup stops before deleting anything when a retained index cannot be
 inspected or a readable child cannot be reconciled with package inventory.
 Children already missing from the registry are reported without preventing
 protection of the remaining recoverable manifests.
+A retained tagged index whose every child is already missing cannot be pulled,
+so it is pruned instead of reported.
 
 GHCR retention is repo-local package hygiene. This repo owns the package tags it
 publishes, so the retention workflow may delete only this repo's old package
