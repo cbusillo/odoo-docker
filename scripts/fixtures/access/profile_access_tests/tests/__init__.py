@@ -1,2 +1,1 @@
-from . import test_profile
-from . import test_group_policy
+from . import test_group_policy, test_profile
