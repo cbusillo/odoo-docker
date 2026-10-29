@@ -107,7 +107,9 @@ run_fixture "$image" '
   git -C /odoo apply --reverse --check /opt/native-valuation.patch
   git -C /odoo apply --reverse --check /opt/native-zero-access-data.patch
   record_sources
+  access_test_modules="valuation_checkpoint_tests,test_base,profile_access_tests"
   if [[ "$NATIVE_ACCESS_SAFETY" == true ]]; then
+    access_test_modules="$access_test_modules,sale_stock"
     access_tags="$(/venv/bin/python - <<"PY"
 import ast
 from pathlib import Path
@@ -120,7 +122,7 @@ PY
     VALUATION_TEST_TAGS="$VALUATION_TEST_TAGS,$access_tags,/profile_access_tests:TestOwnProfile.test_own_profile_preserves_bounded_updates,/profile_access_tests:TestOwnProfile.test_nested_api_key_commands_keep_the_original_principal,/profile_access_tests:TestOwnProfile.test_user_read_and_search_boundaries"
   fi
   access_modules="$(NATIVE_ACCESS_PHASE=owners /venv/bin/python /opt/access-tests/verify.py)"
-  odoo-bin -d valuation_test --update "base,stock,stock_account,$access_modules" --init valuation_checkpoint_tests,test_base,profile_access_tests --without-demo \
+  odoo-bin -d valuation_test --update "base,stock,stock_account,$access_modules" --init "$access_test_modules" --without-demo \
     --test-tags "$VALUATION_TEST_TAGS" --stop-after-init --max-cron-threads=0 \
     --http-interface=127.0.0.1 --log-level=warn --log-handler=odoo.tests:INFO \
     --log-handler=odoo.addons.valuation_checkpoint_tests:INFO 2>&1 | tee /tmp/valuation-tests.log

@@ -61,9 +61,9 @@ def observe_as_first_principal(case: Any, role: str, user_id: int, setup: dict[s
         environment = api.Environment(cursor, user_id, {})
         case.assertEqual(environment.transaction.default_env.uid, user_id)
         case.assertFalse(environment.transaction.default_env.su)
-        own = environment.user
-        case.assertFalse(environment.su)
-        case.assertNotEqual(environment.uid, SUPERUSER_ID)
+        own = environment["res.users"].browse(user_id)
+        case.assertFalse(own.env.su)
+        case.assertNotEqual(own.env.uid, SUPERUSER_ID)
         membership = {
             name: own.has_group(name)
             for name in (
@@ -95,8 +95,8 @@ def observe_as_first_principal(case: Any, role: str, user_id: int, setup: dict[s
             observation = {
                 "allowed": False,
                 "error": None,
-                "uid": environment.uid,
-                "su": environment.su,
+                "uid": own.env.uid,
+                "su": own.env.su,
                 "default_env_uid": environment.transaction.default_env.uid,
                 "default_env_su": environment.transaction.default_env.su,
             }

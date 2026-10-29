@@ -57,9 +57,25 @@ class TestOwnProfile(TransactionCase):
             environment = actor.with_user(actor).with_context(allowed_company_ids=actor.company_ids.ids).env
             self.assertFalse(environment.su)
             self.assertNotEqual(environment.uid, SUPERUSER_ID)
+            membership = {
+                name: actor.has_group(name)
+                for name in (
+                    "base.group_user",
+                    "base.group_portal",
+                    "base.group_public",
+                    "base.group_partner_manager",
+                    "base.group_erp_manager",
+                    "base.group_system",
+                )
+            }
+            self.assertTrue(membership["base.group_" + ("user" if role == "internal" else role)])
+            self.assertFalse(
+                any(membership[name] for name in ("base.group_partner_manager", "base.group_erp_manager", "base.group_system"))
+            )
             observations = {}
             for label, target in targets.items():
                 record = target.with_env(environment)
+                expected_read = role != "portal" or target in (portal | child)
                 for operation in ("read", "search"):
                     error = None
                     allowed = False
@@ -71,12 +87,15 @@ class TestOwnProfile(TransactionCase):
                     except UserError as denied:
                         error = {"type": type(denied).__name__, "message": str(denied)}
                     observations[label + "/" + operation] = {"allowed": allowed, "error": error}
+                    expected = expected_read and (operation == "read" or target.active)
+                    self.assertEqual(allowed, bool(expected), role + "/" + label + "/" + operation)
             partner = other.partner_id.with_env(environment)
             partner_allowed = partner.has_access("read")
             USER_READ_OBSERVATIONS[role] = {
                 "actor_id": actor.id,
                 "uid": environment.uid,
                 "su": environment.su,
+                "membership": membership,
                 "company_ids": actor.company_ids.ids,
                 "other_user_company_ids": other.company_ids.ids,
                 "other_partner_company_id": foreign_company.id,
