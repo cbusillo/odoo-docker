@@ -66,6 +66,16 @@ class TestOwnProfile(TransactionCase):
             partner_company_id=actor.partner_id.company_id.id,
             partner_share=actor.partner_id.partner_share,
             parent_read=parent_read,
+            membership={
+                name: actor.has_group(name)
+                for name in (
+                    "base.group_user",
+                    "base.group_portal",
+                    "base.group_partner_manager",
+                    "base.group_erp_manager",
+                    "base.group_system",
+                )
+            },
             source_readable_fields=sorted(actor.SELF_READABLE_FIELDS) if hasattr(actor, "SELF_READABLE_FIELDS") else None,
             operations={},
         )
