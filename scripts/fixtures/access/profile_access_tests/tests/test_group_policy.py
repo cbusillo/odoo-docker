@@ -223,3 +223,10 @@ class TestGroupPolicies(TransactionCase):
             observation["spoofed_read_policy"] = probe.with_context(access_operation="write").has_access("read")
             self.assertEqual(observation["spoofed_read_policy"], cache_orders[0]["read"])
         _logger.info("Native group-policy observations: %s", json.dumps(GROUP_POLICY_OBSERVATIONS, sort_keys=True))
+        manager = GROUP_POLICY_OBSERVATIONS["roles"]["pm_only"]
+        unassigned = GROUP_POLICY_OBSERVATIONS["roles"]["no_role"]
+        for operation in ("companyless/read", "companyless/search", "country/read", "country/search"):
+            self.assertTrue(manager["operations"][operation]["allowed"])
+            self.assertFalse(unassigned["operations"][operation]["allowed"])
+        self.assertFalse(manager["operations"]["foreign/read"]["allowed"])
+        self.assertFalse(manager["membership"]["user"])

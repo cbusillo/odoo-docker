@@ -25,6 +25,28 @@ class RevertOperation(Exception):
 
 @tagged("post_install", "-at_install")
 class TestOwnProfile(TransactionCase):
+    def test_existing_user_onchange_preserves_read_without_write(self) -> None:
+        users = (
+            self.env["res.users"]
+            .with_context(no_reset_password=True)
+            .create(
+                [
+                    {"name": name, "login": name, "group_ids": [Command.set(self.env.ref("base.group_user").ids)]}
+                    for name in ("onchange-actor", "onchange-peer")
+                ]
+            )
+        )
+        self.env.flush_all()
+        before = self._snapshot(users)
+        peer = users[1].with_user(users[0])
+        self.assertTrue(peer.has_access("read"))
+        self.assertFalse(peer.has_access("write"))
+        result = peer.onchange({"name": "Onchange preview"}, ["name"], {"name": {}, "email": {}, "signature": {}})
+        self.assertIsInstance(result, dict)
+        self.env.flush_all()
+        self.assertEqual(self._snapshot(users), before)
+        self.assertFalse(peer.env.su)
+
     def test_own_safe_reads_across_parent_company_restrictions(self) -> None:
         selected_company = self.env.company
         default_company = self.env["res.company"].create({"name": "Own read default company"})

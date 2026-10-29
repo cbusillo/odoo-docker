@@ -581,15 +581,23 @@ for the bounded Odoo 19 own-profile and delegated-access port. The patch is
 the source of truth for its field authority, policy and group changes.
 User reads retain the full parent access domain, with Odoo 19's explicit
 nonempty safe-field read exception for the caller's own singleton. Readable
-authority stays with each field's owning module. This does not qualify the
-preferences form, metadata, onchange or other web read routes.
+authority stays with each field's owning module. Own-record field exceptions
+bypass the shared field memo so they cannot authorize another user's fields.
+Existing User onchange calls require read access; other existing models retain
+write checks and new records retain create checks. Preferences view processing
+retains declared readable fields without changing their write authority.
+This does not qualify a rendered preferences form or arbitrary web read routes.
 Other User operations inherit
 the parent's restriction domain for the same operation. Other delegated models
 retain full parent checks. Unsupported parent overrides refuse access.
 
 This port requires migration qualification of User/Partner policy interactions,
-source overrides and group implications before applying original data. It does
-not qualify arbitrary grouped parent rules or an existing Odoo 20 database update.
+source overrides and group implications before applying original data. Native
+Partner Manager permissions retain read access without implying internal User
+membership. Portal/Public combinations defer to the existing commercial-partner
+permission. Group data updates explicitly remove only the two obsolete owned
+implications and preserve unrelated edges. These source changes still require
+native qualification; arbitrary grouped parent rules remain outside this port.
 The native access fixtures exercise ordinary-principal operations with SQL
 rollback and unusable synthetic key sentinels. The normal valuation smoke
 selects these checks alongside the full native User, Group and access safety modules.

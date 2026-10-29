@@ -1,13 +1,22 @@
 diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_users.py
 --- a/odoo/addons/base/models/res_users.py
 +++ b/odoo/addons/base/models/res_users.py
-@@ -175,4 +175,5 @@
+@@ -15,4 +15,7 @@
+ from itertools import chain
+ from zoneinfo import ZoneInfo
++from typing import Any
++
++from lxml import etree
+
+ from markupsafe import Markup
+@@ -175,4 +178,6 @@
      _explanation = "Represents a person who has access to the system. Users have login credentials, assigned groups for security permissions, and are linked to a partner record for contact information."
      _inherits = {'res.partner': 'partner_id'}
 +    _inherits_access_permissions = frozenset({'read'})
++    _onchange_access_operation = 'read'
      _order = 'name, login'
      _allow_sudo_commands = False
-@@ -187,4 +188,18 @@
+@@ -187,4 +192,41 @@
          # see `_has_field_access``
          return name == 'user_writeable' or super()._valid_field_parameter(field, name)
 +
@@ -24,16 +33,39 @@ diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_
 +    @property
 +    def SELF_WRITEABLE_FIELDS(self) -> list[str]:
 +        return ['signature', 'action_id', 'company_id', 'email', 'name', 'image_1920', 'lang', 'tz', 'api_key_ids', 'phone']
++
++    @api.model
++    def fields_get(self, allfields: list[str] | None = None, attributes: list[str] | None = None) -> dict[str, dict]:
++        result = super().fields_get(allfields, attributes=attributes)
++        readable, writeable = set(self.SELF_READABLE_FIELDS), set(self.SELF_WRITEABLE_FIELDS)
++        missing = (readable | writeable).difference(result)
++        if allfields:
++            missing.intersection_update(allfields)
++        if missing:
++            self = self.sudo()
++            result.update({name: dict(value, readonly=name not in writeable, searchable=False)
++                           for name, value in super().fields_get(sorted(missing), attributes).items()})
++        return result
++
++    def _get_view_postprocessed(self, view: models.BaseModel, arch: str | bytes, **options: Any) -> tuple[str | bytes, dict]:
++        arch, models = super()._get_view_postprocessed(view, arch, **options)
++        if view == self.env.ref('base.view_users_form_simple_modif'):
++            tree = etree.fromstring(arch)
++            for node in tree.xpath('//field[@__groups_key__]'):
++                if node.get('name') in self.SELF_READABLE_FIELDS:
++                    node.attrib.pop('__groups_key__')
++            arch = etree.tostring(tree)
++        return arch, models
 
      def _default_groups(self):
-@@ -214,5 +229,5 @@
+@@ -214,5 +256,5 @@
      active = fields.Boolean(default=True)
      active_partner = fields.Boolean(related='partner_id.active', readonly=True, string="Partner is Active")
 -    action_id = fields.Many2one('ir.actions.actions', string='Home Action',
 +    action_id = fields.Many2one('ir.actions.actions', string='Home Action', user_writeable=True,
          help="If specified, this action will be opened at log on for this user, in addition to the standard menu.")
      log_ids = fields.One2many('res.users.log', 'create_uid', string='User log entries')
-@@ -648,4 +663,11 @@
+@@ -648,4 +690,23 @@
              raise ValidationError(_("You must have at least an administrator user."))
 
 +    @api.readonly
@@ -43,9 +75,28 @@ diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_
 +            self = self.sudo()
 +        return super().read(fields=fields, load=load)
 +
++    def _has_self_field_read_access(self, field: fields.Field, operation: str) -> bool:
++        return operation == 'read' and self._origin == self.env.user and field.name in self.SELF_READABLE_FIELDS
++
++    @api.model
++    def has_field_access(self, field: fields.Field, operation: str) -> bool:
++        return self._has_self_field_read_access(field, operation) or super().has_field_access(field, operation)
++
++    @api.model
++    def check_field_access(self, field: fields.Field, operation: str) -> None:
++        if not self._has_self_field_read_access(field, operation):
++            super().check_field_access(field, operation)
++
      @api.model
      def _has_field_access(self, field, operation):
-@@ -688,4 +710,10 @@
+@@ -653,5 +714,5 @@
+         # group) or the field is marked as user_writeable. The records which the
+         # user can change are protected by record rules.
+-        return super()._has_field_access(field, operation) and (
++        return self._has_self_field_read_access(field, operation) or super()._has_field_access(field, operation) and (
+             operation != 'write'
+             or getattr(field, 'user_writeable', False)
+@@ -688,4 +749,10 @@
              # unarchive partners before unarchiving the users
              self.partner_id.action_unarchive()
 +
@@ -56,7 +107,7 @@ diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_
 +            self = self.sudo()
 
          if 'company_id' in vals or 'company_ids' in vals:
-@@ -1230,5 +1258,5 @@
+@@ -1230,5 +1297,5 @@
          # `with_context({})` because this method is decorated with `@ormcache('self._ids')`,
          # it cannot depend on the context (e.g. `active_test`, `lang`, ...)
 -        return self.with_context({}).all_group_ids._ids
@@ -66,14 +117,22 @@ diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_
 diff --git a/odoo/addons/base/security/ir.access.csv b/odoo/addons/base/security/ir.access.csv
 --- a/odoo/addons/base/security/ir.access.csv
 +++ b/odoo/addons/base/security/ir.access.csv
-@@ -56,5 +56,5 @@
+@@ -38,4 +38,5 @@
+ res_company_rule_public,company rule public,res.company,base.group_everyone,r,"[('id','in', company_ids)]"
+ access_res_country_public,res_country group_user_all,res.country,base.group_everyone,r,
++access_res_country_group_user,res_country group_user,res.country,base.group_partner_manager,r,
+ access_res_country_group_system,res_country_group_system,res.country,base.group_system,crud,
+ access_res_country_state_public,res_country_state group_user_all,res.country.state,base.group_everyone,r,
+@@ -55,6 +56,7 @@
+ res_partner_portal_public_rule,res_partner: portal/public: read access on my commercial partner,res.partner,base.group_everyone,r,"[('id', 'child_of', user.commercial_partner_id.id)]"
  access_res_partner_group_partner_manager,res_partner group_partner_manager,res.partner,base.group_partner_manager,cd,
++access_res_partner_group_partner_manager_read,res_partner group_partner_manager read,res.partner,base.group_partner_manager,r,"[(0, '=', 1)] if user.has_group('base.group_portal') or user.has_group('base.group_public') else []"
  res_partner_rule_edit_all,edit all,res.partner,base.group_partner_manager,u,
 -res_partner_rule_write_self,self user write access,res.partner,base.group_user,u,"[('id', '=', user.partner_id.id)]"
 +res_partner_rule_write_self,self user write access,res.partner,base.group_user,u,"[(0, '=', 1)]"
  res_partner_rule,res.partner company,res.partner,,crud,"['|', '|', ('partner_share', '=', False), ('company_id', 'parent_of', company_ids), ('company_id', '=', False)]"
  access_clearing_label_group_everyone,clearing_label_group_everyone,clearing.label,base.group_everyone,r,
-@@ -66,8 +66,8 @@
+@@ -66,8 +68,8 @@
  access_res_partner_industry_group_user,res_partner_industry group_user,res.partner.industry,base.group_user,r,
  access_res_partner_industry_group_system,res_partner_industry group_system,res.partner.industry,base.group_system,crud,
 -access_res_users_public,res_users all,res.users,base.group_everyone,r,"[('id', '=', user.id)]"
@@ -111,6 +170,18 @@ diff --git a/addons/mail/models/res_users.py b/addons/mail/models/res_users.py
 +        return super().SELF_WRITEABLE_FIELDS + ['notification_type', 'out_of_office_from', 'out_of_office_message', 'out_of_office_to']
 
      name = fields.Char(tracking=1)
+@@ -73,4 +92,5 @@
+         "Outgoing Mail Server",
+         compute='_compute_outgoing_mail_server_id',
++        groups="base.group_user",
+     )
+     outgoing_mail_server_type = fields.Selection(
+@@ -80,4 +100,5 @@
+         required=True,
+         default='default',
++        groups="base.group_user",
+     )
+     has_external_mail_server = fields.Boolean(compute='_compute_has_external_mail_server', compute_sudo=True)
 diff --git a/addons/sale_stock/models/res_users.py b/addons/sale_stock/models/res_users.py
 --- a/addons/sale_stock/models/res_users.py
 +++ b/addons/sale_stock/models/res_users.py
@@ -187,12 +258,13 @@ diff --git a/odoo/orm/models.py b/odoo/orm/models.py
 diff --git a/odoo/addons/base/security/base_groups.xml b/odoo/addons/base/security/base_groups.xml
 --- a/odoo/addons/base/security/base_groups.xml
 +++ b/odoo/addons/base/security/base_groups.xml
-@@ -74,6 +74,5 @@
+@@ -74,6 +74,6 @@
              <field name="name">Creation</field>
              <field name="user_ids" eval="[Command.link(ref('base.user_root'))]"/>
 -            <field name="implied_ids" eval="[(4, ref('group_user'))]"/>
 -            <field name="implied_by_ids" eval="[Command.link(ref('base.group_erp_manager'))]"/>
-+            <field name="implied_by_ids" eval="[Command.link(ref('base.group_system'))]"/>
++            <field name="implied_ids" eval="[Command.unlink(ref('group_user'))]"/>
++            <field name="implied_by_ids" eval="[Command.unlink(ref('base.group_erp_manager')), Command.link(ref('base.group_system'))]"/>
              <field name="privilege_id" ref="res_groups_privilege_contact"/>
          </record>
 diff --git a/odoo/addons/base/models/ir_access.py b/odoo/addons/base/models/ir_access.py
@@ -274,3 +346,19 @@ diff --git a/odoo/addons/base/tests/test_res_users.py b/odoo/addons/base/tests/t
 +        self.assertEqual(me.email, "foo@bar.com")
          # Disallow to write a field not in the user_writeable_fields
          with self.assertRaises(AccessError):
+diff --git a/addons/web/models/models.py b/addons/web/models/models.py
+--- a/addons/web/models/models.py
++++ b/addons/web/models/models.py
+@@ -42,4 +42,5 @@
+ class Base(models.AbstractModel):
+     _inherit = 'base'
++    _onchange_access_operation = 'write'
+
+     @api.model
+@@ -2225,5 +2226,5 @@
+         first_call = not field_names
+
+-        self.check_access('write' if self else 'create')
++        self.check_access(self._onchange_access_operation if self else 'create')
+
+         if any(fname not in self._fields for fname in field_names):
