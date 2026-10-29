@@ -586,6 +586,7 @@ cache invalidation and logging.
 
 The User model retains its Odoo 19 delegation boundary through the native
 model-specific inheritance-access hook. Other models keep their parent checks.
+User read grants retain their original public, portal and internal group boundaries.
 The newer direct self-Partner write policy keeps its record and reference with
 a false domain, so an ordinary user still cannot write the contact directly.
 The native access fixtures exercise profile updates and denials, SQL rollback,
