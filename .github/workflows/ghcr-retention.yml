@@ -126,6 +126,7 @@ jobs:
             const inspectedDigests = new Set();
             const retainedChildDigests = new Set();
             const retainedChildParents = new Map();
+            const retainedIndexChildren = new Map();
             const missingRetainedChildren = [];
 
             for (const version of retainedVersions) {
@@ -150,9 +151,11 @@ jobs:
                 return;
               }
 
+              const indexChildren = [];
               for (const child of manifest.manifests || []) {
                 if (!manifestTypes.has(child.mediaType)) continue;
                 if (typeof child?.digest === "string" && child.digest.startsWith("sha256:")) {
+                  indexChildren.push(child.digest);
                   retainedChildDigests.add(child.digest);
                   const parents = retainedChildParents.get(child.digest) || [];
                   parents.push(version.name);
@@ -162,6 +165,7 @@ jobs:
                   }
                 }
               }
+              retainedIndexChildren.set(version.name, indexChildren);
             }
 
             for (const digest of retainedChildDigests) {
@@ -173,10 +177,10 @@ jobs:
                   ["buildx", "imagetools", "inspect", childReference],
                   { ignoreReturnCode: true, silent: true },
                 );
-                const childInspectionOutput = `${childInspection.stdout}\n${childInspection.stderr}`;
+                const childInspectionOutput = `${childInspection.stdout}\n${childInspection.stderr}`.trim();
                 if (
                   childInspection.exitCode !== 0
-                  && /(?:manifest unknown|not found)/i.test(childInspectionOutput)
+                  && childInspectionOutput === `ERROR: ${childReference}: not found`
                 ) {
                   missingRetainedChildren.push({
                     digest,
@@ -190,7 +194,22 @@ jobs:
               keepIds.add(childVersion.id);
             }
 
+            const missingChildDigests = new Set(missingRetainedChildren.map((child) => child.digest));
+            const brokenIndexes = taggedVersions.filter((version) => {
+              const children = retainedIndexChildren.get(version.name) || [];
+              return keepIds.has(version.id)
+                && children.length > 0
+                && children.every((digest) => missingChildDigests.has(digest));
+            });
+            const brokenIndexNames = new Set(brokenIndexes.map((version) => version.name));
+            for (const version of brokenIndexes) {
+              keepIds.delete(version.id);
+            }
+
             for (const missingChild of missingRetainedChildren) {
+              if (missingChild.parents.every((parent) => brokenIndexNames.has(parent))) {
+                continue;
+              }
               core.warning(
                 `Retained image dependency ${missingChild.digest} is already missing from GHCR; `
                 + `parent indexes: ${missingChild.parents.join(",") || "unknown"}.`,
@@ -211,6 +230,7 @@ jobs:
             core.info(`Tagged versions found: ${taggedVersions.length}`);
             core.info(`Tagged versions kept: ${taggedVersions.filter((version) => keepIds.has(version.id)).length}`);
             core.info(`Tagged versions to delete: ${deleteTaggedVersions.length}`);
+            core.info(`Unpullable indexes to delete: ${brokenIndexes.length}`);
             core.info(`Untagged versions found: ${untaggedVersions.length}`);
             core.info(`Untagged retention window days: ${keepUntaggedDays}`);
             core.info(`Untagged versions to delete: ${deleteUntaggedVersions.length}`);

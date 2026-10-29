@@ -198,13 +198,35 @@ class GhcrRetentionTest(unittest.TestCase):
         self.assertIsNone(run.failure)
         self.assertEqual(run.deleted_ids, {self.ORPHAN_ID})
 
+    def gone_from_registry(self, digest: str) -> dict[str, Any]:
+        package = load_workflow(RETENTION_WORKFLOW)["jobs"]["cleanup"]["env"]["PACKAGE_NAME"]
+        return {"exitCode": 1, "stderr": f"ERROR: ghcr.io/example-owner/{package}@{digest}: not found\n"}
+
     def test_retention_reports_already_missing_children_and_protects_recoverable_children(self) -> None:
         scenario = self.published_package()
         scenario["versions"] = [version for version in scenario["versions"] if version["name"] != self.CHILD_IMAGE]
-        scenario["childInspections"] = {self.CHILD_IMAGE: {"exitCode": 1, "stderr": "manifest unknown"}}
+        scenario["childInspections"] = {self.CHILD_IMAGE: self.gone_from_registry(self.CHILD_IMAGE)}
         run = run_retention(scenario)
         self.assertIsNone(run.failure)
         self.assertEqual(run.deleted_ids, {self.ORPHAN_ID})
+
+    def test_retention_prunes_only_tagged_indexes_whose_children_are_all_gone(self) -> None:
+        all_children = {self.CHILD_IMAGE, self.CHILD_ATTESTATION}
+        for tags, missing, pruned_index in (
+            (["19.0-runtime"], all_children, {1}),
+            (["19.0-runtime"], {self.CHILD_IMAGE}, set()),
+            ([], all_children, set()),
+        ):
+            with self.subTest(tags=tags, missing=missing):
+                scenario = self.published_package()
+                scenario["versions"][0]["metadata"]["container"]["tags"] = tags
+                scenario["versions"] = [version for version in scenario["versions"] if version["name"] not in missing]
+                scenario["childInspections"] = {digest: self.gone_from_registry(digest) for digest in missing}
+
+                run = run_retention(scenario)
+
+                self.assertIsNone(run.failure)
+                self.assertEqual(run.deleted_ids, {self.ORPHAN_ID} | pruned_index)
 
     def test_retention_deletes_nothing_when_a_retained_index_cannot_be_inspected(self) -> None:
         for inspection in ({"exitCode": 1, "stderr": "unauthorized"}, {"exitCode": 0, "stdout": "not a manifest"}):
@@ -218,7 +240,11 @@ class GhcrRetentionTest(unittest.TestCase):
                 self.assertEqual(run.deleted_ids, set())
 
     def test_retention_deletes_nothing_when_a_retained_child_is_missing_from_inventory(self) -> None:
-        for inspection in ({"exitCode": 0}, {"exitCode": 1, "stderr": "unauthorized"}):
+        for inspection in (
+            {"exitCode": 0},
+            {"exitCode": 1, "stderr": "unauthorized"},
+            {"exitCode": 1, "stderr": "error getting credentials: docker-credential-ghcr: executable file not found"},
+        ):
             with self.subTest(inspection=inspection):
                 scenario = self.published_package()
                 scenario["versions"] = [version for version in scenario["versions"] if version["name"] != self.CHILD_IMAGE]
