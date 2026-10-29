@@ -62,8 +62,6 @@ def observe_group_sources(environment: Any, user_id: int) -> dict[str, Any]:
     user = cursor.fetchone()
     cursor.execute("SELECT gid FROM res_groups_users_rel WHERE uid=%s ORDER BY gid", (user_id,))
     groups = [row[0] for row in cursor.fetchall()]
-    cursor.execute("SELECT pg_backend_pid(), txid_current_snapshot()::text")
-    backend, snapshot = cursor.fetchone()
     root = environment(su=True)
     record = root["res.users"].browse(user_id)
     default = environment.transaction.default_env
@@ -79,9 +77,6 @@ def observe_group_sources(environment: Any, user_id: int) -> dict[str, Any]:
         "su": environment.su,
         "default_env_uid": default.uid if default is not None else None,
         "default_env_su": default.su if default is not None else None,
-        "cursor_type": type(cursor).__name__,
-        "backend_pid": backend,
-        "transaction_snapshot": snapshot,
     }
 
 
@@ -104,12 +99,16 @@ def observe_as_first_principal(case: Any, role: str, user_id: int, setup: dict[s
                 "base.group_system",
             )
         }
-        actor = {"actor_id": user_id, "membership": membership, "operations": {}, "first_environment_verified": True}
-        NESTED_OBSERVATIONS[role] = actor
-        actor["group_sources"] = {
-            "main": observe_group_sources(case.env, user_id),
-            "fresh": observe_group_sources(environment, user_id),
+        actor = {
+            "actor_id": user_id,
+            "membership": membership,
+            "operations": {},
+            "first_environment_verified": True,
+            "independent_connection": cursor is not case.cr and cursor._cnx is not case.cr._cnx,
         }
+        NESTED_OBSERVATIONS[role] = actor
+        actor["group_sources"] = {"fresh": observe_group_sources(environment, user_id)}
+        case.assertTrue(actor["independent_connection"])
         case.assertTrue(membership["base.group_" + ("user" if role == "internal" else role)])
         case.assertFalse(
             any(membership[name] for name in ("base.group_partner_manager", "base.group_erp_manager", "base.group_system"))
