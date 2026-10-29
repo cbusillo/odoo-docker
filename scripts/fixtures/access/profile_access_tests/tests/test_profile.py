@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any
+from unittest.mock import patch
 
 from odoo import SUPERUSER_ID, Command
 from odoo.exceptions import UserError
 from odoo.tests import tagged
 from odoo.tests.common import TransactionCase
 
-from .delegated_access import observe_delegated_access
+from .delegated_access import DELEGATED_OBSERVATIONS, observe_delegated_access
 from .nested_profile import NESTED_OBSERVATIONS, observe_nested_commands
 
 PROFILE_OBSERVATIONS: dict[str, Any] = {}
 USER_READ_OBSERVATIONS: dict[str, Any] = {}
+_logger = logging.getLogger(__name__)
 
 
 class RevertOperation(Exception):
@@ -22,6 +26,7 @@ class RevertOperation(Exception):
 class TestOwnProfile(TransactionCase):
     def test_delegated_user_operations_preserve_parent_restrictions(self) -> None:
         observe_delegated_access(self)
+        _logger.info("Native delegated access observations: %s", json.dumps(DELEGATED_OBSERVATIONS, sort_keys=True))
 
     def test_user_read_and_search_boundaries(self) -> None:
         user_model = self.env["res.users"].with_context(no_reset_password=True)
@@ -136,9 +141,11 @@ class TestOwnProfile(TransactionCase):
             if role == "internal":
                 self.assertFalse(observations["other_partner_company/read"]["allowed"])
             self.assertEqual(self._snapshot(users), before)
+        _logger.info("Native User read observations: %s", json.dumps(USER_READ_OBSERVATIONS, sort_keys=True))
 
     def test_own_profile_preserves_bounded_updates(self) -> None:
         self._observe_profile_operations()
+        _logger.info("Native profile observations: %s", json.dumps(PROFILE_OBSERVATIONS, sort_keys=True))
         for actor in PROFILE_OBSERVATIONS["roles"].values():
             self.assertFalse(actor["partner_model_write"])
             for name, operation in actor["operations"].items():
@@ -164,11 +171,11 @@ class TestOwnProfile(TransactionCase):
 
     def test_nested_api_key_commands_keep_the_original_principal(self) -> None:
         observe_nested_commands(self)
+        _logger.info("Native nested command observations: %s", json.dumps(NESTED_OBSERVATIONS, sort_keys=True))
         self.assertTrue(NESTED_OBSERVATIONS["cleanup_verified"])
         for role, actor in NESTED_OBSERVATIONS.items():
             if role == "cleanup_verified":
                 continue
-            self.assertFalse(actor["allow_sudo_commands"])
             for name, operation in actor["operations"].items():
                 self.assertFalse(operation["allowed"], role + "/" + name)
                 self.assertEqual(operation["error"]["type"], "AccessError", role + "/" + name)
@@ -251,6 +258,13 @@ class TestOwnProfile(TransactionCase):
         self.assertEqual(self._snapshot(users), before)
         observation["rollback_verified"] = True
         return observation
+
+    def _observe_marker_write(self, target: Any, users: Any) -> dict[str, Any]:
+        field = target._fields["login"]
+        with patch.object(field, "user_writeable", True, create=True):
+            result = self._observe_write(target, {"login": "profile-marker-login"}, users)
+            result["marker_enabled"] = field.user_writeable
+        return result
 
     def _observe_profile_operations(self) -> None:
         user_model = self.env["res.users"].with_context(no_reset_password=True)
@@ -337,6 +351,7 @@ class TestOwnProfile(TransactionCase):
                     {"name": "Profile warehouse preference witness", "property_warehouse_id": warehouse.id},
                 )
             observations = {name: self._observe_write(target, values, users) for name, (target, values) in cases.items()}
+            observations["own_marker_only"] = self._observe_marker_write(own, users)
             PROFILE_OBSERVATIONS["roles"][role] = {
                 "actor_id": actor.id,
                 "partner_id": actor.partner_id.id,

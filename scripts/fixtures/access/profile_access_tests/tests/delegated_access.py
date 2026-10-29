@@ -124,6 +124,11 @@ def observe_cache_order(case: Any, setup: dict[str, Any], parent_first: bool) ->
         if parent_first:
             order = ["own_partner_write", "other_partner_write"] + [name for name in order if "partner_write" not in name]
         environment.registry.clear_cache()
+        probes = {"user": other, "parent": other.partner_id}
+        probe_order = ("parent", "user") if parent_first else ("user", "parent")
+        cache_probes = {name: probes[name].has_access("write") for name in probe_order}
+        case.assertTrue(cache_probes["user"])
+        case.assertFalse(cache_probes["parent"])
         observations = {name: observe_operation(case, cursor, environment, operations[name]) for name in order}
         for name in ("own_user_write", "other_user_write"):
             case.assertTrue(observations[name]["allowed"], name)
@@ -131,7 +136,12 @@ def observe_cache_order(case: Any, setup: dict[str, Any], parent_first: bool) ->
         for name in ("own_partner_write", "other_partner_write", "create_new_partner"):
             case.assertFalse(observations[name]["allowed"], name)
             case.assertEqual(observations[name]["error"]["type"], "AccessError", name)
-        return {"membership": membership, "operations": observations, "first_environment_verified": True}
+        return {
+            "membership": membership,
+            "operations": observations,
+            "cache_probes": cache_probes,
+            "first_environment_verified": True,
+        }
 
 
 def observe_write_restriction(case: Any, setup: dict[str, Any]) -> dict[str, Any]:
@@ -139,35 +149,49 @@ def observe_write_restriction(case: Any, setup: dict[str, Any]) -> dict[str, Any
         environment = api.Environment(cursor, setup["actor_id"], {"allowed_company_ids": [setup["company_id"]]})
         other = environment["res.users"].browse(setup["other_id"])
         root = environment(su=True)
+        policies = root["ir.access" if "ir.access" in environment else "ir.rule"]
+        before = policies.search([]).ids
         domain = repr([("id", "!=", other.sudo().partner_id.id)])
-        if "ir.access" in environment:
-            root["ir.access"].create(
-                {
-                    "name": "Delegated write-only restriction",
-                    "model_id": root["ir.model"]._get_id("res.partner"),
-                    "operation": "u",
-                    "domain": domain,
-                }
-            )
-        else:
-            root["ir.rule"].create(
-                {
-                    "name": "Delegated write-only restriction",
-                    "model_id": root["ir.model"]._get_id("res.partner"),
-                    "domain_force": domain,
-                    "perm_read": False,
-                    "perm_create": False,
-                    "perm_write": True,
-                    "perm_unlink": False,
-                }
-            )
-        environment.registry.clear_cache()
-        read = observe_operation(case, cursor, environment, lambda: other.read(["login"]))
-        write = observe_operation(case, cursor, environment, lambda: other.write({"login": "restricted-other-login"}))
-        case.assertTrue(read["allowed"])
-        case.assertFalse(write["allowed"])
-        case.assertEqual(write["error"]["type"], "AccessError")
-        return {"read": read, "write": write}
+        result = {}
+        try:
+            with cursor.savepoint():
+                result = observe_restricted_operations(case, cursor, environment, root, other, domain)
+                raise RevertDelegatedOperation
+        except RevertDelegatedOperation:
+            pass
+        case.assertEqual(policies.search([]).ids, before)
+        return result
+
+
+def observe_restricted_operations(case: Any, cursor: Any, environment: Any, root: Any, other: Any, domain: str) -> dict[str, Any]:
+    if "ir.access" in environment:
+        root["ir.access"].create(
+            {
+                "name": "Delegated write-only restriction",
+                "model_id": root["ir.model"]._get_id("res.partner"),
+                "operation": "u",
+                "domain": domain,
+            }
+        )
+    else:
+        root["ir.rule"].create(
+            {
+                "name": "Delegated write-only restriction",
+                "model_id": root["ir.model"]._get_id("res.partner"),
+                "domain_force": domain,
+                "perm_read": False,
+                "perm_create": False,
+                "perm_write": True,
+                "perm_unlink": False,
+            }
+        )
+    environment.registry.clear_cache()
+    read = observe_operation(case, cursor, environment, lambda: other.read(["login"]))
+    write = observe_operation(case, cursor, environment, lambda: other.write({"login": "restricted-other-login"}))
+    case.assertTrue(read["allowed"])
+    case.assertFalse(write["allowed"])
+    case.assertEqual(write["error"]["type"], "AccessError")
+    return {"read": read, "write": write}
 
 
 def observe_delegated_access(case: Any) -> None:

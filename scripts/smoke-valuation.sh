@@ -9,6 +9,7 @@ reverse_patch=true
 if [[ -n "${3:-}" ]]; then reverse_patch=false; fi
 patch_file="$(cd "$(dirname "$0")/../patches" && pwd)/20.0-valuation-checkpoints.patch"
 access_patch_file="$(cd "$(dirname "$0")/../patches" && pwd)/20.0-zero-access-data.patch"
+profile_patch_file="$(cd "$(dirname "$0")/../patches" && pwd)/20.0-self-profile-access.patch"
 fixture="$(cd "$(dirname "$0")/fixtures/valuation" && pwd)"
 access_fixture="$(cd "$(dirname "$0")/fixtures/access" && pwd)"
 name="odoo-valuation-${RANDOM}-$$"
@@ -70,7 +71,10 @@ run_fixture() {
       /odoo/addons/stock_account/report/stock_avco_audit_report.py
     find /opt/valuation-tests -type f -name "*.py" -exec sha256sum {} +
     find /odoo/addons/stock_account -path "*/migrations/*" -type f -name "*.py" -exec sha256sum {} +
-    sha256sum /odoo/odoo/addons/base/models/ir_access.py /odoo/odoo/addons/base/security/ir.access.csv
+    sha256sum /opt/native-profile-access.patch /odoo/odoo/orm/models.py \
+      /odoo/odoo/addons/base/models/ir_access.py /odoo/odoo/addons/base/models/res_users.py \
+      /odoo/odoo/addons/base/security/base_groups.xml /odoo/odoo/addons/base/security/ir.access.csv \
+      /odoo/addons/mail/models/res_users.py /odoo/addons/sale_stock/models/res_users.py
     find /opt/access-tests -type f -name "*.py" -exec sha256sum {} +
     sha256sum /opt/access-tests/zero_access_19.csv
     }
@@ -79,6 +83,7 @@ run_fixture() {
   docker cp "$fixture" "$tests_id:/opt/valuation-tests"
   docker cp "$patch_file" "$tests_id:/opt/native-valuation.patch"
   docker cp "$access_patch_file" "$tests_id:/opt/native-zero-access-data.patch"
+  docker cp "$profile_patch_file" "$tests_id:/opt/native-profile-access.patch"
   docker cp "$access_fixture" "$tests_id:/opt/access-tests"
   docker inspect --format 'Valuation test: {{.Id}} image: {{.Image}} mounts: {{json .Mounts}}' "$tests_id"
   docker start --attach "$tests_id"
@@ -94,6 +99,9 @@ run_fixture "$previous_image" '
   fi
   record_sources
   access_modules="$(NATIVE_ACCESS_PHASE=owners /venv/bin/python /opt/access-tests/verify.py)"
+  if [[ "$NATIVE_ACCESS_SAFETY" == true ]]; then
+    access_modules="$access_modules,sale_stock"
+  fi
   odoo-bin -d valuation_test --init "stock_account,test_base,valuation_checkpoint_tests,$access_modules" --without-demo --stop-after-init \
     --max-cron-threads=0 --http-interface=127.0.0.1 --log-level=warn
   VALUATION_UPGRADE_PHASE=setup odoo-bin shell -d valuation_test --no-http \
@@ -106,6 +114,7 @@ run_fixture "$image" '
   set -euo pipefail
   git -C /odoo apply --reverse --check /opt/native-valuation.patch
   git -C /odoo apply --reverse --check /opt/native-zero-access-data.patch
+  git -C /odoo apply --reverse --check /opt/native-profile-access.patch
   record_sources
   access_test_modules="valuation_checkpoint_tests,test_base,profile_access_tests"
   if [[ "$NATIVE_ACCESS_SAFETY" == true ]]; then
@@ -125,7 +134,8 @@ PY
   odoo-bin -d valuation_test --update "base,stock,stock_account,$access_modules" --init "$access_test_modules" --without-demo \
     --test-tags "$VALUATION_TEST_TAGS" --stop-after-init --max-cron-threads=0 \
     --http-interface=127.0.0.1 --log-level=warn --log-handler=odoo.tests:INFO \
-    --log-handler=odoo.addons.valuation_checkpoint_tests:INFO 2>&1 | tee /tmp/valuation-tests.log
+    --log-handler=odoo.addons.valuation_checkpoint_tests:INFO \
+    --log-handler=odoo.addons.profile_access_tests:INFO 2>&1 | tee /tmp/valuation-tests.log
   grep -Eq "odoo[.]tests[.]stats: valuation_checkpoint_tests: [1-9][0-9]* tests" /tmp/valuation-tests.log
   if [[ "$VALUATION_TEST_TAGS" == *"/stock_account"* ]]; then
     grep -Eq "odoo[.]tests[.]stats: stock_account: [1-9][0-9]* tests" /tmp/valuation-tests.log

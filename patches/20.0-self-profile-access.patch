@@ -44,13 +44,17 @@ diff --git a/odoo/addons/base/security/ir.access.csv b/odoo/addons/base/security
 +res_partner_rule_write_self,self user write access,res.partner,base.group_user,u,"[(0, '=', 1)]"
  res_partner_rule,res.partner company,res.partner,,crud,"['|', '|', ('partner_share', '=', False), ('company_id', 'parent_of', company_ids), ('company_id', '=', False)]"
  access_clearing_label_group_everyone,clearing_label_group_everyone,clearing.label,base.group_everyone,r,
-@@ -66,5 +66,5 @@
+@@ -66,8 +66,8 @@
  access_res_partner_industry_group_user,res_partner_industry group_user,res.partner.industry,base.group_user,r,
  access_res_partner_industry_group_system,res_partner_industry group_system,res.partner.industry,base.group_system,crud,
 -access_res_users_public,res_users all,res.users,base.group_everyone,r,"[('id', '=', user.id)]"
 +access_res_users_public,res_users all,res.users,base.group_public,r,
  res_users_rule_portal,portal user access,res.users,base.group_portal,r,"[('commercial_partner_id', '=', user.commercial_partner_id.id)]"
  res_users_rule_read_all,read all,res.users,base.group_user,r,
+-res_users_rule_write_self,self user write access,res.users,base.group_user,u,"[('id', '=', user.id)]"
++res_users_rule_write_self,self user write access,res.users,base.group_user,u,"[(0, '=', 1)]"
+ res_users_rule_edit_all,edit all,res.users,base.group_erp_manager,crud,
+ res_users_rule,user rule,res.users,,crud,"['|', ('share', '=', False), ('company_ids', 'in', company_ids)]"
 diff --git a/addons/mail/models/res_users.py b/addons/mail/models/res_users.py
 --- a/addons/mail/models/res_users.py
 +++ b/addons/mail/models/res_users.py
@@ -103,7 +107,7 @@ diff --git a/odoo/orm/models.py b/odoo/orm/models.py
 +            or type(self)._access_domain is not BaseModel._access_domain
 +            or type(self)._access_domains is not BaseModel._access_domains
 +        ):
-+            raise AccessError(self.env._("Restriction-only inherited access is unsupported for this model."))
++            raise AccessError(self.env._("Restriction-only inherited access is unsupported for model %(model)s.", model=self._name))
 +        return self._access_domains(operation)[1]
 +
 +    @api.model
@@ -143,3 +147,13 @@ diff --git a/odoo/addons/base/security/base_groups.xml b/odoo/addons/base/securi
 +            <field name="implied_by_ids" eval="[Command.link(ref('base.group_system'))]"/>
              <field name="privilege_id" ref="res_groups_privilege_contact"/>
          </record>
+diff --git a/odoo/addons/base/models/ir_access.py b/odoo/addons/base/models/ir_access.py
+--- a/odoo/addons/base/models/ir_access.py
++++ b/odoo/addons/base/models/ir_access.py
+@@ -401,5 +401,5 @@
+         groups = groups.with_prefetch()
+
+-        if model._inherits:
++        if model._check_inherits_access and operation in model._inherits_access_permissions:
+             # groups must also have access to all parent models
+             # FIXME: does not take into account overrides of method has_access()
