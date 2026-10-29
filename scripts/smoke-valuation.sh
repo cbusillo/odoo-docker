@@ -76,7 +76,7 @@ run_fixture() {
       /odoo/odoo/addons/base/security/base_groups.xml /odoo/odoo/addons/base/security/ir.access.csv \
       /odoo/addons/mail/models/res_users.py /odoo/addons/sale_stock/models/res_users.py \
       /odoo/addons/auth_passkey/models/res_users.py /odoo/addons/auth_totp/models/res_users.py \
-      /odoo/addons/mail_bot/models/res_users.py
+      /odoo/addons/mail_bot/models/res_users.py /odoo/odoo/addons/base/tests/test_res_users.py
     find /opt/access-tests -type f -name "*.py" -exec sha256sum {} +
     sha256sum /opt/access-tests/zero_access_19.csv
     }
@@ -117,15 +117,14 @@ run_fixture "$image" '
   record_sources
   access_test_modules="valuation_checkpoint_tests,test_base,profile_access_tests"
   if [[ "$NATIVE_ACCESS_SAFETY" == true ]]; then
-    access_tags="$(/venv/bin/python - <<"PY"
-import ast
-from pathlib import Path
-root = Path("/odoo/odoo/addons/test_base/tests/test_orm")
-files = ("test_acl.py", "test_access.py", "test_access_feedback.py", "test_access_monetary_related.py", "test_check_access.py", "test_ir_rules.py")
-classes = {node.name for name in files for node in ast.parse((root / name).read_text()).body if isinstance(node, ast.ClassDef)}
-print(",".join("/test_base:" + name for name in sorted(classes)))
-PY
-)"
+    access_tags=""
+    for file in base/tests/test_res_users base/tests/test_res_groups \
+      test_base/tests/test_orm/test_acl test_base/tests/test_orm/test_access \
+      test_base/tests/test_orm/test_access_feedback test_base/tests/test_orm/test_access_monetary_related \
+      test_base/tests/test_orm/test_check_access test_base/tests/test_orm/test_ir_rules; do
+      sha256sum "/odoo/odoo/addons/$file.py"
+      access_tags="${access_tags:+$access_tags,}/$file.py"
+    done
     VALUATION_TEST_TAGS="$VALUATION_TEST_TAGS,$access_tags,/profile_access_tests"
   fi
   access_modules="$(NATIVE_ACCESS_PHASE=owners /venv/bin/python /opt/access-tests/verify.py)"
@@ -142,6 +141,7 @@ PY
     grep -Eq "odoo[.]tests[.]stats: stock: [1-9][0-9]* tests" /tmp/valuation-tests.log
   fi
   if [[ "$NATIVE_ACCESS_SAFETY" == true ]]; then
+    grep -Eq "odoo[.]tests[.]stats: base: [1-9][0-9]* tests" /tmp/valuation-tests.log
     grep -Eq "odoo[.]tests[.]stats: test_base: [1-9][0-9]* tests" /tmp/valuation-tests.log
     grep -Eq "odoo[.]tests[.]stats: profile_access_tests: [1-9][0-9]* tests" /tmp/valuation-tests.log
   fi

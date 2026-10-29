@@ -592,7 +592,7 @@ source overrides and group implications before applying original data. It does
 not qualify arbitrary grouped parent rules or an existing Odoo 20 database update.
 The native access fixtures exercise ordinary-principal operations with SQL
 rollback and unusable synthetic key sentinels. The normal valuation smoke
-selects these checks alongside the native access safety tests.
+selects these checks alongside the full native User, Group and access safety modules.
 
 ## Native Community 20 retained zero-access data
 

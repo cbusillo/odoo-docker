@@ -241,3 +241,36 @@ diff --git a/addons/mail_bot/models/res_users.py b/addons/mail_bot/models/res_us
 +        return super().SELF_READABLE_FIELDS + ['odoobot_state']
 
      odoobot_state = fields.Selection(
+diff --git a/odoo/addons/base/tests/test_res_users.py b/odoo/addons/base/tests/test_res_users.py
+--- a/odoo/addons/base/tests/test_res_users.py
++++ b/odoo/addons/base/tests/test_res_users.py
+@@ -686,10 +686,5 @@
+     @users('user_internal', 'portal_1')
+     @mute_logger('odoo.addons.base.models.ir_access')
+-    def test_user_writeable_fields(self):
+-        """ Check for writeable fields.
+-
+-        Check that a normal user: can write only on user_writeable fields.
+-        Check that a portal user: cannot write on themselves.
+-        """
++    def test_user_writeable_fields(self) -> None:
+         self.assertIn(
+             "post_install",
+@@ -716,12 +711,9 @@
+         other = self.user_portal_2.with_env(self.env)
+
+-        # Allow to write a field in the user_writeable_fields for internal users
+-        # only
+-        if self.env.user._has_group('base.group_user'):
+-            me.email = "foo@bar.com"
+-            self.assertEqual(me.email, "foo@bar.com")
+-        else:
+-            with self.assertRaises(AccessError):
+-                me.email = "foo@bar.com"
++        me.email = "foo@bar.com"
++        self.assertEqual(me.email, "foo@bar.com")
++        with self.assertRaises(AccessError):
++            me.write({'email': 'mixed@example.invalid', 'login': 'mixed-profile-login'})
++        self.assertEqual(me.email, "foo@bar.com")
+         # Disallow to write a field not in the user_writeable_fields
+         with self.assertRaises(AccessError):
