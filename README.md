@@ -579,7 +579,11 @@ The 20.0 runtime applies
 [`20.0-self-profile-access.patch`](patches/20.0-self-profile-access.patch)
 for the bounded Odoo 19 own-profile and delegated-access port. The patch is
 the source of truth for its field authority, policy and group changes.
-User reads retain the full parent access domain; other User operations inherit
+User reads retain the full parent access domain, with Odoo 19's explicit
+nonempty safe-field read exception for the caller's own singleton. Readable
+authority stays with each field's owning module. This does not qualify the
+preferences form, metadata, onchange or other web read routes.
+Other User operations inherit
 the parent's restriction domain for the same operation. Other delegated models
 retain full parent checks. Unsupported parent overrides refuse access.
 

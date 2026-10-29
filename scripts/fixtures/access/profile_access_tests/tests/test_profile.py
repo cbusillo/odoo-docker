@@ -50,6 +50,11 @@ class TestOwnProfile(TransactionCase):
         own = environment["res.users"].browse(actor.id)
         self.assertFalse(own.env.su)
         self.assertNotEqual(own.env.uid, SUPERUSER_ID)
+        default_environment = environment.transaction.default_env
+        readable = sorted(actor.SELF_READABLE_FIELDS)
+        self.assertTrue(readable)
+        self.assertFalse(set(readable) - set(own._fields), sorted(set(readable) - set(own._fields)))
+        field_access_before = {name: own._has_field_access(own._fields[name], "read") for name in readable}
         before = self._snapshot(users)
         parent_read = actor.partner_id.with_env(environment).has_access("read")
         self.assertFalse(parent_read)
@@ -76,36 +81,55 @@ class TestOwnProfile(TransactionCase):
                     "base.group_system",
                 )
             },
-            source_readable_fields=sorted(actor.SELF_READABLE_FIELDS) if hasattr(actor, "SELF_READABLE_FIELDS") else None,
+            source_readable_fields=readable,
+            context_fields=sorted(name for name in own._fields if name.startswith("context_")),
+            field_access_before=field_access_before,
             operations={},
         )
         cases = {
-            "own_base_safe": (own, ["name", "email", "login"]),
-            "own_mail_safe": (own, ["notification_type"]),
-            "own_warehouse_safe": (own, ["property_warehouse_id"]),
-            "own_mixed": (own, ["name", "create_date"]),
-            "own_all_fields": (own, None),
-            "other_safe": (other.with_env(environment), ["name", "login"]),
-            "multiple_safe": (users.with_env(environment), ["name", "login"]),
+            "own_base_safe": (own, ["name", "email", "login"], "_classic_read"),
+            "own_mail_safe": (own, ["notification_type"], "_classic_read"),
+            "own_warehouse_safe": (own, ["property_warehouse_id"], "_classic_read"),
+            "own_declared_safe": (own, readable, "_classic_read"),
+            "own_declared_unformatted_safe": (own, readable, None),
+            "own_mixed": (own, ["name", "create_date"], "_classic_read"),
+            "own_all_fields": (own, None, "_classic_read"),
+            "other_safe": (other.with_env(environment), ["name", "login"], "_classic_read"),
+            "multiple_safe": (users.with_env(environment), ["name", "login"], "_classic_read"),
         }
-        for name, (record, fields) in cases.items():
-            observation = {"allowed": False, "error": None, "fields": fields}
+        for name, (record, fields, load) in cases.items():
+            observation = {"allowed": False, "error": None, "fields": fields, "load": load}
             if fields:
                 observation["field_read_access"] = {
                     field: record._has_field_access(record._fields[field], "read") for field in fields
                 }
             try:
-                observation["allowed"] = bool(record.read(fields))
+                values = record.read(fields, load=load)
+                observation["allowed"] = bool(values)
+                observation["returned_fields"] = sorted(values[0]) if values else []
             except UserError as error:
                 observation["error"] = {"type": type(error).__name__, "message": str(error)}
             self.assertEqual(self._snapshot(users), before)
+            self.assertFalse(environment.su)
+            self.assertEqual(environment.uid, actor.id)
+            self.assertIs(environment.transaction.default_env, default_environment)
             observation["sql_unchanged"] = True
             OWN_READ_OBSERVATIONS["operations"][name] = observation
+            expected = name.startswith("own_") and name.endswith("_safe")
+            self.assertEqual(observation["allowed"], expected, name)
+            if expected:
+                self.assertEqual(set(observation["returned_fields"]), {"id", *fields})
+            else:
+                self.assertEqual(observation["error"]["type"], "AccessError", name)
+        field_access_after = {name: own._has_field_access(own._fields[name], "read") for name in readable}
+        self.assertEqual(field_access_after, field_access_before)
+        OWN_READ_OBSERVATIONS["field_access_after"] = field_access_after
         OWN_READ_OBSERVATIONS["operations"]["own_search"] = {
             "allowed": bool(own.search([("id", "=", actor.id)])),
             "error": None,
             "sql_unchanged": self._snapshot(users) == before,
         }
+        self.assertFalse(OWN_READ_OBSERVATIONS["operations"]["own_search"]["allowed"])
         _logger.info("Native own-read observations: %s", json.dumps(OWN_READ_OBSERVATIONS, sort_keys=True))
 
     def test_delegated_user_operations_preserve_parent_restrictions(self) -> None:

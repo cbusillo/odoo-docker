@@ -7,23 +7,45 @@ diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_
 +    _inherits_access_permissions = frozenset({'read'})
      _order = 'name, login'
      _allow_sudo_commands = False
-@@ -187,4 +188,8 @@
+@@ -187,4 +188,18 @@
          # see `_has_field_access``
          return name == 'user_writeable' or super()._valid_field_parameter(field, name)
++
++    @property
++    def SELF_READABLE_FIELDS(self) -> list[str]:
++        return [
++            'signature', 'company_id', 'login', 'email', 'name', 'image_1920',
++            'image_1024', 'image_512', 'image_256', 'image_128', 'lang', 'tz',
++            'tz_offset', 'group_ids', 'partner_id', 'write_date', 'action_id',
++            'avatar_1920', 'avatar_1024', 'avatar_512', 'avatar_256', 'avatar_128',
++            'share', 'device_ids', 'api_key_ids', 'phone', 'display_name',
++        ]
 +
 +    @property
 +    def SELF_WRITEABLE_FIELDS(self) -> list[str]:
 +        return ['signature', 'action_id', 'company_id', 'email', 'name', 'image_1920', 'lang', 'tz', 'api_key_ids', 'phone']
 
      def _default_groups(self):
-@@ -214,5 +219,5 @@
+@@ -214,5 +229,5 @@
      active = fields.Boolean(default=True)
      active_partner = fields.Boolean(related='partner_id.active', readonly=True, string="Partner is Active")
 -    action_id = fields.Many2one('ir.actions.actions', string='Home Action',
 +    action_id = fields.Many2one('ir.actions.actions', string='Home Action', user_writeable=True,
          help="If specified, this action will be opened at log on for this user, in addition to the standard menu.")
      log_ids = fields.One2many('res.users.log', 'create_uid', string='User log entries')
-@@ -688,4 +693,10 @@
+@@ -648,4 +663,11 @@
+             raise ValidationError(_("You must have at least an administrator user."))
+
++    @api.readonly
++    def read(self, fields: list[str] | None = None, load: str | None = '_classic_read') -> list[dict]:
++        readable = frozenset(self.SELF_READABLE_FIELDS)
++        if fields and self == self.env.user and all(name in readable or name.startswith('context_') for name in fields):
++            self = self.sudo()
++        return super().read(fields=fields, load=load)
++
+     @api.model
+     def _has_field_access(self, field, operation):
+@@ -688,4 +710,10 @@
              # unarchive partners before unarchiving the users
              self.partner_id.action_unarchive()
 +
@@ -34,7 +56,7 @@ diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_
 +            self = self.sudo()
 
          if 'company_id' in vals or 'company_ids' in vals:
-@@ -1230,5 +1241,5 @@
+@@ -1230,5 +1258,5 @@
          # `with_context({})` because this method is decorated with `@ormcache('self._ids')`,
          # it cannot depend on the context (e.g. `active_test`, `lang`, ...)
 -        return self.with_context({}).all_group_ids._ids
@@ -65,9 +87,24 @@ diff --git a/odoo/addons/base/security/ir.access.csv b/odoo/addons/base/security
 diff --git a/addons/mail/models/res_users.py b/addons/mail/models/res_users.py
 --- a/addons/mail/models/res_users.py
 +++ b/addons/mail/models/res_users.py
-@@ -23,4 +23,8 @@
+@@ -23,4 +23,23 @@
      _inherit = ['mail.thread', 'mail.activity.mixin', 'res.users']
      _mail_post_access = 'read'
++
++    @property
++    def SELF_READABLE_FIELDS(self) -> list[str]:
++        return super().SELF_READABLE_FIELDS + [
++            "can_edit_role",
++            "is_out_of_office",
++            "notification_type",
++            "out_of_office_from",
++            "out_of_office_message",
++            "out_of_office_to",
++            "role_ids",
++            "has_external_mail_server",
++            "outgoing_mail_server_id",
++            "outgoing_mail_server_type",
++        ]
 +
 +    @property
 +    def SELF_WRITEABLE_FIELDS(self) -> list[str]:
@@ -77,9 +114,13 @@ diff --git a/addons/mail/models/res_users.py b/addons/mail/models/res_users.py
 diff --git a/addons/sale_stock/models/res_users.py b/addons/sale_stock/models/res_users.py
 --- a/addons/sale_stock/models/res_users.py
 +++ b/addons/sale_stock/models/res_users.py
-@@ -7,4 +7,8 @@
+@@ -7,4 +7,12 @@
      _inherit = 'res.users'
 
++    @property
++    def SELF_READABLE_FIELDS(self) -> list[str]:
++        return super().SELF_READABLE_FIELDS + ['property_warehouse_id']
++
 +    @property
 +    def SELF_WRITEABLE_FIELDS(self) -> list[str]:
 +        return super().SELF_WRITEABLE_FIELDS + ['property_warehouse_id']
@@ -164,3 +205,39 @@ diff --git a/odoo/addons/base/models/ir_access.py b/odoo/addons/base/models/ir_a
 +        if model._check_inherits_access and operation in model._inherits_access_permissions:
              # groups must also have access to all parent models
              # FIXME: does not take into account overrides of method has_access()
+diff --git a/addons/auth_passkey/models/res_users.py b/addons/auth_passkey/models/res_users.py
+--- a/addons/auth_passkey/models/res_users.py
++++ b/addons/auth_passkey/models/res_users.py
+@@ -11,4 +11,8 @@
+ class ResUsers(models.Model):
+     _inherit = 'res.users'
++
++    @property
++    def SELF_READABLE_FIELDS(self) -> list[str]:
++        return super().SELF_READABLE_FIELDS + ['auth_passkey_key_ids']
+
+     auth_passkey_key_ids = fields.One2many('auth.passkey.key', 'create_uid')
+diff --git a/addons/auth_totp/models/res_users.py b/addons/auth_totp/models/res_users.py
+--- a/addons/auth_totp/models/res_users.py
++++ b/addons/auth_totp/models/res_users.py
+@@ -30,4 +30,8 @@
+ class ResUsers(models.Model):
+     _inherit = 'res.users'
++
++    @property
++    def SELF_READABLE_FIELDS(self) -> list[str]:
++        return super().SELF_READABLE_FIELDS + ['totp_enabled', 'totp_trusted_device_ids']
+
+     totp_secret = fields.Char(copy=False, groups=fields.NO_ACCESS, compute='_compute_totp_secret', inverse='_inverse_token')
+diff --git a/addons/mail_bot/models/res_users.py b/addons/mail_bot/models/res_users.py
+--- a/addons/mail_bot/models/res_users.py
++++ b/addons/mail_bot/models/res_users.py
+@@ -8,4 +8,8 @@
+ class ResUsers(models.Model):
+     _inherit = 'res.users'
++
++    @property
++    def SELF_READABLE_FIELDS(self) -> list[str]:
++        return super().SELF_READABLE_FIELDS + ['odoobot_state']
+
+     odoobot_state = fields.Selection(
