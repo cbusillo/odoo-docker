@@ -47,6 +47,8 @@ class TestOwnProfile(TransactionCase):
         )
         child.partner_id.parent_id = portal.partner_id
         foreign_company = self.env["res.company"].create({"name": "Read boundary foreign company"})
+        self.assertFalse(foreign_company.parent_id)
+        other.write({"company_id": foreign_company.id, "company_ids": [Command.set((self.env.company | foreign_company).ids)]})
         other.partner_id.company_id = foreign_company
         public = self.env.ref("base.public_user")
         users |= child | public
@@ -98,7 +100,10 @@ class TestOwnProfile(TransactionCase):
                 "membership": membership,
                 "company_ids": actor.company_ids.ids,
                 "other_user_company_ids": other.company_ids.ids,
-                "other_partner_company_id": foreign_company.id,
+                "other_user_company_id": other.company_id.id,
+                "other_partner_company_id": other.partner_id.company_id.id,
+                "other_partner_share": other.partner_id.partner_share,
+                "other_partner_company_parent_id": foreign_company.parent_id.id,
                 "other_partner_read": partner_allowed,
                 "operations": observations,
             }
