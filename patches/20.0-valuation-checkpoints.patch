@@ -1,6 +1,6 @@
 --- a/addons/stock_account/models/product.py
 +++ b/addons/stock_account/models/product.py
-@@ -245,7 +245,7 @@
+@@ -240,7 +240,7 @@
          return
 
      def _correct_inventory_valuation(self, from_date):
@@ -9,7 +9,7 @@
          valued_products = self.filtered(lambda product: product.cost_method != 'standard')
          moves_by_product = valued_products._get_stock_moves_with_valuation_by_product(boundary)
          moves_out = self.env['stock.move'].concat(moves_by_product.values()).filtered('is_out')
-@@ -274,7 +274,7 @@
+@@ -269,7 +269,7 @@
 
      def _get_stock_moves_with_valuation_by_product(self, from_date, lot=False):
          domain = [
@@ -18,7 +18,7 @@
              ('company_id', '=', self.env.company.id),
              '|', ('is_in', '=', True), ('is_out', '=', True),
          ]
-@@ -282,11 +282,16 @@
+@@ -277,11 +277,16 @@
              domain += [('move_line_ids.lot_id', 'in', lot.id)]
          return self.env['stock.move'].search(domain, order='product_id, date, id').grouped('product_id')
 
@@ -39,12 +39,14 @@
 
      def _get_last_product_value(self, date=None, lot=False):
          domain = Domain([
-@@ -299,22 +304,30 @@
+@@ -294,25 +299,33 @@
          else:
              domain &= Domain([('lot_id', '=', False)])
          if date:
 -            domain &= Domain([('date', '<=', date)])
 +            domain &= Domain.custom(to_sql=lambda table: SQL('%s <= %s', table['date'], date))
+         if self.env.context.get('exclude_min_valuation_date'):
+             domain &= Domain([('date', '!=', datetime.min)])
 
          query = self.env['product.value'].sudo()._search(domain)
          query_select = SQL('distinct ON (product_value.product_id) product_value.id')
@@ -63,7 +65,7 @@
 +            last_in_domain &= Domain.custom(to_sql=lambda table: SQL('%s <= %s', table['date'], date))
          last_in = self.env['stock.move'].search(last_in_domain, order='date desc, id desc', limit=1)
          return last_in
-+
+
 +    def _with_company_stock_context(self) -> "odoo.model.product_product":
 +        context = dict(self.env.context)
 +        context.pop('owners', None)
@@ -71,10 +73,11 @@
 +            context, allowed_company_ids=self.env.company.ids, to_date=False, from_date=False, warehouse_id=False,
 +            location=False, strict=False, owner_id=None, package_id=None, lot_id=None,
 +            search_warehouse=False, search_location=False)
-
++
      def _with_valuation_context(self):
          valued_locations = self.env['stock.location'].with_context(active_test=False).search([('is_valued', '=', True)])
-@@ -344,12 +357,12 @@
+         return self.with_context(location=valued_locations.ids, strict=True, owners=[False, self.env.company.partner_id.id])
+@@ -341,12 +354,12 @@
 
      def _run_standard(self, at_date=None, lot=None, correction=False):
          if at_date and correction and at_date != datetime.min:
@@ -82,14 +85,14 @@
 +            at_date = at_date - timedelta(microseconds=1)
          std_price_by_product_id = {product.id: product.standard_price for product in self}
          if at_date:
-             product_value_by_product = self._get_last_product_value(at_date, lot=lot)
+             product_value_by_product = self.with_context(exclude_min_valuation_date=not correction)._get_last_product_value(at_date, lot=lot)
              std_price_by_product_id = {
 -                product.id: product_value_by_product[product].value if product in product_value_by_product else product.standard_price
 +                product.id: product_value_by_product[product]._unit_cost() if product in product_value_by_product else product.standard_price
                  for product in self
              }
          value_by_product_id = {p.id: p.qty_available * std_price_by_product_id.get(p.id, 0) for p in self}
-@@ -357,15 +370,15 @@
+@@ -354,15 +367,15 @@
              return std_price_by_product_id, value_by_product_id
 
          moves_by_product = self._get_stock_moves_with_valuation_by_product(at_date)
@@ -108,7 +111,7 @@
                      next_change = next(price_changes, None)
                  if move.is_in:
                      continue
-@@ -375,9 +388,40 @@
+@@ -372,9 +385,40 @@
 
          return std_price_by_product_id, value_by_product_id
 
@@ -150,7 +153,7 @@
          std_price_by_product_id = defaultdict(float)
          value_by_product_id = defaultdict(float)
          quantity_by_product_id = {}
-@@ -398,27 +442,32 @@
+@@ -395,27 +439,32 @@
                  ('move_line_ids.lot_id', 'in', lot.id),
              ])
          if at_date and not correction:
@@ -163,9 +166,8 @@
          oldest_manual_value = min(pv.date for pv in last_manual_value_by_product.values()) if last_manual_value_by_product else False
          if oldest_manual_value and self.env['product.product'].concat(last_manual_value_by_product.keys()) == self:
 -            moves_domain &= Domain([('date', '>=', oldest_manual_value)])
--
 +            moves_domain &= Domain.custom(to_sql=lambda table: SQL('%s >= %s', table['date'], oldest_manual_value))
-+
+
 +        anchored_values = self.env['product.value'].browse([
 +            pv.id for pv in last_manual_value_by_product.values() if pv.after_move_id
 +        ])
@@ -182,10 +184,9 @@
 +                quantity = lot.with_env(valuation_products.env).with_context(to_date=manual_value.date).product_qty
              else:
 -                quantity = product.with_context(to_date=manual_value.date, allowed_company_ids=self.env.company.ids).qty_available
--
--            std_price_by_product_id[product.id] = manual_value.value
 +                quantity = product.with_env(valuation_products.env).with_context(to_date=manual_value.date).qty_available
-+
+
+-            std_price_by_product_id[product.id] = manual_value.value
 +            unit_cost = manual_value._unit_cost()
 +            std_price_by_product_id[product.id] = unit_cost
              quantity_by_product_id[product.id] = quantity
@@ -196,7 +197,7 @@
 
          self.env['product.value'].invalidate_model()  # Avoid keeping too many records in cache
 
-@@ -437,7 +486,7 @@
+@@ -434,7 +483,7 @@
          product_move_ids = []
          std_price_history_by_product_id = False
          if correction:
@@ -205,7 +206,7 @@
          # Limit the memory usage since it's possible to have millions of stock.move
          for moves_batch in split_every(batch_size, moves.ids):
              moves_batch = self.env['stock.move'].browse(moves_batch)
-@@ -447,7 +496,7 @@
+@@ -444,7 +493,7 @@
                  if move.product_id != product:
                      product = move.product_id
                      valuation_from_date = date_by_product_id.get(product.id)
@@ -214,7 +215,7 @@
                      continue
                  product_move_ids.append(move.id)
 
-@@ -466,8 +515,8 @@
+@@ -463,8 +512,8 @@
                      product = move.product_id
                      price_changes = iter(std_price_history_by_product_id.get(product, self.env['product.value']) if correction else self.env['product.value'])
                      next_change = next(price_changes, None)
@@ -225,7 +226,7 @@
                      value = average_cost * quantity
                      next_change = next(price_changes, None)
                  if move.is_in:
-@@ -516,7 +565,7 @@
+@@ -513,7 +562,7 @@
          products = self.sudo()._with_valuation_context()
          if at_date:
              if correction and at_date != datetime.min:
@@ -234,7 +235,7 @@
              products = products.with_context(to_date=at_date)
              if lot:
                  lot = lot.with_context(to_date=at_date)
-@@ -559,7 +608,7 @@
+@@ -556,7 +605,7 @@
              return std_price_by_product_id, value_by_product_id
 
          moves_by_product = self._get_stock_moves_with_valuation_by_product(at_date, lot=lot)
@@ -243,7 +244,7 @@
 
          for product in self:
              stack = stack_by_product[product]
-@@ -567,8 +616,8 @@
+@@ -564,8 +613,8 @@
              price_changes = iter(std_price_history_by_product.get(product, self.env['product.value']))
              next_change = next(price_changes, None)
              for move in moves_by_product.get(product, self.env['stock.move']):
@@ -254,7 +255,7 @@
                      stack[:] = [FifoCandidate(m.quantity, m.quantity * unit_price, m.out_move) for m in stack]
                      next_change = next(price_changes, None)
 
-@@ -694,7 +743,7 @@
+@@ -691,7 +740,7 @@
          if lot:
              moves_domain &= Domain([('move_line_ids.lot_id', 'in', lot.id)])
          if at_date:
@@ -304,7 +305,6 @@
 
      account_move_id = fields.Many2one('account.move', string='Account Move', copy=False, index="btree_not_null")
 
--    @api.depends('move_id', 'lot_id', 'product_id')
 +    @api.depends('after_move_id.date')
 +    def _compute_date(self) -> None:
 +        for record in self:
@@ -410,7 +410,7 @@
 +        self._replay_positioned_scopes(scopes)
 +        return result
 +
-+    @api.depends('move_id', 'lot_id', 'product_id')
+     @api.depends('move_id', 'lot_id', 'product_id')
      def _compute_company_id(self):
          for product_value in self:
 -            if product_value.move_id:
@@ -463,7 +463,7 @@
      def action_open_account_move(self):
 --- a/addons/stock/models/product.py
 +++ b/addons/stock/models/product.py
-@@ -230,8 +230,8 @@
+@@ -225,8 +225,8 @@
          moves_out_res_past = defaultdict(float)
          if dates_in_the_past:
              # Calculate the moves that were done before now to calculate back in time (as most questions will be recent ones)
