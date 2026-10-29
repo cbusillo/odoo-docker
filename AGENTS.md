@@ -40,12 +40,12 @@ Evidence: [README.md](README.md); tenant business logic belongs downstream.
 
 ## Test Selection
 
+- Follow the shared [Tests rule](https://github.com/cbusillo/codex-skills/blob/main/instructions/global.md#tests).
 - `qualityGate.test.local` selects one complete test script from the README's
   Validation Commands; replace `{test_script}` with its path and `{test_args}`
   with its required arguments (or nothing). For example, wrapper changes use
   `bash scripts/test-odoo-bin-wrapper.sh`.
-- Run focused local tests, required lint and inspection. For safety changes,
-  run the complete affected scripts: dependency/advisory policy uses
+- Complete affected-script selection: dependency/advisory policy uses
   `test-image-dependency-health.sh`, dependency overrides use
   `test-check-requirements-overrides.sh`, password/CLI handling uses
   `test-odoo-bin-wrapper.sh` plus `smoke-db-init.sh`, readiness uses
@@ -58,8 +58,7 @@ Evidence: [README.md](README.md); tenant business logic belongs downstream.
   the build jobs. For each selected series, replace `{runtime_image}`,
   `{devtools_image}` and `{odoo_series}` with its matching images and series
   from that run. CI retains both image builds,
-  dependency-health evaluation and the required `image-verification` aggregate;
-  all current-head checks must pass before ready. The full suite runs only in CI.
+  dependency-health evaluation and the required `image-verification` aggregate.
 
 ## Release Gate
 
