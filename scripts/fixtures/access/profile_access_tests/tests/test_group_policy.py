@@ -19,17 +19,40 @@ class RevertGroupOperation(Exception):
     pass
 
 
-def observe_operation(case: Any, environment: Any, policy: bool, operation: Any, mutation: bool) -> dict[str, Any]:
+def observe_operation(
+    case: Any, environment: Any, policy: bool, operation: Any, mutation: bool, target_id: int | None = None
+) -> dict[str, Any]:
     environment.invalidate_all()
     cursor = environment.cr
     default = environment.transaction.default_env
     before = snapshot_delegated(cursor)
-    result = {"policy_allowed": policy, "allowed": False, "error": None, "sql_changed": False}
+    result = {
+        "policy_allowed": policy,
+        "allowed": False,
+        "error": None,
+        "sql_changed": False,
+        "target_row_changed": False,
+        "target_before_present": False,
+        "target_after_present": False,
+    }
     try:
         with cursor.savepoint():
-            result["allowed"] = bool(operation())
+            value = operation()
+            result["allowed"] = bool(value)
             environment.flush_all()
-            result["sql_changed"] = snapshot_delegated(cursor) != before
+            after = snapshot_delegated(cursor)
+            result["sql_changed"] = after != before
+            if mutation and result["allowed"]:
+                target = target_id if target_id is not None else value.id
+                before_row = next((row for row in before[1] if row[0] == target), None)
+                after_row = next((row for row in after[1] if row[0] == target), None)
+                result.update(
+                    target_id=target,
+                    target_row_changed=before_row != after_row,
+                    target_before_present=before_row is not None,
+                    target_after_present=after_row is not None,
+                )
+                case.assertTrue(result["target_row_changed"])
             if result["allowed"]:
                 case.assertEqual(result["sql_changed"], mutation)
             raise RevertGroupOperation
@@ -106,7 +129,7 @@ class TestGroupPolicies(TransactionCase):
         self.env.invalidate_all()
         GROUP_POLICY_OBSERVATIONS.clear()
         GROUP_POLICY_OBSERVATIONS.update(
-            scope="ordinary scalar Partner operations in a standard rooted TransactionCase; not first-principal nested commands",
+            scope="ordinary scalar Partner/Country operations in a standard rooted TransactionCase; not first-principal nested commands",
             selected_company_id=selected.id,
             foreign_company_id=foreign.id,
             country_id=country.id,
@@ -158,10 +181,11 @@ class TestGroupPolicies(TransactionCase):
                     record.has_access("write"),
                     lambda record=record, name=name, role=role: record.write({"name": "Changed group policy " + role + "/" + name}),
                     True,
+                    record.id,
                 )
                 if name != "commercial":
                     operations[name + "/unlink"] = observe_operation(
-                        self, environment, record.has_access("unlink"), record.unlink, True
+                        self, environment, record.has_access("unlink"), record.unlink, True, record.id
                     )
             for name, company in (("companyless", False), ("selected", selected.id), ("foreign", foreign.id)):
                 operations[name + "/create"] = observe_operation(
