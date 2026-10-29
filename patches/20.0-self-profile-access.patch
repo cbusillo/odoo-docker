@@ -34,6 +34,13 @@ diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_
 +            self = self.sudo()
 
          if 'company_id' in vals or 'company_ids' in vals:
+@@ -1230,5 +1241,5 @@
+         # `with_context({})` because this method is decorated with `@ormcache('self._ids')`,
+         # it cannot depend on the context (e.g. `active_test`, `lang`, ...)
+-        return self.with_context({}).all_group_ids._ids
++        return self.sudo().with_context({}).all_group_ids._ids
+
+     def _action_show(self):
 diff --git a/odoo/addons/base/security/ir.access.csv b/odoo/addons/base/security/ir.access.csv
 --- a/odoo/addons/base/security/ir.access.csv
 +++ b/odoo/addons/base/security/ir.access.csv

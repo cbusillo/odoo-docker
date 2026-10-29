@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from odoo import SUPERUSER_ID, Command, api
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 
 NESTED_OBSERVATIONS: dict[str, Any] = {}
 
@@ -88,6 +88,10 @@ def observe_as_first_principal(case: Any, role: str, user_id: int, setup: dict[s
         own = environment["res.users"].browse(user_id)
         case.assertFalse(own.env.su)
         case.assertNotEqual(own.env.uid, SUPERUSER_ID)
+        if hasattr(environment.transaction, "invalidate_ormcache"):
+            environment.transaction.invalidate_ormcache()
+        else:
+            environment.registry.clear_cache()
         membership = {
             name: own.has_group(name)
             for name in (
@@ -109,11 +113,19 @@ def observe_as_first_principal(case: Any, role: str, user_id: int, setup: dict[s
         NESTED_OBSERVATIONS[role] = actor
         actor["group_sources"] = {"fresh": observe_group_sources(environment, user_id)}
         case.assertTrue(actor["independent_connection"])
+        groups = actor["group_sources"]["fresh"]
+        case.assertCountEqual(groups["method_group_ids"], groups["orm_all_group_ids"])
         case.assertTrue(membership["base.group_" + ("user" if role == "internal" else role)])
         case.assertFalse(
             any(membership[name] for name in ("base.group_partner_manager", "base.group_erp_manager", "base.group_system"))
         )
         keys = setup["keys"]
+        actor["other_user_membership_denied"] = None
+        if role in ("portal", "public"):
+            other = environment["res.users"].browse(setup["roles"]["internal"])
+            with case.assertRaises(AccessError):
+                other.has_group("base.group_user")
+            actor["other_user_membership_denied"] = True
         foreign = keys["other"]
         commands = {
             "foreign_update": Command.update(foreign, {"name": "Nested foreign update"}),
