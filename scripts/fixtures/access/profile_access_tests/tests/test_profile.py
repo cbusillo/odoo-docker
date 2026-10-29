@@ -355,13 +355,12 @@ class TestOwnProfile(TransactionCase):
 
     def _observe_profile_operations(self) -> None:
         user_model = self.env["res.users"].with_context(no_reset_password=True)
-        group_field = "group_ids" if "group_ids" in user_model._fields else "groups_id"
         created = user_model.create(
             [
                 {
                     "name": "Profile " + role,
                     "login": "profile-" + role,
-                    group_field: [Command.set(self.env.ref(group).ids)],
+                    "group_ids": [Command.set(self.env.ref(group).ids)],
                     "company_id": self.env.company.id,
                     "company_ids": [Command.set(self.env.company.ids)],
                 }
