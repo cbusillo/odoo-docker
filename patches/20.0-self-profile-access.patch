@@ -363,3 +363,33 @@ diff --git a/addons/web/models/models.py b/addons/web/models/models.py
 +            self.check_access('write' if self else 'create')
 
          if any(fname not in self._fields for fname in field_names):
+diff --git a/odoo/addons/base/models/res_partner_bank.py b/odoo/addons/base/models/res_partner_bank.py
+--- a/odoo/addons/base/models/res_partner_bank.py
++++ b/odoo/addons/base/models/res_partner_bank.py
+@@ -197,4 +197,8 @@
+         self._sanitize_vals(vals)
+         return super().write(vals)
++
++    def unlink(self) -> bool:
++        self.action_archive()
++        return True
+
+     @api.onchange('country_id')
+diff --git a/addons/account/models/res_partner_bank.py b/addons/account/models/res_partner_bank.py
+--- a/addons/account/models/res_partner_bank.py
++++ b/addons/account/models/res_partner_bank.py
+@@ -404,4 +404,14 @@
+         return res
+
++    def unlink(self) -> bool:
++        for account in self:
++            message = self.env._(
++                "Bank Account %(link)s with number %(number)s archived",
++                link=account._get_html_link(title=f"#{account.id}"),
++                number=account.account_number,
++            )
++            account.partner_id._message_log(body=message)
++        return super().unlink()
++
+     @api.model
+     def default_get(self, fields):
