@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from odoo import SUPERUSER_ID, Command
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import UserError
 from odoo.tests import tagged
 from odoo.tests.common import TransactionCase
 
@@ -29,11 +29,17 @@ class TestOwnProfile(TransactionCase):
             "FROM res_partner WHERE id=ANY(%s) ORDER BY id",
             (users.partner_id.ids,),
         )
+        partner_rows = self.env.cr.fetchall()
+        self.env.cr.execute("SELECT uid, gid FROM res_groups_users_rel WHERE uid=ANY(%s) ORDER BY uid, gid", (users.ids,))
+        group_rows = self.env.cr.fetchall()
+        self.env.cr.execute(
+            "SELECT user_id, cid FROM res_company_users_rel WHERE user_id=ANY(%s) ORDER BY user_id, cid", (users.ids,)
+        )
         return {
             "users": user_rows,
-            "partners": self.env.cr.fetchall(),
-            "groups": {user.id: sorted(user._get_group_ids()) for user in users},
-            "companies": {user.id: sorted(user.company_ids.ids) for user in users},
+            "partners": partner_rows,
+            "groups": group_rows,
+            "companies": self.env.cr.fetchall(),
         }
 
     def _observe_write(self, target: Any, values: dict[str, Any], users: Any) -> dict[str, Any]:
@@ -113,8 +119,11 @@ class TestOwnProfile(TransactionCase):
         PROFILE_OBSERVATIONS.clear()
         if hasattr(user_model, "_self_accessible_fields"):
             self_writeable = user_model._self_accessible_fields()[1]
+            field_source = "_self_accessible_fields"
         else:
             self_writeable = {name for name, field in user_model._fields.items() if getattr(field, "user_writeable", False)}
+            field_source = "user_writeable"
+        PROFILE_OBSERVATIONS.update(self_writeable_fields=sorted(self_writeable), self_writeable_source=field_source, roles={})
         for role, actor in (("internal", internal), ("portal", portal), ("public", public)):
             membership = {
                 alias: actor.has_group(alias)
@@ -149,22 +158,13 @@ class TestOwnProfile(TransactionCase):
                 "direct_other_contact": (other.partner_id.with_env(own.env), {"name": "Profile direct other witness"}),
             }
             observations = {name: self._observe_write(target, values, users) for name, (target, values) in cases.items()}
-            partners = own.env["res.partner"]
-            empty_access_error = None
-            try:
-                partners.check_access("write")
-            except AccessError as error:
-                empty_access_error = {"type": type(error).__name__, "message": str(error)}
-            PROFILE_OBSERVATIONS[role] = {
+            PROFILE_OBSERVATIONS["roles"][role] = {
                 "actor_id": actor.id,
                 "partner_id": actor.partner_id.id,
                 "other_id": other.id,
                 "company_ids": actor.company_ids.ids,
                 "membership": membership,
                 "effective_group_ids": sorted(actor._get_group_ids()),
-                "self_writeable_fields": sorted(self_writeable),
-                "partner_model_write": partners.has_access("write"),
-                "partner_empty_write": empty_access_error is None,
-                "partner_empty_access_error": empty_access_error,
+                "partner_model_write": own.env["res.partner"].has_access("write"),
                 "operations": observations,
             }
