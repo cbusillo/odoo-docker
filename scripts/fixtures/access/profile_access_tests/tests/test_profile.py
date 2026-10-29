@@ -374,8 +374,19 @@ class TestOwnProfile(TransactionCase):
                             actual = user_rows[identifier][11]
                         elif field == "property_warehouse_id":
                             actual = user_rows[identifier][12].get(str(target.env.company.id))
-                        else:
+                        elif field in {"login", "signature", "action_id"}:
                             actual = user_rows[identifier][{"login": 1, "signature": 2, "action_id": 3}[field]]
+                        elif field in {
+                            "group_ids",
+                            "partner_id",
+                            "device_ids",
+                            "role_ids",
+                            "auth_passkey_key_ids",
+                            "totp_trusted_device_ids",
+                        }:
+                            continue
+                        else:
+                            raise RuntimeError("Unsupported write witness field: " + field)
                         self.assertEqual(actual, value)
                 if "company_id" in values:
                     observation["company_changed"] = [row[4] for row in after["users"]] != [row[4] for row in before["users"]]
@@ -472,6 +483,15 @@ class TestOwnProfile(TransactionCase):
                 own,
                 {"name": "Profile warehouse preference witness", "property_warehouse_id": warehouse.id},
             )
+            for field in ("group_ids", "partner_id", "device_ids", "role_ids", "auth_passkey_key_ids", "totp_trusted_device_ids"):
+                value = (
+                    [Command.link(self.env.ref("base.group_system").id)]
+                    if field == "group_ids"
+                    else other.partner_id.id
+                    if field == "partner_id"
+                    else [Command.clear()]
+                )
+                cases["own_restricted_" + field] = (own, {field: value})
             observations = {name: self._observe_write(target, values, users) for name, (target, values) in cases.items()}
             observations["own_marker_only"] = self._observe_marker_write(own, users)
             PROFILE_OBSERVATIONS["roles"][role] = {

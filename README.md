@@ -593,10 +593,13 @@ retain full parent checks. Unsupported parent overrides refuse access.
 
 This port requires migration qualification of User/Partner policy interactions,
 source overrides and group implications before applying original data. Native
-Partner Manager permissions retain read access without implying internal User
-membership. Portal/Public combinations defer to the existing commercial-partner
-permission. Group data updates explicitly remove only the two obsolete owned
-implications and preserve unrelated edges. These source changes still require
+Partner Manager permissions restore Partner and Country reads and bank-account
+deletion without implying internal User membership. Portal/Public Partner reads
+defer to the existing commercial-partner permission. Its conditional row can
+still appear in access-denial group hints even when it evaluates to FALSE.
+Group data updates explicitly remove only the two obsolete owned implications
+and preserve unrelated edges. Every base update reapplies those owned removals;
+a deliberate local re-addition does not survive the next update. These source changes still require
 native qualification; arbitrary grouped parent rules remain outside this port.
 The native access fixtures exercise ordinary-principal operations with SQL
 rollback and unusable synthetic key sentinels. The normal valuation smoke

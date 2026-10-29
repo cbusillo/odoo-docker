@@ -77,6 +77,37 @@ def cold_policy_cache(environment: Any) -> None:
 
 @tagged("post_install", "-at_install")
 class TestGroupPolicies(TransactionCase):
+    def test_partner_manager_bank_account_unlink(self) -> None:
+        actor = (
+            self.env["res.users"]
+            .with_context(no_reset_password=True)
+            .create(
+                {
+                    "name": "Bank unlink actor",
+                    "login": "bank-unlink-actor",
+                    "group_ids": [Command.set(self.env.ref("base.group_partner_manager").ids)],
+                }
+            )
+        )
+        self.assertFalse(actor.has_group("base.group_user"))
+        bank_model = self.env["res.partner.bank"]
+        number_field = "acc_number" if "acc_number" in bank_model._fields else "account_number"
+        bank = bank_model.create({number_field: "123456789012345", "partner_id": actor.partner_id.id})
+        ordinary = bank.with_user(actor)
+        self.assertFalse(ordinary.env.su)
+        self.assertTrue(ordinary.has_access("unlink"))
+        try:
+            with self.env.cr.savepoint():
+                self.assertTrue(ordinary.unlink())
+                self.env.flush_all()
+                self.env.cr.execute("SELECT id FROM res_partner_bank WHERE id=%s", (bank.id,))
+                self.assertIsNone(self.env.cr.fetchone())
+                raise RevertGroupOperation
+        except RevertGroupOperation:
+            pass
+        self.env.invalidate_all()
+        self.assertEqual(bank.exists(), bank)
+
     def test_partner_manager_group_combinations(self) -> None:
         selected = self.env.company
         foreign = self.env["res.company"].create({"name": "Group policy foreign company"})
@@ -225,8 +256,20 @@ class TestGroupPolicies(TransactionCase):
         _logger.info("Native group-policy observations: %s", json.dumps(GROUP_POLICY_OBSERVATIONS, sort_keys=True))
         manager = GROUP_POLICY_OBSERVATIONS["roles"]["pm_only"]
         unassigned = GROUP_POLICY_OBSERVATIONS["roles"]["no_role"]
-        for operation in ("companyless/read", "companyless/search", "country/read", "country/search"):
+        for operation in (
+            "companyless/read",
+            "companyless/search",
+            "country/read",
+            "country/search",
+            "commercial/write",
+            "child/write",
+            "companyless/write",
+            "selected/write",
+            "companyless/create",
+            "selected/create",
+        ):
             self.assertTrue(manager["operations"][operation]["allowed"])
             self.assertFalse(unassigned["operations"][operation]["allowed"])
-        self.assertFalse(manager["operations"]["foreign/read"]["allowed"])
+        for operation in ("foreign/read", "foreign/write", "foreign/create"):
+            self.assertFalse(manager["operations"][operation]["allowed"])
         self.assertFalse(manager["membership"]["user"])
