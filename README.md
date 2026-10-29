@@ -577,23 +577,18 @@ publication. Superseded families are visible as Actions notices.
 
 The 20.0 runtime applies
 [`20.0-self-profile-access.patch`](patches/20.0-self-profile-access.patch)
-to preserve Odoo 19's bounded own-user profile updates. The explicit
-`SELF_WRITEABLE_FIELDS` properties in base, mail and sale_stock authorize
-that operation's elevation. Odoo 20's `user_writeable` field markers retain
-their separate field-access purpose; an addon marker does not authorize sudo.
-The source port keeps the allowed-company clamp and native validation,
-cache invalidation and logging.
+for the bounded Odoo 19 own-profile and delegated-access port. The patch is
+the source of truth for its field authority, policy and group changes.
+User reads retain the full parent access domain; other User operations inherit
+the parent's restriction domain for the same operation. Other delegated models
+retain full parent checks. Unsupported parent overrides refuse access.
 
-The User model retains its Odoo 19 delegation boundary through the native
-model-specific inheritance-access hook. Other models keep their parent checks.
-User read grants retain their original public, portal and internal group boundaries.
-The newer direct self-Partner write policy keeps its record and reference with
-a false domain, so an ordinary user still cannot write the contact directly.
-The native access fixtures exercise profile updates and denials, SQL rollback,
-and nested commands using fresh cursors whose first environment belongs to the
-ordinary principal. They create only unusable synthetic key sentinels and
-remove their committed fixture records. The normal 20.0 valuation smoke selects
-these checks alongside its native access safety tests.
+This port requires migration qualification of User/Partner policy interactions,
+source overrides and group implications before applying original data. It does
+not qualify arbitrary grouped parent rules or an existing Odoo 20 database update.
+The native access fixtures exercise ordinary-principal operations with SQL
+rollback and unusable synthetic key sentinels. The normal valuation smoke
+selects these checks alongside the native access safety tests.
 
 ## Native Community 20 retained zero-access data
 

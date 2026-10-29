@@ -7,6 +7,7 @@ from odoo.exceptions import UserError
 from odoo.tests import tagged
 from odoo.tests.common import TransactionCase
 
+from .delegated_access import observe_delegated_access
 from .nested_profile import NESTED_OBSERVATIONS, observe_nested_commands
 
 PROFILE_OBSERVATIONS: dict[str, Any] = {}
@@ -19,6 +20,9 @@ class RevertOperation(Exception):
 
 @tagged("post_install", "-at_install")
 class TestOwnProfile(TransactionCase):
+    def test_delegated_user_operations_preserve_parent_restrictions(self) -> None:
+        observe_delegated_access(self)
+
     def test_user_read_and_search_boundaries(self) -> None:
         user_model = self.env["res.users"].with_context(no_reset_password=True)
         roles = {"internal": "base.group_user", "portal": "base.group_portal", "other": "base.group_portal"}
@@ -51,10 +55,27 @@ class TestOwnProfile(TransactionCase):
         other.write({"company_id": foreign_company.id, "company_ids": [Command.set((self.env.company | foreign_company).ids)]})
         other.partner_id.company_id = foreign_company
         public = self.env.ref("base.public_user")
-        users |= child | public
+        public_child = user_model.create(
+            {
+                "name": "Read boundary public child",
+                "login": "read-boundary-public-child",
+                "group_ids": [Command.set(self.env.ref("base.group_portal").ids)],
+                "company_id": self.env.company.id,
+                "company_ids": [Command.set(self.env.company.ids)],
+            }
+        )
+        public_child.partner_id.parent_id = public.partner_id
+        users |= child | public | public_child
         before = self._snapshot(users)
         USER_READ_OBSERVATIONS.clear()
-        targets = {"internal": internal, "portal": portal, "other_partner_company": other, "portal_child": child, "public": public}
+        targets = {
+            "internal": internal,
+            "portal": portal,
+            "other_partner_company": other,
+            "portal_child": child,
+            "public": public,
+            "public_child": public_child,
+        }
         for role, actor in (("internal", internal), ("portal", portal), ("public", public)):
             environment = actor.with_user(actor).with_context(allowed_company_ids=actor.company_ids.ids).env
             self.assertFalse(environment.su)
@@ -75,24 +96,6 @@ class TestOwnProfile(TransactionCase):
                 any(membership[name] for name in ("base.group_partner_manager", "base.group_erp_manager", "base.group_system"))
             )
             observations = {}
-            for label, target in targets.items():
-                record = target.with_env(environment)
-                expected_read = role != "portal" or target in (portal | child)
-                for operation in ("read", "search"):
-                    error = None
-                    allowed = False
-                    try:
-                        if operation == "read":
-                            allowed = bool(record.read(["name", "email", "login"]))
-                        else:
-                            allowed = record.id in record.search([("id", "=", record.id)]).ids
-                    except UserError as denied:
-                        error = {"type": type(denied).__name__, "message": str(denied)}
-                    observations[label + "/" + operation] = {"allowed": allowed, "error": error}
-                    expected = expected_read and (operation == "read" or target.active)
-                    self.assertEqual(allowed, bool(expected), role + "/" + label + "/" + operation)
-            partner = other.partner_id.with_env(environment)
-            partner_allowed = partner.has_access("read")
             USER_READ_OBSERVATIONS[role] = {
                 "actor_id": actor.id,
                 "uid": environment.uid,
@@ -104,12 +107,34 @@ class TestOwnProfile(TransactionCase):
                 "other_partner_company_id": other.partner_id.company_id.id,
                 "other_partner_share": other.partner_id.partner_share,
                 "other_partner_company_parent_id": foreign_company.parent_id.id,
-                "other_partner_read": partner_allowed,
+                "other_partner_read": other.partner_id.with_env(environment).has_access("read"),
                 "operations": observations,
             }
+            for label, target in targets.items():
+                record = target.with_env(environment)
+                parent_read = target.partner_id.with_env(environment).has_access("read")
+                child_read = role != "portal" or target.commercial_partner_id == portal.commercial_partner_id
+                expected_read = parent_read and child_read
+                for operation in ("read", "search"):
+                    error = None
+                    allowed = False
+                    try:
+                        if operation == "read":
+                            allowed = bool(record.read(["name", "email", "login"]))
+                        else:
+                            allowed = record.id in record.search([("id", "=", record.id)]).ids
+                    except UserError as denied:
+                        error = {"type": type(denied).__name__, "message": str(denied)}
+                    observations[label + "/" + operation] = {
+                        "allowed": allowed,
+                        "error": error,
+                        "parent_read": parent_read,
+                        "target_active": target.active,
+                    }
+                    expected = expected_read and (operation == "read" or target.active)
+                    self.assertEqual(allowed, bool(expected), role + "/" + label + "/" + operation)
             if role == "internal":
-                self.assertFalse(partner_allowed)
-                self.assertTrue(observations["other_partner_company/read"]["allowed"])
+                self.assertFalse(observations["other_partner_company/read"]["allowed"])
             self.assertEqual(self._snapshot(users), before)
 
     def test_own_profile_preserves_bounded_updates(self) -> None:

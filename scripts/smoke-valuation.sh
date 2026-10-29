@@ -119,7 +119,7 @@ classes = {node.name for name in files for node in ast.parse((root / name).read_
 print(",".join("/test_base:" + name for name in sorted(classes)))
 PY
 )"
-    VALUATION_TEST_TAGS="$VALUATION_TEST_TAGS,$access_tags,/profile_access_tests:TestOwnProfile.test_own_profile_preserves_bounded_updates,/profile_access_tests:TestOwnProfile.test_nested_api_key_commands_keep_the_original_principal,/profile_access_tests:TestOwnProfile.test_user_read_and_search_boundaries"
+    VALUATION_TEST_TAGS="$VALUATION_TEST_TAGS,$access_tags,/profile_access_tests"
   fi
   access_modules="$(NATIVE_ACCESS_PHASE=owners /venv/bin/python /opt/access-tests/verify.py)"
   odoo-bin -d valuation_test --update "base,stock,stock_account,$access_modules" --init "$access_test_modules" --without-demo \
