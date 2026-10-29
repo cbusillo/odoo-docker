@@ -74,7 +74,9 @@ run_fixture() {
     sha256sum /opt/native-profile-access.patch /odoo/odoo/orm/models.py \
       /odoo/odoo/addons/base/models/ir_access.py /odoo/odoo/addons/base/models/res_users.py \
       /odoo/odoo/addons/base/security/base_groups.xml /odoo/odoo/addons/base/security/ir.access.csv \
-      /odoo/addons/mail/models/res_users.py /odoo/addons/sale_stock/models/res_users.py
+      /odoo/addons/mail/models/res_users.py /odoo/addons/sale_stock/models/res_users.py \
+      /odoo/addons/auth_passkey/models/res_users.py /odoo/addons/auth_totp/models/res_users.py \
+      /odoo/addons/mail_bot/models/res_users.py
     find /opt/access-tests -type f -name "*.py" -exec sha256sum {} +
     sha256sum /opt/access-tests/zero_access_19.csv
     }
