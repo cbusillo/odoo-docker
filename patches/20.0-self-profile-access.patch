@@ -9,14 +9,13 @@ diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_
 +from lxml import etree
 
  from markupsafe import Markup
-@@ -175,4 +178,6 @@
+@@ -175,4 +178,5 @@
      _explanation = "Represents a person who has access to the system. Users have login credentials, assigned groups for security permissions, and are linked to a partner record for contact information."
      _inherits = {'res.partner': 'partner_id'}
 +    _inherits_access_permissions = frozenset({'read'})
-+    _onchange_access_operation = 'read'
      _order = 'name, login'
      _allow_sudo_commands = False
-@@ -187,4 +192,41 @@
+@@ -187,4 +191,41 @@
          # see `_has_field_access``
          return name == 'user_writeable' or super()._valid_field_parameter(field, name)
 +
@@ -58,14 +57,14 @@ diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_
 +        return arch, models
 
      def _default_groups(self):
-@@ -214,5 +256,5 @@
+@@ -214,5 +255,5 @@
      active = fields.Boolean(default=True)
      active_partner = fields.Boolean(related='partner_id.active', readonly=True, string="Partner is Active")
 -    action_id = fields.Many2one('ir.actions.actions', string='Home Action',
 +    action_id = fields.Many2one('ir.actions.actions', string='Home Action', user_writeable=True,
          help="If specified, this action will be opened at log on for this user, in addition to the standard menu.")
      log_ids = fields.One2many('res.users.log', 'create_uid', string='User log entries')
-@@ -648,4 +690,23 @@
+@@ -648,4 +689,23 @@
              raise ValidationError(_("You must have at least an administrator user."))
 
 +    @api.readonly
@@ -89,14 +88,14 @@ diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_
 +
      @api.model
      def _has_field_access(self, field, operation):
-@@ -653,5 +714,5 @@
+@@ -653,5 +713,5 @@
          # group) or the field is marked as user_writeable. The records which the
          # user can change are protected by record rules.
 -        return super()._has_field_access(field, operation) and (
 +        return self._has_self_field_read_access(field, operation) or super()._has_field_access(field, operation) and (
              operation != 'write'
              or getattr(field, 'user_writeable', False)
-@@ -688,4 +749,10 @@
+@@ -688,4 +748,10 @@
              # unarchive partners before unarchiving the users
              self.partner_id.action_unarchive()
 +
@@ -107,7 +106,7 @@ diff --git a/odoo/addons/base/models/res_users.py b/odoo/addons/base/models/res_
 +            self = self.sudo()
 
          if 'company_id' in vals or 'company_ids' in vals:
-@@ -1230,5 +1297,5 @@
+@@ -1230,5 +1296,5 @@
          # `with_context({})` because this method is decorated with `@ormcache('self._ids')`,
          # it cannot depend on the context (e.g. `active_test`, `lang`, ...)
 -        return self.with_context({}).all_group_ids._ids
@@ -354,16 +353,13 @@ diff --git a/odoo/addons/base/tests/test_res_users.py b/odoo/addons/base/tests/t
 diff --git a/addons/web/models/models.py b/addons/web/models/models.py
 --- a/addons/web/models/models.py
 +++ b/addons/web/models/models.py
-@@ -42,4 +42,5 @@
- class Base(models.AbstractModel):
-     _inherit = 'base'
-+    _onchange_access_operation = 'write'
-
-     @api.model
-@@ -2225,5 +2226,5 @@
+@@ -2225,5 +2225,8 @@
          first_call = not field_names
 
 -        self.check_access('write' if self else 'create')
-+        self.check_access(self._onchange_access_operation if self else 'create')
++        if self and self._name == 'res.users':
++            self.check_access('read')
++        else:
++            self.check_access('write' if self else 'create')
 
          if any(fname not in self._fields for fname in field_names):
