@@ -99,10 +99,7 @@ run_fixture "$previous_image" '
   fi
   record_sources
   access_modules="$(NATIVE_ACCESS_PHASE=owners /venv/bin/python /opt/access-tests/verify.py)"
-  if [[ "$NATIVE_ACCESS_SAFETY" == true ]]; then
-    access_modules="$access_modules,sale_stock"
-  fi
-  odoo-bin -d valuation_test --init "stock_account,test_base,valuation_checkpoint_tests,$access_modules" --without-demo --stop-after-init \
+  odoo-bin -d valuation_test --init "stock_account,test_base,valuation_checkpoint_tests,profile_access_tests,$access_modules" --without-demo --stop-after-init \
     --max-cron-threads=0 --http-interface=127.0.0.1 --log-level=warn
   VALUATION_UPGRADE_PHASE=setup odoo-bin shell -d valuation_test --no-http \
     --max-cron-threads=0 --log-level=warn < /opt/valuation-tests/upgrade.py
@@ -118,7 +115,6 @@ run_fixture "$image" '
   record_sources
   access_test_modules="valuation_checkpoint_tests,test_base,profile_access_tests"
   if [[ "$NATIVE_ACCESS_SAFETY" == true ]]; then
-    access_test_modules="$access_test_modules,sale_stock"
     access_tags="$(/venv/bin/python - <<"PY"
 import ast
 from pathlib import Path

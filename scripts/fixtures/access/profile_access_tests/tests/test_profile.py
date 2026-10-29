@@ -379,11 +379,9 @@ class TestOwnProfile(TransactionCase):
         action = self.env["ir.actions.act_window"].create(
             {"name": "Profile home action", "res_model": "res.partner", "view_mode": "list,form"}
         )
-        warehouse = None
-        if "property_warehouse_id" in user_model._fields:
-            warehouse = self.env["stock.warehouse"].create(
-                {"name": "Profile warehouse", "code": "PFILE", "company_id": self.env.company.id}
-            )
+        warehouse = self.env["stock.warehouse"].create(
+            {"name": "Profile warehouse", "code": "PFILE", "company_id": self.env.company.id}
+        )
         PROFILE_OBSERVATIONS.clear()
         native_markers = {name for name, field in user_model._fields.items() if getattr(field, "user_writeable", False)}
         PROFILE_OBSERVATIONS.update(
@@ -424,13 +422,11 @@ class TestOwnProfile(TransactionCase):
                 "direct_own_contact": (actor.partner_id.with_env(own.env), {"name": "Profile direct own witness"}),
                 "direct_other_contact": (other.partner_id.with_env(own.env), {"name": "Profile direct other witness"}),
             }
-            if "notification_type" in user_model._fields:
-                cases["own_mail_preference"] = (own, {"name": "Profile mail preference witness", "notification_type": "email"})
-            if warehouse:
-                cases["own_warehouse_preference"] = (
-                    own,
-                    {"name": "Profile warehouse preference witness", "property_warehouse_id": warehouse.id},
-                )
+            cases["own_mail_preference"] = (own, {"name": "Profile mail preference witness", "notification_type": "email"})
+            cases["own_warehouse_preference"] = (
+                own,
+                {"name": "Profile warehouse preference witness", "property_warehouse_id": warehouse.id},
+            )
             observations = {name: self._observe_write(target, values, users) for name, (target, values) in cases.items()}
             observations["own_marker_only"] = self._observe_marker_write(own, users)
             PROFILE_OBSERVATIONS["roles"][role] = {
