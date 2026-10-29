@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from typing import Any
 
 from odoo import SUPERUSER_ID, Command, api
@@ -81,7 +82,7 @@ def observe_group_sources(environment: Any, user_id: int) -> dict[str, Any]:
 
 
 def observe_as_first_principal(case: Any, role: str, user_id: int, setup: dict[str, Any]) -> dict[str, Any]:
-    with case.registry.cursor() as cursor:
+    with closing(case.registry.cursor()) as cursor:
         environment = api.Environment(cursor, user_id, {})
         case.assertEqual(environment.transaction.default_env.uid, user_id)
         case.assertFalse(environment.transaction.default_env.su)

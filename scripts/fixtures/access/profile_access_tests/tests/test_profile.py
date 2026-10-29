@@ -154,10 +154,6 @@ class TestOwnProfile(TransactionCase):
         self.assertFalse(OWN_READ_OBSERVATIONS["operations"]["own_search"]["allowed"])
         _logger.info("Native own-read observations: %s", json.dumps(OWN_READ_OBSERVATIONS, sort_keys=True))
 
-    def test_delegated_user_operations_preserve_parent_restrictions(self) -> None:
-        observe_delegated_access(self)
-        _logger.info("Native delegated access observations: %s", json.dumps(DELEGATED_OBSERVATIONS, sort_keys=True))
-
     def test_user_read_and_search_boundaries(self) -> None:
         user_model = self.env["res.users"].with_context(no_reset_password=True)
         roles = {"internal": "base.group_user", "portal": "base.group_portal", "other": "base.group_portal"}
@@ -298,17 +294,6 @@ class TestOwnProfile(TransactionCase):
                 else:
                     self.assertFalse(operation["allowed"], name)
                     self.assertEqual(operation["error"]["type"], "AccessError", name)
-
-    def test_nested_api_key_commands_keep_the_original_principal(self) -> None:
-        observe_nested_commands(self)
-        _logger.info("Native nested command observations: %s", json.dumps(NESTED_OBSERVATIONS, sort_keys=True))
-        self.assertTrue(NESTED_OBSERVATIONS["cleanup_verified"])
-        for role, actor in NESTED_OBSERVATIONS.items():
-            if role == "cleanup_verified":
-                continue
-            for name, operation in actor["operations"].items():
-                self.assertFalse(operation["allowed"], role + "/" + name)
-                self.assertEqual(operation["error"]["type"], "AccessError", role + "/" + name)
 
     def _snapshot(self, users: Any) -> dict[str, Any]:
         self.env.flush_all()
@@ -504,3 +489,24 @@ class TestOwnProfile(TransactionCase):
                 "partner_model_write": own.env["res.partner"].has_access("write"),
                 "operations": observations,
             }
+
+
+@tagged("post_install", "-at_install")
+class TestDelegatedPrincipal(TransactionCase):
+    def test_delegated_user_operations_preserve_parent_restrictions(self) -> None:
+        observe_delegated_access(self)
+        _logger.info("Native delegated access observations: %s", json.dumps(DELEGATED_OBSERVATIONS, sort_keys=True))
+
+
+@tagged("post_install", "-at_install")
+class TestNestedPrincipal(TransactionCase):
+    def test_nested_api_key_commands_keep_the_original_principal(self) -> None:
+        observe_nested_commands(self)
+        _logger.info("Native nested command observations: %s", json.dumps(NESTED_OBSERVATIONS, sort_keys=True))
+        self.assertTrue(NESTED_OBSERVATIONS["cleanup_verified"])
+        for role, actor in NESTED_OBSERVATIONS.items():
+            if role == "cleanup_verified":
+                continue
+            for name, operation in actor["operations"].items():
+                self.assertFalse(operation["allowed"], role + "/" + name)
+                self.assertEqual(operation["error"]["type"], "AccessError", role + "/" + name)

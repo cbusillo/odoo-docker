@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import inspect
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 from odoo import Command
@@ -12,6 +15,7 @@ from odoo.tests.common import TransactionCase
 from .delegated_access import snapshot_delegated
 
 GROUP_POLICY_OBSERVATIONS: dict[str, Any] = {}
+BANK_UNLINK_OBSERVATIONS: dict[str, Any] = {}
 _logger = logging.getLogger(__name__)
 
 
@@ -96,17 +100,40 @@ class TestGroupPolicies(TransactionCase):
         ordinary = bank.with_user(actor)
         self.assertFalse(ordinary.env.su)
         self.assertTrue(ordinary.has_access("unlink"))
+        implementation = inspect.unwrap(ordinary.unlink.__func__)
+        source_file = inspect.getsourcefile(implementation)
+        self.assertIsNotNone(source_file)
+        source = Path(source_file).resolve()
+        BANK_UNLINK_OBSERVATIONS.clear()
+        BANK_UNLINK_OBSERVATIONS.update(
+            actor_id=actor.id,
+            uid=ordinary.env.uid,
+            su=ordinary.env.su,
+            bank_id=bank.id,
+            partner_id=actor.partner_id.id,
+            implementation={
+                "module": implementation.__module__,
+                "qualname": implementation.__qualname__,
+                "path": str(source),
+                "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            },
+        )
         try:
             with self.env.cr.savepoint():
                 self.assertTrue(ordinary.unlink())
                 self.env.flush_all()
-                self.env.cr.execute("SELECT id FROM res_partner_bank WHERE id=%s", (bank.id,))
-                self.assertIsNone(self.env.cr.fetchone())
+                self.env.cr.execute("SELECT partner_id, active FROM res_partner_bank WHERE id=%s", (bank.id,))
+                after = self.env.cr.fetchone()
+                BANK_UNLINK_OBSERVATIONS["after_unlink"] = after
+                self.assertEqual(after, (actor.partner_id.id, False))
                 raise RevertGroupOperation
         except RevertGroupOperation:
             pass
         self.env.invalidate_all()
         self.assertEqual(bank.exists(), bank)
+        self.assertTrue(bank.active)
+        self.assertEqual(bank.partner_id, actor.partner_id)
+        BANK_UNLINK_OBSERVATIONS["rollback_verified"] = True
 
     def test_partner_manager_group_combinations(self) -> None:
         selected = self.env.company

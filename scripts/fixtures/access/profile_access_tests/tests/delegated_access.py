@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from typing import Any
 
 from odoo import SUPERUSER_ID, Command, api
@@ -77,7 +78,7 @@ def observe_operation(case: Any, cursor: Any, environment: Any, operation: Any) 
 
 
 def observe_cache_order(case: Any, setup: dict[str, Any], parent_first: bool) -> dict[str, Any]:
-    with case.registry.cursor() as cursor:
+    with closing(case.registry.cursor()) as cursor:
         environment = api.Environment(cursor, setup["actor_id"], {"allowed_company_ids": [setup["company_id"]]})
         case.assertFalse(environment.su)
         case.assertEqual(environment.transaction.default_env.uid, setup["actor_id"])
@@ -148,7 +149,7 @@ def observe_cache_order(case: Any, setup: dict[str, Any], parent_first: bool) ->
 
 
 def observe_write_restriction(case: Any, setup: dict[str, Any]) -> dict[str, Any]:
-    with case.registry.cursor() as cursor:
+    with closing(case.registry.cursor()) as cursor:
         environment = api.Environment(cursor, setup["actor_id"], {"allowed_company_ids": [setup["company_id"]]})
         other = environment["res.users"].browse(setup["other_id"])
         root = environment(su=True)
