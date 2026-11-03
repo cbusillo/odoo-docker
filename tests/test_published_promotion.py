@@ -9,9 +9,15 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import yaml
+
+
+def patch_attr(target: Any, name: str, *args: Any, **kwargs: Any) -> Any:
+    return patch.object(target, name, *args, **kwargs)
+
 
 HELPER_PATH = Path(__file__).resolve().parents[1] / "scripts/promote-published-images.py"
 SPEC = importlib.util.spec_from_file_location("promotion", HELPER_PATH)
@@ -96,7 +102,7 @@ class PublicationPromotionTest(unittest.TestCase):
                 "aliases": "\n".join(f"{ROOT}:{tag}-{target}" for tag in (LEGACY.series, "sha-a", "nightly", "nightly-20261025")),
             }
             (self.path / f"{target}.json").write_text(json.dumps(record))
-        self.patch = patch.object(promotion, "run_command", side_effect=self.registry.run)
+        self.patch = patch_attr(promotion, "run_command", side_effect=self.registry.run)
         self.patch.start()
         self.addCleanup(self.patch.stop)
 
@@ -180,7 +186,7 @@ class PublicationPromotionTest(unittest.TestCase):
                 self.registry.bind(LEGACY.series, "19", "runtime")
             return result
 
-        with patch.object(promotion, "run_command", side_effect=corrupt_alias), self.assertRaises(ValueError):
+        with patch_attr(promotion, "run_command", side_effect=corrupt_alias), self.assertRaises(ValueError):
             self.promote()
 
     def test_superseded_stable_does_not_dispatch_old_bases_as_a_source_only_run(self) -> None:
@@ -204,7 +210,7 @@ class PublicationPromotionTest(unittest.TestCase):
                         raise subprocess.CalledProcessError(1, arguments, stderr=failure)
                     return original(arguments)
 
-                with patch.object(promotion, "run_command", side_effect=unavailable_registry):
+                with patch_attr(promotion, "run_command", side_effect=unavailable_registry):
                     with self.assertRaises(subprocess.CalledProcessError):
                         self.promote()
                 self.assertFalse(self.registry.mutations)
@@ -282,7 +288,7 @@ class VersionedPromotionTest(unittest.TestCase):
         raw = json.dumps(manifest)
         registry.aliases[f"{ROOT}:{variant.series}-runtime"] = digest = f"sha256:{hashlib.sha256(raw.encode()).hexdigest()}"
         registry.manifests[digest] = raw
-        with patch.object(promotion, "run_command", side_effect=registry.run), self.assertRaises(ValueError):
+        with patch_attr(promotion, "run_command", side_effect=registry.run), self.assertRaises(ValueError):
             promotion.inspect_order(f"{ROOT}:{variant.series}-runtime", variant, allow_legacy=True)
         self.assertFalse(registry.mutations)
 
@@ -306,7 +312,7 @@ class VersionedPromotionTest(unittest.TestCase):
                             }
                         )
                     )
-                with patch.object(promotion, "run_command", side_effect=registry.run):
+                with patch_attr(promotion, "run_command", side_effect=registry.run):
                     result = promotion.promote("example/images", root, 23, variant, SOURCE_REVISION)
                 self.assertEqual(result.digests, expected)
                 self.assertEqual(result.delivered["dispatch"], variant.enterprise_followup)
@@ -338,7 +344,7 @@ class VersionedPromotionTest(unittest.TestCase):
                         (root / f"{target}.json").write_text(json.dumps(record))
                     if fault == "existing-series":
                         registry.aliases[f"{ROOT}:{variant.series}-devtools"] = registry.add_manifest("24", "devtools", other)
-                    with patch.object(promotion, "run_command", side_effect=registry.run), self.assertRaises(ValueError):
+                    with patch_attr(promotion, "run_command", side_effect=registry.run), self.assertRaises(ValueError):
                         promotion.promote("example/images", root, 23, variant, SOURCE_REVISION)
                     self.assertFalse(registry.mutations)
 
@@ -466,7 +472,7 @@ class VerificationPairTest(unittest.TestCase):
                                 }
                             )
                         )
-                    with patch.object(promotion, "run_command", side_effect=registry.run):
+                    with patch_attr(promotion, "run_command", side_effect=registry.run):
                         delivered = promotion.promote("example/images", self.root, 20, variant, SOURCE_REVISION).delivered
                     self.assertEqual({family for family in delivered if family != "dispatch"}, families)
                     self.assertEqual(delivered["dispatch"], variant.enterprise_followup and followup)
