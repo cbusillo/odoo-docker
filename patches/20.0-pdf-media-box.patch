@@ -2,7 +2,7 @@ diff --git a/odoo/tools/pdf/incremental_pdf_merge.py b/odoo/tools/pdf/incrementa
 --- a/odoo/tools/pdf/incremental_pdf_merge.py
 +++ b/odoo/tools/pdf/incremental_pdf_merge.py
 @@ -35,10 +35,10 @@ def get_page_media_box(page) -> RectangleObject:
- 
+
      :param page: The page object to read the media box from.
      """
 -    try:
@@ -12,6 +12,6 @@ diff --git a/odoo/tools/pdf/incremental_pdf_merge.py b/odoo/tools/pdf/incrementa
 +    if media_box is None or isinstance(media_box, NullObject):
          return RectangleObject((0, 0, 612, 792))
 +    return page.mediabox
- 
- 
+
+
  def outer_bounds(rect) -> tuple[int, int, int, int]:
