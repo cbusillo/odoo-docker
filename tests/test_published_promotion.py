@@ -377,7 +377,7 @@ class VerificationPairTest(unittest.TestCase):
         )
         self.steps = {
             identifier: next(step["run"] for step in workflow["jobs"][job]["steps"] if step.get("id") == identifier)
-            for identifier, job in (("verification_pass", "verify"), ("verified_pair", "publish"))
+            for identifier, job in (("verification_pass", "verify"), ("verified_pair", "publish"), ("tags", "publish"))
         }
         inputs = self.root / "dependency-health-inputs"
         inputs.mkdir()
@@ -385,6 +385,9 @@ class VerificationPairTest(unittest.TestCase):
         self.inputs.write_text(json.dumps({"scanner": {"image": "fixture", "database": "pinned"}, "cutoff": "fixture"}))
         self.configuration = hashlib.sha256(self.inputs.read_bytes()).hexdigest()
         self.commit = "c" * 40
+        self.event = "workflow_dispatch"
+        self.ref = "refs/heads/work/trial"
+        self.publish_stable = "false"
 
     def render(self, value: str, variant: promotion.ImageVariant, suffix: str) -> str:
         target = "runtime-devtools" if suffix == "devtools" else suffix
@@ -393,6 +396,7 @@ class VerificationPairTest(unittest.TestCase):
             "env.VARIANT_KEY": key,
             "github.event.pull_request.head.sha || github.sha": self.commit,
             "matrix.target": target,
+            "matrix.suffix": suffix,
             "needs.resolve_inputs.outputs.scan_configuration_sha256": self.configuration,
             "runner.temp": str(self.root),
             "github.run_id": self.run_id,
@@ -406,6 +410,8 @@ class VerificationPairTest(unittest.TestCase):
 
     def run_step(self, identifier: str, variant: promotion.ImageVariant, suffix: str) -> subprocess.CompletedProcess[str]:
         script = self.render(self.steps[identifier], variant, suffix)
+        output = self.root / f"output-{suffix}"
+        output.unlink(missing_ok=True)
         return subprocess.run(
             ["bash", "-euo", "pipefail", "-c", script],
             env={
@@ -416,10 +422,53 @@ class VerificationPairTest(unittest.TestCase):
                 "GITHUB_SHA": self.commit,
                 "GITHUB_RUN_ID": self.run_id,
                 "GITHUB_RUN_ATTEMPT": self.attempt,
+                "GITHUB_REPOSITORY": "example/images",
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_EVENT_NAME": self.event,
+                "GITHUB_REF": self.ref,
+                "DISPATCH_PUBLISH_STABLE": self.publish_stable,
+                "ALIAS_PREFIX": variant.alias_prefix,
+                "NIGHTLY_DATE": "20261103",
             },
             capture_output=True,
             text=True,
         )
+
+    def test_trial_tags_isolate_promotion_without_changing_default_branch_releases(self) -> None:
+        for event, ref, stable, families in (
+            ("workflow_dispatch", "refs/heads/work/trial", "false", {"build"}),
+            ("workflow_dispatch", "refs/heads/main", "false", {"build", "source"}),
+            ("workflow_dispatch", "refs/heads/main", "true", {"build", "source", "stable"}),
+            ("push", "refs/heads/main", "false", {"build", "source", "stable"}),
+            ("schedule", "refs/heads/main", "false", {"build", "source", "nightly", "nightly-20261103"}),
+        ):
+            for variant in VARIANTS:
+                with self.subTest(event=event, ref=ref, stable=stable, series=variant.series):
+                    self.event, self.ref, self.publish_stable = event, ref, stable
+                    registry = Registry()
+                    for suffix in promotion.TARGETS:
+                        result = self.run_step("tags", variant, suffix)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        output = (self.root / f"output-{suffix}").read_text()
+                        cache_export = next(
+                            line.removeprefix("cache_export=") for line in output.splitlines() if line.startswith("cache_export=")
+                        )
+                        self.assertEqual(bool(cache_export), ref == "refs/heads/main")
+                        aliases = output.split("aliases<<EOF\n")[1].split("EOF\n")[0].strip()
+                        (self.root / f"{suffix}.json").write_text(
+                            json.dumps(
+                                {
+                                    "series": variant.series,
+                                    "odoo_source_revision": SOURCE_REVISION,
+                                    "digest": registry.add_manifest("20", suffix, variant),
+                                    "aliases": aliases,
+                                }
+                            )
+                        )
+                    with patch.object(promotion, "run_command", side_effect=registry.run):
+                        delivered = promotion.promote("example/images", self.root, 20, variant, SOURCE_REVISION).delivered
+                    self.assertEqual({family for family in delivered if family != "dispatch"}, families)
+                    self.assertEqual(delivered["dispatch"], variant.enterprise_followup and "source" in families)
 
     def qualify(self, variant: promotion.ImageVariant) -> Path:
         selected = Path(self.render(self.download_path, variant, "runtime"))

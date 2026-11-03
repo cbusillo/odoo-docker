@@ -36,7 +36,19 @@ Evidence: [README.md](README.md); tenant business logic belongs downstream.
   for claims, isolated worktrees, bot-authored changes, reviews, and closeout.
 - PRs land by the overall DIRECTION.md's
   [merge-train rule](https://github.com/cbusillo/direction/blob/HEAD/DIRECTION.md#stop-boundaries).
-- Agents must not dispatch publishing workflows or push tags by hand; reruns go through the merge train or the agent asks Chris.
+- Non-stable task-branch trials through the existing `build.yml` workflow are
+  ordinary engineering. Before dispatching with `publish_stable=false`, verify
+  that published tags are branch- or run-scoped, no shared series or registry-cache
+  alias changes, and Enterprise follow-up is suppressed or confined to
+  branch-scoped tags. The workflow suppresses Enterprise follow-up on task branches.
+- Odoo Enterprise source and images are never public. Before any publishing
+  dispatch, check that it cannot change an Enterprise package's visibility or
+  push Enterprise artifacts anywhere public.
+- When the trial PR lands or closes, remove its mutable trial tags. Keep the
+  immutable digest cited as evidence until a post-merge build supersedes it;
+  leave package-version cleanup to registry retention.
+- Stable and nightly promotion and their reruns remain gated through the merge
+  train or Chris's approval. Do not push tags by hand.
 
 ## Test Selection
 

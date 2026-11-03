@@ -345,8 +345,11 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   advisory scan.
 - `schedule` (weekly) promotes `nightly-*`, `sha-*`, and `build-*` tags.
 - `push` to `main` promotes each series' stable, source and build tags.
-- Manual `workflow_dispatch` runs promote `sha-*` and `build-*` tags, and also
-  each series' stable tags unless `publish_stable` is turned off (it defaults on).
+- Manual `workflow_dispatch` runs on `main` promote `sha-*` and `build-*` tags,
+  and also each series' stable tags unless `publish_stable` is turned off
+  (it defaults on). Task-branch trials use `publish_stable=false`: only
+  run-scoped candidate and build tags are published, with no shared source alias
+  or registry-cache export. Shared caches remain readable.
   The legacy series keeps its existing unqualified nightly/source/build/cache
   names. Other series qualify candidate, nightly, source, build and cache names with their configured alias prefix;
   all stable tags use the series. Local verification tags, evidence and artifacts
@@ -361,7 +364,7 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   other qualified pair from progressing. Published evidence uploads precede
   the digest records that permit alias promotion. Index and platform annotations
   bind the series and Odoo revision; promotion checks them and alias readback.
-- Only the variant with Enterprise follow-up enabled dispatches `odoo-enterprise-docker`
+- Only `main` and the variant with Enterprise follow-up enabled dispatch `odoo-enterprise-docker`
   build with the exact published runtime and devtools digests. It passes on
   the same stable decision, and asks for nightly tags only on scheduled runs.
   Community 20 never triggers an Enterprise 19 build. Base-image aliases mean
