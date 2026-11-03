@@ -704,6 +704,16 @@ the setup phase, exercising upgrade from its existing positioned schema. Without
 that argument, setup reverses the source patches to retain first-adoption coverage.
 
 
+## Native Community 20 PDF media-box fallback
+
+The Community 20 build applies
+[`20.0-pdf-media-box.patch`](patches/20.0-pdf-media-box.patch) to preserve the
+upstream US Letter fallback when a page has no `/MediaBox`. It checks for the
+missing box before asking pypdf to read it. Present boxes retain pypdf's normal
+validation, including rejection of malformed boxes. Community 19 is unchanged.
+The upstream `test_base:TestPdf` and `test_base:TestSignature` tests cover PDF
+handling and signature placement, including the missing-box fixture.
+
 ## Native Community 20 inline defaults
 
 The normal Community 20 build carries
