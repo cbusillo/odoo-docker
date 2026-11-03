@@ -31,6 +31,11 @@ tenant runtime deployment is owned by Launchplane.
 Both images default to the `ubuntu` user for compatibility with existing
 restore and SSH mount workflows.
 
+Each series in `image-variants.json` owns its Python patch version. Community
+19 remains on Python 3.13; Community 20 uses Python 3.14. Builds and runtime
+smoke checks read the same selection. Local builds select it from
+`ODOO_SOURCE_REF`; `PYTHON_VERSION` can override it for an unpublished trial.
+
 ## Local Python Inspections
 
 `uv sync --locked` installs the development-only dependencies for the Python
@@ -539,6 +544,10 @@ Use `--target runtime-devtools` and a separate local tag for its browser layer.
   `scripts/check-requirements-overrides.py` reject removed upstream
   requirements, unexpected unpinned or ranged requirements, and upstream exact
   pins that make an override removable.
+  Python 3.14 applies these overrides during the first upstream install so
+  libsass's fixed source builder is selected before the old builder can fail
+  on arm64. Python 3.13 retains its existing upstream-then-overrides install.
+  Override freshness checks evaluate markers for the selected Python version.
 - Neither the runtime virtual environment nor its uv-managed base interpreter
   under `/opt/uv/python` ships `pip` or `ensurepip`. Image builds and downstream
   dependency synchronization use `uv`; restoring `pip` would add unused

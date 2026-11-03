@@ -349,6 +349,8 @@ class VersionedPromotionTest(unittest.TestCase):
             [original[0], original[0]],
             [{**original[0], "alias_prefix": "wrong-"}],
             [{**original[0], "enterprise_followup": "false"}],
+            [{**original[0], "python_version": "3.14"}],
+            [{key: value for key, value in original[0].items() if key != "python_version"}],
         ):
             with self.subTest(records=records), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "variants.json"

@@ -2,7 +2,7 @@
 ARG ODOO_SOURCE_REPOSITORY=https://github.com/odoo/odoo.git
 ARG ODOO_SOURCE_REF=19.0
 ARG ODOO_SOURCE_REV
-ARG PYTHON_VERSION=3.13.15
+ARG PYTHON_VERSION
 ARG APT_SNAPSHOT
 ARG POSTGRESQL_CLIENT_VERSION
 ARG POSTGRESQL_CLIENT_COMMON_VERSION
@@ -59,6 +59,7 @@ RUN set -eux; \
 
 FROM ubuntu:noble@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55 AS runtime-system
 ARG PYTHON_VERSION
+ARG ODOO_SOURCE_REF
 ARG APT_REFRESH_EPOCH=0
 ARG APT_SNAPSHOT
 ARG POSTGRESQL_CLIENT_VERSION
@@ -180,6 +181,7 @@ COPY --from=uv-binary /uv /uvx /usr/local/bin/
 RUN install -d -o ubuntu -g ubuntu /odoo
 COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo/requirements.txt /odoo/requirements.txt
 COPY requirements-overrides.txt /odoo/requirements-overrides.txt
+COPY image-variants.json /odoo/image-variants.json
 
 ENV PATH="/venv/bin:/usr/local/bin:${PATH}"
 ENV VIRTUAL_ENV=/venv
@@ -193,8 +195,9 @@ ARG RESOLVER_CUTOFF
 RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=locked \
     install -d -o ubuntu -g ubuntu /opt/uv/python /venv /home/ubuntu/.cache/uv \
     && chown -R ubuntu:ubuntu /home/ubuntu/.cache/uv \
-    && su -s /bin/bash ubuntu -c "uv python install '${PYTHON_VERSION}'" \
-    && su -s /bin/bash ubuntu -c "uv venv /venv --python '${PYTHON_VERSION}'" \
+    && python_version="${PYTHON_VERSION:-$(python3 -c 'import json, sys; print(next(variant["python_version"] for variant in json.load(open("/odoo/image-variants.json")) if variant["series"] == sys.argv[1]))' "${ODOO_SOURCE_REF}")}" \
+    && su -s /bin/bash ubuntu -c "uv python install '${python_version}'" \
+    && su -s /bin/bash ubuntu -c "uv venv /venv --python '${python_version}'" \
     && base_python="$(su -s /bin/bash ubuntu -c 'PYTHONDONTWRITEBYTECODE=1 /venv/bin/python -c "import sys; print(sys._base_executable)"')" \
     && case "${base_python}" in /opt/uv/python/*) ;; *) echo "Unexpected base interpreter: ${base_python}" >&2; exit 1 ;; esac \
     && base_site_packages="$(env -u VIRTUAL_ENV PYTHONDONTWRITEBYTECODE=1 "${base_python}" -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" \
@@ -213,6 +216,7 @@ RUN --mount=type=cache,target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,sharing=l
     && test -z "$(find "${base_scripts}" -maxdepth 1 -name 'pip*' -print -quit)" \
     && env -u VIRTUAL_ENV PYTHONDONTWRITEBYTECODE=1 "${base_python}" -c 'import importlib.util; assert importlib.util.find_spec("pip") is None; assert importlib.util.find_spec("ensurepip") is None' \
     && if [ -n "${RESOLVER_CUTOFF:-}" ]; then export UV_EXCLUDE_NEWER="${RESOLVER_CUTOFF}"; fi \
+    && case "${python_version}" in 3.14.*) export UV_OVERRIDE=/odoo/requirements-overrides.txt ;; esac \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements.txt" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python -r /odoo/requirements-overrides.txt" \
     && su -s /bin/bash ubuntu -c "uv pip install --python /venv/bin/python rlpycairo==0.4.0" \

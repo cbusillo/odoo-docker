@@ -22,7 +22,6 @@ concurrency:
 env:
   DOCKER_BUILD_SUMMARY: false
   DOCKER_BUILD_RECORD_UPLOAD: false
-  PYTHON_VERSION: 3.13.15
   TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
 
 jobs:
@@ -87,6 +86,7 @@ jobs:
   resolve_inputs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: resolve_source
     permissions:
       contents: read
     outputs:
@@ -200,7 +200,7 @@ jobs:
             --arg postgresql_client_common_version "${postgresql_client_common_version}" \
             --arg postgresql_client_version "${postgresql_client_version}" \
             --arg postgresql_libpq_version "${postgresql_libpq_version}" \
-            --arg python_version "${PYTHON_VERSION}" \
+            --argjson variants '${{ needs.resolve_source.outputs.variants }}' \
             --arg resolver_cutoff "${resolver_cutoff}" \
             --arg trivy_db_sha256 "${trivy_db_sha256}" \
             --arg trivy_image "${trivy_image}" \
@@ -212,7 +212,7 @@ jobs:
                 client_common: $postgresql_client_common_version,
                 libpq: $postgresql_libpq_version
               },
-              python_version: $python_version,
+              python_versions: ($variants | map({key: .series, value: .python_version}) | from_entries),
               resolver_cutoff: $resolver_cutoff,
               scanner: {
                 image: $trivy_image,
@@ -302,6 +302,7 @@ jobs:
             smoke_script: scripts/smoke-devtools.sh
     env:
       ODOO_SERIES: ${{ matrix.variant.series }}
+      PYTHON_VERSION: ${{ matrix.variant.python_version }}
       ODOO_SOURCE_REV: ${{ fromJSON(needs.resolve_source.outputs.odoo_source_revs)[matrix.variant.series] }}
       ALIAS_PREFIX: ${{ matrix.variant.alias_prefix }}
       VARIANT_KEY: ${{ matrix.variant.series }}-${{ matrix.suffix }}
@@ -808,6 +809,7 @@ jobs:
             suffix: devtools
     env:
       ODOO_SERIES: ${{ matrix.variant.series }}
+      PYTHON_VERSION: ${{ matrix.variant.python_version }}
       ODOO_SOURCE_REV: ${{ fromJSON(needs.resolve_source.outputs.odoo_source_revs)[matrix.variant.series] }}
       ALIAS_PREFIX: ${{ matrix.variant.alias_prefix }}
       VARIANT_KEY: ${{ matrix.variant.series }}-${{ matrix.suffix }}

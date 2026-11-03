@@ -13,6 +13,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/build.yml").read_text())
+VARIANTS = json.loads((ROOT / "image-variants.json").read_text())
 
 
 def fake_tool(name: str, arguments: list[str]) -> int:
@@ -104,7 +105,6 @@ class VerificationHealthTest(unittest.TestCase):
             GITHUB_WORKSPACE=str(self.workspace),
             RUNNER_TEMP=str(self.runner),
             GITHUB_OUTPUT=str(self.output),
-            PYTHON_VERSION=str(WORKFLOW["env"]["PYTHON_VERSION"]),
             TRIVY_IMAGE=self.image,
             BASELINE_COMMIT="1" * 40,
             SOURCE_COMMIT="2" * 40,
@@ -115,7 +115,8 @@ class VerificationHealthTest(unittest.TestCase):
         )
 
     def step(self, job: str, identifier: str) -> str:
-        return next(step["run"] for step in WORKFLOW["jobs"][job]["steps"] if step.get("id") == identifier)
+        script = next(step["run"] for step in WORKFLOW["jobs"][job]["steps"] if step.get("id") == identifier)
+        return script.replace("${{ needs.resolve_source.outputs.variants }}", json.dumps(VARIANTS))
 
     def run_script(self, script: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -192,6 +193,8 @@ class VerificationHealthTest(unittest.TestCase):
 
     def test_same_image_reuses_resolved_database_and_scans_candidate_once(self) -> None:
         self.resolve()
+        inputs = json.loads((self.runner / "dependency-health-inputs/comparison-inputs.json").read_text())
+        self.assertEqual(inputs["python_versions"], {variant["series"]: variant["python_version"] for variant in VARIANTS})
         result = self.run_script(self.step("verify", "candidate_absolute"))
         self.assertEqual(result.returncode, 0, result.stderr)
         events = self.events()
