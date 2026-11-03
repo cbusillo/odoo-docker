@@ -898,22 +898,12 @@ jobs:
           if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
             aliases+=("${image_root}:${ALIAS_PREFIX}sha-${source_short_sha}-${{ matrix.suffix }}")
             cache_export="type=registry,ref=${image_root}:buildcache-${ALIAS_PREFIX}${{ matrix.suffix }},mode=max"
-          fi
-
-          if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
-            aliases+=("${image_root}:${ALIAS_PREFIX}nightly-${{ matrix.suffix }}" "${image_root}:${ALIAS_PREFIX}nightly-${NIGHTLY_DATE}-${{ matrix.suffix }}")
-          fi
-
-          publish_stable="false"
-          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-            publish_stable="true"
-          fi
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${DISPATCH_PUBLISH_STABLE}" = "true" ]; then
-            publish_stable="true"
-          fi
-
-          if [ "${publish_stable}" = "true" ]; then
-            aliases+=("${image_root}:${ODOO_SERIES}-${{ matrix.suffix }}")
+            if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
+              aliases+=("${image_root}:${ALIAS_PREFIX}nightly-${{ matrix.suffix }}" "${image_root}:${ALIAS_PREFIX}nightly-${NIGHTLY_DATE}-${{ matrix.suffix }}")
+            fi
+            if [ "${GITHUB_EVENT_NAME}" = "push" ] || { [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${DISPATCH_PUBLISH_STABLE}" = "true" ]; }; then
+              aliases+=("${image_root}:${ODOO_SERIES}-${{ matrix.suffix }}")
+            fi
           fi
 
           {
@@ -1285,7 +1275,7 @@ jobs:
         run: python3 scripts/promote-published-images.py "${RUNNER_TEMP}/published-digests/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/${ODOO_SERIES}" --series "${ODOO_SERIES}" --odoo-source-revision "${ODOO_SOURCE_REV}"
 
       - name: Trigger enterprise build
-        if: github.ref == 'refs/heads/main' && matrix.variant.enterprise_followup && steps.promote_aliases.outputs.dispatch == 'true'
+        if: matrix.variant.enterprise_followup && steps.promote_aliases.outputs.dispatch == 'true'
         env:
           ODOO_SOURCE_REV: ${{ env.ODOO_SOURCE_REV }}
           RUNTIME_DIGEST: ${{ steps.promote_aliases.outputs.runtime_digest }}

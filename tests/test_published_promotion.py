@@ -435,12 +435,13 @@ class VerificationPairTest(unittest.TestCase):
         )
 
     def test_trial_tags_isolate_promotion_without_changing_default_branch_releases(self) -> None:
-        for event, ref, stable, families in (
-            ("workflow_dispatch", "refs/heads/work/trial", "false", {"build"}),
-            ("workflow_dispatch", "refs/heads/main", "false", {"build", "source"}),
-            ("workflow_dispatch", "refs/heads/main", "true", {"build", "source", "stable"}),
-            ("push", "refs/heads/main", "false", {"build", "source", "stable"}),
-            ("schedule", "refs/heads/main", "false", {"build", "source", "nightly", "nightly-20261103"}),
+        for event, ref, stable, families, followup in (
+            ("workflow_dispatch", "refs/heads/work/trial", "false", {"build"}, False),
+            ("workflow_dispatch", "refs/heads/work/trial", "true", {"build"}, False),
+            ("workflow_dispatch", "refs/heads/main", "false", {"build", "source"}, True),
+            ("workflow_dispatch", "refs/heads/main", "true", {"build", "source", "stable"}, True),
+            ("push", "refs/heads/main", "false", {"build", "source", "stable"}, True),
+            ("schedule", "refs/heads/main", "false", {"build", "source", "nightly", "nightly-20261103"}, True),
         ):
             for variant in VARIANTS:
                 with self.subTest(event=event, ref=ref, stable=stable, series=variant.series):
@@ -468,7 +469,7 @@ class VerificationPairTest(unittest.TestCase):
                     with patch.object(promotion, "run_command", side_effect=registry.run):
                         delivered = promotion.promote("example/images", self.root, 20, variant, SOURCE_REVISION).delivered
                     self.assertEqual({family for family in delivered if family != "dispatch"}, families)
-                    self.assertEqual(delivered["dispatch"], variant.enterprise_followup and "source" in families)
+                    self.assertEqual(delivered["dispatch"], variant.enterprise_followup and followup)
 
     def qualify(self, variant: promotion.ImageVariant) -> Path:
         selected = Path(self.render(self.download_path, variant, "runtime"))

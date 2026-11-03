@@ -40,7 +40,7 @@ Evidence: [README.md](README.md); tenant business logic belongs downstream.
   ordinary engineering. Before dispatching with `publish_stable=false`, verify
   that published tags are branch- or run-scoped, no shared series or registry-cache
   alias changes, and Enterprise follow-up is suppressed or confined to
-  branch-scoped tags. The workflow suppresses Enterprise follow-up on task branches.
+  branch-scoped tags.
 - Odoo Enterprise source and images are never public. Before any publishing
   dispatch, check that it cannot change an Enterprise package's visibility or
   push Enterprise artifacts anywhere public.
