@@ -44,9 +44,9 @@ Evidence: [README.md](README.md); tenant business logic belongs downstream.
 - Odoo Enterprise source and images are never public. Before any publishing
   dispatch, check that it cannot change an Enterprise package's visibility or
   push Enterprise artifacts anywhere public.
-- When the trial PR lands or closes, remove its mutable trial tags. Keep the
-  immutable digest cited as evidence until a post-merge build supersedes it;
-  leave package-version cleanup to registry retention.
+- Leave trial tags and package versions to the existing daily registry
+  retention. Record the trial digest and its replacement by a post-merge build;
+  do not delete package versions by hand.
 - Stable and nightly promotion and their reruns remain gated through the merge
   train or Chris's approval. Do not push tags by hand.
 
