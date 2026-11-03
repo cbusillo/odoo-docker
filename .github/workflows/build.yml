@@ -375,6 +375,7 @@ jobs:
             resolver_contract="true"
           fi
           if [ -f "${BASELINE_ROOT}/image-variants.json" ] && jq -e --arg series "${ODOO_SERIES}" 'any(.[]; .series == $series)' "${BASELINE_ROOT}/image-variants.json" >/dev/null \
+            && jq -e --arg series "${ODOO_SERIES}" --arg python "${PYTHON_VERSION}" 'any(.[]; .series == $series and .python_version == $python)' "${BASELINE_ROOT}/image-variants.json" >/dev/null \
             && [ "${resolver_parity}" = "true" ] \
             && [ "${resolver_contract}" = "true" ] \
             && [ "${scanner_parity}" = "true" ]; then

@@ -201,6 +201,34 @@ class VerificationHealthTest(unittest.TestCase):
         self.assertEqual([event["download"] for event in events if "download" in event], [self.image])
         self.assertEqual([event["scan"] for event in events if "scan" in event], [self.environment["IMAGE_REFERENCE"]])
 
+    def test_python_change_requires_absolute_gate(self) -> None:
+        self.environment.update(
+            BASELINE_ROOT=str(self.baseline),
+            ODOO_SERIES=VARIANTS[0]["series"],
+            PYTHON_VERSION=VARIANTS[0]["python_version"],
+        )
+        for name in ("Dockerfile", ".github/workflows/build.yml", "scripts/scan-image-dependencies.sh"):
+            for checkout in (self.baseline, self.workspace):
+                target = checkout / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / name, target)
+        versions = [dict(variant) for variant in VARIANTS]
+        configuration = self.baseline / "image-variants.json"
+        configuration.write_text(json.dumps(versions))
+        script = self.step("verify", "resolver_parity")
+        passed = self.run_script(script)
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        outputs = dict(line.split("=", 1) for line in self.output.read_text().splitlines())
+        self.assertEqual(outputs["comparison"], "true")
+        major, minor, patch = versions[0]["python_version"].split(".")
+        versions[0]["python_version"] = f"{major}.{minor}.{int(patch) + 1}"
+        configuration.write_text(json.dumps(versions))
+        self.output.write_text("")
+        changed = self.run_script(script)
+        self.assertEqual(changed.returncode, 0, changed.stderr)
+        outputs = dict(line.split("=", 1) for line in self.output.read_text().splitlines())
+        self.assertEqual(outputs["comparison"], "false")
+
     def test_changed_scanner_uses_its_own_bound_database_and_same_image(self) -> None:
         self.resolve(different_scanner=True)
         result = self.run_script(self.step("verify", "candidate_absolute"))
