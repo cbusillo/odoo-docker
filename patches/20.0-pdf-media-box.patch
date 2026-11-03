@@ -8,7 +8,7 @@ diff --git a/odoo/tools/pdf/incremental_pdf_merge.py b/odoo/tools/pdf/incrementa
 -    try:
 -        return page.mediabox
 -    except (TypeError, AssertionError):
-+    media_box = page.get('/MediaBox', NullObject()).get_object()
++    media_box = page.get('/MediaBox')
 +    if media_box is None or isinstance(media_box, NullObject):
          return RectangleObject((0, 0, 612, 792))
 +    return page.mediabox
