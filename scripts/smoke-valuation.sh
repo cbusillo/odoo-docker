@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 image="${1:?Usage: scripts/smoke-valuation.sh <runtime-image>}"
-test_tags="${2:-/valuation_checkpoint_tests,/stock_account,/stock:TestVirtualAvailable,/stock:TestProductPostInstall,/stock:TestLotSerial,/stock:TestStockQuant.test_to_date_consignment,/stock:TestReportStockQuantity}"
-access_safety=true
-if [[ -n "${2:-}" ]]; then access_safety=false; fi
+test_tags="${2:-/valuation_checkpoint_tests,/stock_account,/stock:TestVirtualAvailable,/stock:TestProductPostInstall,/stock:TestLotSerial,/stock:TestStockQuant.test_to_date_consignment,/stock:TestReportStockQuantity,/test_base:TestPdf,/test_base:TestSignature}"
 previous_image="${3:-$image}"
 reverse_patch=true
 if [[ -n "${3:-}" ]]; then reverse_patch=false; fi
 patch_file="$(cd "$(dirname "$0")/../patches" && pwd)/20.0-valuation-checkpoints.patch"
-access_patch_file="$(cd "$(dirname "$0")/../patches" && pwd)/20.0-zero-access-data.patch"
 fixture="$(cd "$(dirname "$0")/fixtures/valuation" && pwd)"
-access_fixture="$(cd "$(dirname "$0")/fixtures/access" && pwd)"
 name="odoo-valuation-${RANDOM}-$$"
 reader_id=""
 tests_id=""
@@ -52,8 +48,6 @@ docker exec "${name}-db" pg_isready -h 127.0.0.1 -U odoo >/dev/null
 odoo_run=(docker create --name "${name}-tests" --network "$name"
   -e VALUATION_TEST_TAGS="$test_tags"
   -e VALUATION_REVERSE_PATCH="$reverse_patch"
-  -e NATIVE_ACCESS_SAFETY="$access_safety"
-  -e NATIVE_ACCESS_SOURCE=/opt/access-tests/zero_access_19.csv
   -e ODOO_DB_HOST="${name}-db" -e ODOO_DB_USER=odoo
   -e PGHOST="${name}-db" -e PGUSER=odoo -e PGPORT=5432
   -e ODOO_DB_PASSWORD=synthetic-valuation
@@ -63,23 +57,18 @@ run_fixture() {
   local source_proof='
     set -euo pipefail
     record_sources() {
-    sha256sum /opt/native-valuation.patch /opt/native-zero-access-data.patch /odoo/odoo/orm/fields_numeric.py \
+    sha256sum /opt/native-valuation.patch /odoo/odoo/orm/fields_numeric.py \
       /odoo/addons/stock_account/models/product.py /odoo/addons/stock_account/models/product_value.py \
       /odoo/addons/stock_account/models/stock_move.py /odoo/addons/stock_account/__manifest__.py \
       /odoo/addons/stock/models/product.py /odoo/addons/stock/models/stock_lot.py \
       /odoo/addons/stock_account/report/stock_avco_audit_report.py
     find /opt/valuation-tests -type f -name "*.py" -exec sha256sum {} +
     find /odoo/addons/stock_account -path "*/migrations/*" -type f -name "*.py" -exec sha256sum {} +
-    sha256sum /odoo/odoo/addons/base/models/ir_access.py /odoo/odoo/addons/base/security/ir.access.csv
-    find /opt/access-tests -type f -name "*.py" -exec sha256sum {} +
-    sha256sum /opt/access-tests/zero_access_19.csv
     }
   '
   tests_id="$("${odoo_run[@]}" "$1" -lc "$source_proof"$'\n'"$2")"
   docker cp "$fixture" "$tests_id:/opt/valuation-tests"
   docker cp "$patch_file" "$tests_id:/opt/native-valuation.patch"
-  docker cp "$access_patch_file" "$tests_id:/opt/native-zero-access-data.patch"
-  docker cp "$access_fixture" "$tests_id:/opt/access-tests"
   docker inspect --format 'Valuation test: {{.Id}} image: {{.Image}} mounts: {{json .Mounts}}' "$tests_id"
   docker start --attach "$tests_id"
   docker rm -fv "$tests_id" >/dev/null
@@ -90,37 +79,19 @@ run_fixture "$previous_image" '
   set -euo pipefail
   if [[ "$VALUATION_REVERSE_PATCH" == true ]]; then
     git -C /odoo apply --reverse /opt/native-valuation.patch
-    git -C /odoo apply --reverse /opt/native-zero-access-data.patch
   fi
   record_sources
-  access_modules="$(NATIVE_ACCESS_PHASE=owners /venv/bin/python /opt/access-tests/verify.py)"
-  odoo-bin -d valuation_test --init "stock_account,test_base,valuation_checkpoint_tests,$access_modules" --without-demo --stop-after-init \
+  odoo-bin -d valuation_test --init stock_account,valuation_checkpoint_tests --without-demo --stop-after-init \
     --max-cron-threads=0 --http-interface=127.0.0.1 --log-level=warn
   VALUATION_UPGRADE_PHASE=setup odoo-bin shell -d valuation_test --no-http \
     --max-cron-threads=0 --log-level=warn < /opt/valuation-tests/upgrade.py
-  NATIVE_ACCESS_PHASE=before odoo-bin shell -d valuation_test --no-http \
-    --max-cron-threads=0 --log-level=warn < /opt/access-tests/verify.py
 '
 # shellcheck disable=SC2016
 run_fixture "$image" '
   set -euo pipefail
   git -C /odoo apply --reverse --check /opt/native-valuation.patch
-  git -C /odoo apply --reverse --check /opt/native-zero-access-data.patch
   record_sources
-  if [[ "$NATIVE_ACCESS_SAFETY" == true ]]; then
-    access_tags="$(/venv/bin/python - <<"PY"
-import ast
-from pathlib import Path
-root = Path("/odoo/odoo/addons/test_base/tests/test_orm")
-files = ("test_acl.py", "test_access.py", "test_access_feedback.py", "test_access_monetary_related.py", "test_check_access.py", "test_ir_rules.py")
-classes = {node.name for name in files for node in ast.parse((root / name).read_text()).body if isinstance(node, ast.ClassDef)}
-print(",".join("/test_base:" + name for name in sorted(classes)))
-PY
-)"
-    VALUATION_TEST_TAGS="$VALUATION_TEST_TAGS,$access_tags"
-  fi
-  access_modules="$(NATIVE_ACCESS_PHASE=owners /venv/bin/python /opt/access-tests/verify.py)"
-  odoo-bin -d valuation_test --update "base,stock,stock_account,$access_modules" --init valuation_checkpoint_tests,test_base --without-demo \
+  odoo-bin -d valuation_test --update base,stock,stock_account --init valuation_checkpoint_tests,test_base --without-demo \
     --test-tags "$VALUATION_TEST_TAGS" --stop-after-init --max-cron-threads=0 \
     --http-interface=127.0.0.1 --log-level=warn --log-handler=odoo.tests:INFO \
     --log-handler=odoo.addons.valuation_checkpoint_tests:INFO 2>&1 | tee /tmp/valuation-tests.log
@@ -131,15 +102,9 @@ PY
   if [[ "$VALUATION_TEST_TAGS" == *"/stock:"* ]]; then
     grep -Eq "odoo[.]tests[.]stats: stock: [1-9][0-9]* tests" /tmp/valuation-tests.log
   fi
-  if [[ "$NATIVE_ACCESS_SAFETY" == true ]]; then
+  if [[ "$VALUATION_TEST_TAGS" == *"/test_base:"* ]]; then
     grep -Eq "odoo[.]tests[.]stats: test_base: [1-9][0-9]* tests" /tmp/valuation-tests.log
   fi
   VALUATION_UPGRADE_PHASE=verify odoo-bin shell -d valuation_test --no-http \
     --max-cron-threads=0 --log-level=warn < /opt/valuation-tests/upgrade.py
-  NATIVE_ACCESS_PHASE=capture odoo-bin shell -d valuation_test --no-http \
-    --max-cron-threads=0 --log-level=warn < /opt/access-tests/verify.py
-  odoo-bin -d valuation_test --update "$access_modules" --without-demo --stop-after-init \
-    --max-cron-threads=0 --http-interface=127.0.0.1 --log-level=warn
-  NATIVE_ACCESS_PHASE=verify odoo-bin shell -d valuation_test --no-http \
-    --max-cron-threads=0 --log-level=warn < /opt/access-tests/verify.py
 '

@@ -30,7 +30,6 @@ RUN set -eux; \
 COPY patches /patches
 RUN if grep -Eq '^version_info = \(20,' odoo/odoo/release.py; then \
       git -C odoo apply /patches/20.0-valuation-checkpoints.patch; \
-      git -C odoo apply /patches/20.0-zero-access-data.patch; \
       git -C odoo apply /patches/20.0-inline-parent-context.patch; \
       git -C odoo apply /patches/20.0-pdf-media-box.patch; \
     fi
