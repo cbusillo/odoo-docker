@@ -13,6 +13,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/build.yml").read_text())
+VARIANTS = json.loads((ROOT / "image-variants.json").read_text())
 
 
 def fake_tool(name: str, arguments: list[str]) -> int:
@@ -104,7 +105,6 @@ class VerificationHealthTest(unittest.TestCase):
             GITHUB_WORKSPACE=str(self.workspace),
             RUNNER_TEMP=str(self.runner),
             GITHUB_OUTPUT=str(self.output),
-            PYTHON_VERSION=str(WORKFLOW["env"]["PYTHON_VERSION"]),
             TRIVY_IMAGE=self.image,
             BASELINE_COMMIT="1" * 40,
             SOURCE_COMMIT="2" * 40,
@@ -115,7 +115,8 @@ class VerificationHealthTest(unittest.TestCase):
         )
 
     def step(self, job: str, identifier: str) -> str:
-        return next(step["run"] for step in WORKFLOW["jobs"][job]["steps"] if step.get("id") == identifier)
+        script = next(step["run"] for step in WORKFLOW["jobs"][job]["steps"] if step.get("id") == identifier)
+        return script.replace("${{ needs.resolve_source.outputs.variants }}", json.dumps(VARIANTS))
 
     def run_script(self, script: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -192,11 +193,41 @@ class VerificationHealthTest(unittest.TestCase):
 
     def test_same_image_reuses_resolved_database_and_scans_candidate_once(self) -> None:
         self.resolve()
+        inputs = json.loads((self.runner / "dependency-health-inputs/comparison-inputs.json").read_text())
+        self.assertEqual(inputs["python_versions"], {variant["series"]: variant["python_version"] for variant in VARIANTS})
         result = self.run_script(self.step("verify", "candidate_absolute"))
         self.assertEqual(result.returncode, 0, result.stderr)
         events = self.events()
         self.assertEqual([event["download"] for event in events if "download" in event], [self.image])
         self.assertEqual([event["scan"] for event in events if "scan" in event], [self.environment["IMAGE_REFERENCE"]])
+
+    def test_python_change_requires_absolute_gate(self) -> None:
+        self.environment.update(
+            BASELINE_ROOT=str(self.baseline),
+            ODOO_SERIES=VARIANTS[0]["series"],
+            PYTHON_VERSION=VARIANTS[0]["python_version"],
+        )
+        for name in ("Dockerfile", ".github/workflows/build.yml", "scripts/scan-image-dependencies.sh"):
+            for checkout in (self.baseline, self.workspace):
+                target = checkout / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / name, target)
+        versions = [dict(variant) for variant in VARIANTS]
+        configuration = self.baseline / "image-variants.json"
+        configuration.write_text(json.dumps(versions))
+        script = self.step("verify", "resolver_parity")
+        passed = self.run_script(script)
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        outputs = dict(line.split("=", 1) for line in self.output.read_text().splitlines())
+        self.assertEqual(outputs["comparison"], "true")
+        major, minor, patch = versions[0]["python_version"].split(".")
+        versions[0]["python_version"] = f"{major}.{minor}.{int(patch) + 1}"
+        configuration.write_text(json.dumps(versions))
+        self.output.write_text("")
+        changed = self.run_script(script)
+        self.assertEqual(changed.returncode, 0, changed.stderr)
+        outputs = dict(line.split("=", 1) for line in self.output.read_text().splitlines())
+        self.assertEqual(outputs["comparison"], "false")
 
     def test_changed_scanner_uses_its_own_bound_database_and_same_image(self) -> None:
         self.resolve(different_scanner=True)

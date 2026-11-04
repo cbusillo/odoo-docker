@@ -16,6 +16,7 @@ TARGETS = ("runtime", "devtools")
 @dataclass(frozen=True)
 class ImageVariant:
     series: str
+    python_version: str
     alias_prefix: str
     enterprise_followup: bool
 
@@ -32,11 +33,13 @@ def read_variants(path: Path) -> list[ImageVariant]:
         raise ValueError("Image variants must be a nonempty list")
     variants = []
     for record in records:
-        if not isinstance(record, dict) or set(record) != {"series", "alias_prefix", "enterprise_followup"}:
+        if not isinstance(record, dict) or set(record) != {"series", "python_version", "alias_prefix", "enterprise_followup"}:
             raise ValueError("Invalid image variant")
         series = record["series"]
         if not isinstance(series, str) or not re.fullmatch(r"[1-9][0-9]*\.[0-9]+", series):
             raise ValueError("Invalid Odoo series")
+        if not isinstance(record["python_version"], str) or not re.fullmatch(r"3\.[0-9]+\.[0-9]+", record["python_version"]):
+            raise ValueError("Invalid Python version")
         if record["alias_prefix"] not in ("", f"{series}-") or type(record["enterprise_followup"]) is not bool:
             raise ValueError("Invalid image variant namespace")
         if record["enterprise_followup"] and record["alias_prefix"]:

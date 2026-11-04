@@ -11,16 +11,20 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
-
 UNPINNED_UPSTREAM_OVERRIDE_ALLOWLIST = frozenset({"lxml-html-clean"})
+
+
+def marker_environment(python_version: str) -> dict[str, str]:
+    environment = {key: str(value) for key, value in default_environment().items()}
+    environment["python_version"] = python_version
+    environment["python_full_version"] = f"{python_version}.0"
+    return environment
 
 
 def active_requirements(
     requirements_path: Path, python_version: str
 ) -> dict[str, Requirement]:
-    environment = {key: str(value) for key, value in default_environment().items()}
-    environment["python_version"] = python_version
-    environment["python_full_version"] = f"{python_version}.0"
+    environment = marker_environment(python_version)
 
     requirements: dict[str, Requirement] = {}
     for line_number, raw_line in enumerate(
@@ -47,7 +51,8 @@ def active_requirements(
     return requirements
 
 
-def override_pins(overrides_path: Path) -> dict[str, Version]:
+def override_pins(overrides_path: Path, python_version: str) -> dict[str, Version]:
+    environment = marker_environment(python_version)
     pins: dict[str, Version] = {}
     for line_number, raw_line in enumerate(
         overrides_path.read_text(encoding="utf-8").splitlines(), 1
@@ -62,6 +67,9 @@ def override_pins(overrides_path: Path) -> dict[str, Version]:
             raise SystemExit(
                 f"{overrides_path}:{line_number}: invalid requirement: {raw_line}\n{exc}"
             ) from exc
+
+        if requirement.marker is not None and not requirement.marker.evaluate(environment):
+            continue
 
         exact_versions = [
             Version(specifier.version)
@@ -86,7 +94,7 @@ def main() -> int:
     args = parser.parse_args()
 
     upstream_requirements = active_requirements(args.requirements, args.python_version)
-    local_overrides = override_pins(args.overrides)
+    local_overrides = override_pins(args.overrides, args.python_version)
 
     failures: list[str] = []
     for name, override_version in sorted(local_overrides.items()):

@@ -22,7 +22,6 @@ concurrency:
 env:
   DOCKER_BUILD_SUMMARY: false
   DOCKER_BUILD_RECORD_UPLOAD: false
-  PYTHON_VERSION: 3.13.15
   TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
 
 jobs:
@@ -87,6 +86,7 @@ jobs:
   resolve_inputs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: resolve_source
     permissions:
       contents: read
     outputs:
@@ -200,7 +200,7 @@ jobs:
             --arg postgresql_client_common_version "${postgresql_client_common_version}" \
             --arg postgresql_client_version "${postgresql_client_version}" \
             --arg postgresql_libpq_version "${postgresql_libpq_version}" \
-            --arg python_version "${PYTHON_VERSION}" \
+            --argjson variants '${{ needs.resolve_source.outputs.variants }}' \
             --arg resolver_cutoff "${resolver_cutoff}" \
             --arg trivy_db_sha256 "${trivy_db_sha256}" \
             --arg trivy_image "${trivy_image}" \
@@ -212,7 +212,7 @@ jobs:
                 client_common: $postgresql_client_common_version,
                 libpq: $postgresql_libpq_version
               },
-              python_version: $python_version,
+              python_versions: ($variants | map({key: .series, value: .python_version}) | from_entries),
               resolver_cutoff: $resolver_cutoff,
               scanner: {
                 image: $trivy_image,
@@ -302,6 +302,7 @@ jobs:
             smoke_script: scripts/smoke-devtools.sh
     env:
       ODOO_SERIES: ${{ matrix.variant.series }}
+      PYTHON_VERSION: ${{ matrix.variant.python_version }}
       ODOO_SOURCE_REV: ${{ fromJSON(needs.resolve_source.outputs.odoo_source_revs)[matrix.variant.series] }}
       ALIAS_PREFIX: ${{ matrix.variant.alias_prefix }}
       VARIANT_KEY: ${{ matrix.variant.series }}-${{ matrix.suffix }}
@@ -374,6 +375,7 @@ jobs:
             resolver_contract="true"
           fi
           if [ -f "${BASELINE_ROOT}/image-variants.json" ] && jq -e --arg series "${ODOO_SERIES}" 'any(.[]; .series == $series)' "${BASELINE_ROOT}/image-variants.json" >/dev/null \
+            && jq -e --arg series "${ODOO_SERIES}" --arg python "${PYTHON_VERSION}" 'any(.[]; .series == $series and .python_version == $python)' "${BASELINE_ROOT}/image-variants.json" >/dev/null \
             && [ "${resolver_parity}" = "true" ] \
             && [ "${resolver_contract}" = "true" ] \
             && [ "${scanner_parity}" = "true" ]; then
@@ -812,6 +814,7 @@ jobs:
             suffix: devtools
     env:
       ODOO_SERIES: ${{ matrix.variant.series }}
+      PYTHON_VERSION: ${{ matrix.variant.python_version }}
       ODOO_SOURCE_REV: ${{ fromJSON(needs.resolve_source.outputs.odoo_source_revs)[matrix.variant.series] }}
       ALIAS_PREFIX: ${{ matrix.variant.alias_prefix }}
       VARIANT_KEY: ${{ matrix.variant.series }}-${{ matrix.suffix }}
@@ -897,27 +900,22 @@ jobs:
           candidate_tag="${image_root}:${ALIAS_PREFIX}candidate-${GITHUB_RUN_ID}-${repository_short_sha}-${{ matrix.suffix }}"
           aliases=(
             "${image_root}:${ALIAS_PREFIX}build-${GITHUB_RUN_ID}-${repository_short_sha}-${{ matrix.suffix }}"
-            "${image_root}:${ALIAS_PREFIX}sha-${source_short_sha}-${{ matrix.suffix }}"
           )
-
-          if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
-            aliases+=("${image_root}:${ALIAS_PREFIX}nightly-${{ matrix.suffix }}" "${image_root}:${ALIAS_PREFIX}nightly-${NIGHTLY_DATE}-${{ matrix.suffix }}")
-          fi
-
-          publish_stable="false"
-          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-            publish_stable="true"
-          fi
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${DISPATCH_PUBLISH_STABLE}" = "true" ]; then
-            publish_stable="true"
-          fi
-
-          if [ "${publish_stable}" = "true" ]; then
-            aliases+=("${image_root}:${ODOO_SERIES}-${{ matrix.suffix }}")
+          cache_export=""
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            aliases+=("${image_root}:${ALIAS_PREFIX}sha-${source_short_sha}-${{ matrix.suffix }}")
+            cache_export="type=registry,ref=${image_root}:buildcache-${ALIAS_PREFIX}${{ matrix.suffix }},mode=max"
+            if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
+              aliases+=("${image_root}:${ALIAS_PREFIX}nightly-${{ matrix.suffix }}" "${image_root}:${ALIAS_PREFIX}nightly-${NIGHTLY_DATE}-${{ matrix.suffix }}")
+            fi
+            if [ "${GITHUB_EVENT_NAME}" = "push" ] || { [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${DISPATCH_PUBLISH_STABLE}" = "true" ]; }; then
+              aliases+=("${image_root}:${ODOO_SERIES}-${{ matrix.suffix }}")
+            fi
           fi
 
           {
             echo "candidate=${candidate_tag}"
+            echo "cache_export=${cache_export}"
             echo "aliases<<EOF"
             printf '%s\n' "${aliases[@]}"
             echo "EOF"
@@ -938,8 +936,7 @@ jobs:
           tags: ${{ steps.tags.outputs.candidate }}
           cache-from: |
             type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.variant.alias_prefix }}${{ matrix.suffix }}
-          cache-to: |
-            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.variant.alias_prefix }}${{ matrix.suffix }},mode=max
+          cache-to: ${{ steps.tags.outputs.cache_export }}
           outputs: type=image,oci-mediatypes=true
           annotations: |
             index,manifest:io.github.cbusillo.odoo-series=${{ matrix.variant.series }}
@@ -982,7 +979,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.candidate }}
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.variant.alias_prefix }}${{ matrix.suffix }},mode=max
+          cache-to: ${{ steps.tags.outputs.cache_export }}
           outputs: type=image,oci-mediatypes=true
           annotations: |
             index,manifest:io.github.cbusillo.odoo-series=${{ matrix.variant.series }}

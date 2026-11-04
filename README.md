@@ -31,6 +31,11 @@ tenant runtime deployment is owned by Launchplane.
 Both images default to the `ubuntu` user for compatibility with existing
 restore and SSH mount workflows.
 
+Each series in `image-variants.json` owns its Python patch version. Community
+19 remains on Python 3.13; Community 20 uses Python 3.14. Builds and runtime
+smoke checks read the same selection. Local builds select it from
+`ODOO_SOURCE_REF`; `PYTHON_VERSION` can override it for an unpublished trial.
+
 ## Local Python Inspections
 
 `uv sync --locked` installs the development-only dependencies for the Python
@@ -345,8 +350,13 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   advisory scan.
 - `schedule` (weekly) promotes `nightly-*`, `sha-*`, and `build-*` tags.
 - `push` to `main` promotes each series' stable, source and build tags.
-- Manual `workflow_dispatch` runs promote `sha-*` and `build-*` tags, and also
-  each series' stable tags unless `publish_stable` is turned off (it defaults on).
+- Manual `workflow_dispatch` runs on `main` promote `sha-*` and `build-*` tags,
+  and also each series' stable tags unless `publish_stable` is turned off
+  (it defaults on). Task-branch trials use `publish_stable=false`: only
+  run-scoped candidate and build tags are published, with no shared source alias
+  or registry-cache export. Task branches ignore `publish_stable=true` as well;
+  stable publication requires `main`. Shared caches remain readable.
+  Follow the [trial cleanup instructions](AGENTS.md#workflow-metadata).
   The legacy series keeps its existing unqualified nightly/source/build/cache
   names. Other series qualify candidate, nightly, source, build and cache names with their configured alias prefix;
   all stable tags use the series. Local verification tags, evidence and artifacts
@@ -361,7 +371,7 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   other qualified pair from progressing. Published evidence uploads precede
   the digest records that permit alias promotion. Index and platform annotations
   bind the series and Odoo revision; promotion checks them and alias readback.
-- Only the variant with Enterprise follow-up enabled dispatches `odoo-enterprise-docker`
+- Only runs on `main`, for the variant with Enterprise follow-up enabled, dispatch `odoo-enterprise-docker`
   build with the exact published runtime and devtools digests. It passes on
   the same stable decision, and asks for nightly tags only on scheduled runs.
   Community 20 never triggers an Enterprise 19 build. Base-image aliases mean
@@ -539,6 +549,10 @@ Use `--target runtime-devtools` and a separate local tag for its browser layer.
   `scripts/check-requirements-overrides.py` reject removed upstream
   requirements, unexpected unpinned or ranged requirements, and upstream exact
   pins that make an override removable.
+  Python 3.14 applies these overrides during the first upstream install so
+  libsass's fixed source builder is selected before the old builder can fail
+  on arm64. Python 3.13 retains its existing upstream-then-overrides install.
+  Override freshness checks evaluate markers for the selected Python version.
 - Neither the runtime virtual environment nor its uv-managed base interpreter
   under `/opt/uv/python` ships `pip` or `ensurepip`. Image builds and downstream
   dependency synchronization use `uv`; restoring `pip` would add unused
@@ -574,49 +588,6 @@ subsequent builds.
 Run-number ordering belongs to this workflow identity. Keep `build.yml` in place
 when reorganizing jobs; recreating it requires an ordering migration before
 publication. Superseded families are visible as Actions notices.
-
-## Native Community 20 retained zero-access data
-
-The Community 20 build applies
-[`20.0-zero-access-data.patch`](patches/20.0-zero-access-data.patch) to normal
-native owner data. It retains 37 zero-operation definitions from native 19,
-including their aliases, names, models and groups. A group-bound row uses a
-FALSE-domain permission; a groupless row uses a TRUE-domain restriction.
-These shapes are neutral in native permission unions and global restriction
-intersections. Ordinary-role probes qualify the core decisions; the data replay
-is not a per-model business-access test. The native applicability checkboxes
-describe that representation, not legacy grant bits.
-No operation selection or core Python behavior changes. Odoo 19 is unchanged.
-
-Existing 20 adoption requires an explicit gated `base` update, which updates
-all installed modules and loads their affected owner data. Image replacement or
-version-based AUTO selection alone is insufficient; no owner manifest is bumped.
-The smoke fixture derives its owner list from the captured source definitions,
-initializes prior owner data, and proves normal update and replay preserve
-policy IDs, create audit, aliases, protection and inactive
-controls. With the default reversed-patch baseline, every pre-existing native
-policy and alias must remain intact. A separately supplied prior image may
-introduce unrelated upstream policy changes; retained policy identities, create
-audit, active state and references must still survive. Replay on the candidate
-always compares the complete policy state. The normal image gates still apply.
-
-The CSV fixture combines captured native 19 definitions with their explicit
-20 owner modules; it is not a mirror to edit alongside the port. Its source is image
-`sha256:723eee28cf5e3dc5e4aec827002acb2d5413556569776c3874eafb43e9ca7b70`;
-the independent captured definition inventory has SHA-256
-`df379e5b40f4eddfff62879fc84feeae8350277c8321f634c1f8d2baf90bbc99`.
-The source capture and native qualification are recorded on
-[the producer issue](https://github.com/cbusillo/odoo-docker/issues/192).
-
-The two wishlist definitions keep their original `website_sale_wishlist.*`
-aliases while `website_sale` supplies the data. Legacy module cleanup or alias
-renaming can remove these records or references and requires a separate qualified
-migration. This data port does not map old policy tables, alias-model collisions,
-write audit or other references, qualify legacy module lifecycle, or authorize a
-lane update. Unsupported crossings remain refused by the shared migration.
-Future group, checkbox, domain and sibling edits require their own policy review.
-Rollback restores the pre-update database backup and prior image together;
-image-only rollback is unsupported. Other editions need their own qualification.
 
 ## Native Community 20 valuation checkpoints
 
@@ -693,15 +664,15 @@ Fixtures and the patch are copied into each container without host bind mounts;
 actual source hashes and resource mounts are recorded before native work.
 It installs a disposable test
 addon on a private internal network and runs native accounting tests, affected
-stock classes, checkpoint tests, and the complete native ACL, access, feedback,
-related-monetary, check-access and rule modules. It removes its containers/network. Failed runs include a
+stock classes, checkpoint tests, and the native PDF and signature test classes.
+It removes its containers/network. Failed runs include a
 bounded PostgreSQL log tail before cleanup. Odoo 19 skips this
 20-specific extension. Supply an optional second argument of native test tags for
 a focused local run, for example `/valuation_checkpoint_tests`. CI runs the full
 script for each runtime image. The fixtures use synthetic stock and no host ports.
 An optional third argument selects an immutable prior Community 20 runtime for
 the setup phase, exercising upgrade from its existing positioned schema. Without
-that argument, setup reverses the source patches to retain first-adoption coverage.
+that argument, setup reverses the valuation patch to retain first-adoption coverage.
 
 
 ## Native Community 20 PDF media-box fallback
