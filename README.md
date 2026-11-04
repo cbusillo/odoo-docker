@@ -356,9 +356,7 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   run-scoped candidate and build tags are published, with no shared source alias
   or registry-cache export. Task branches ignore `publish_stable=true` as well;
   stable publication requires `main`. Shared caches remain readable.
-  Existing daily GHCR retention owns trial cleanup, including its recent-build
-  and candidate retention limits. Record the trial digest and its later
-  post-merge replacement; do not delete package versions by hand.
+  Follow the [trial cleanup instructions](AGENTS.md#workflow-metadata).
   The legacy series keeps its existing unqualified nightly/source/build/cache
   names. Other series qualify candidate, nightly, source, build and cache names with their configured alias prefix;
   all stable tags use the series. Local verification tags, evidence and artifacts
