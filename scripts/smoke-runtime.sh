@@ -2,8 +2,10 @@
 set -euo pipefail
 
 image_reference="${1:?Usage: scripts/smoke-runtime.sh <image-reference>}"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+expected_python_version="$(jq -er --arg series "${2:-}" '.[] | select(if $series == "" then .alias_prefix == "" else .series == $series end) | .python_version' "${repo_root}/image-variants.json")"
 
-docker run --rm --network none --env EXPECTED_ODOO_SERIES="${2:-}" --entrypoint /bin/bash "${image_reference}" -lc '
+docker run --rm --network none --env EXPECTED_ODOO_SERIES="${2:-}" --env EXPECTED_PYTHON_VERSION="${expected_python_version}" --entrypoint /bin/bash "${image_reference}" -lc '
 set -euo pipefail
 test -x /odoo/odoo-bin
 test -x /usr/local/bin/uv
@@ -41,7 +43,7 @@ PY
 if [ -n "${EXPECTED_ODOO_SERIES}" ]; then
   PYTHONPATH=/odoo /venv/bin/python -c "import os; from odoo import release; assert \".\".join(map(str, release.version_info[:2])) == os.environ[\"EXPECTED_ODOO_SERIES\"], release.version"
 fi
-/venv/bin/python -c "import sys; assert sys.version_info[:2] == (3, 13), sys.version"
+/venv/bin/python -c "import os, sys; assert sys.version_info[:3] == tuple(map(int, os.environ[\"EXPECTED_PYTHON_VERSION\"].split(\".\"))), sys.version"
 /venv/bin/python -c "import cryptography, OpenSSL"
 test ! -e /venv/bin/pip
 /venv/bin/python -c "import importlib.util; assert importlib.util.find_spec(\"pip\") is None"

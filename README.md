@@ -31,6 +31,11 @@ tenant runtime deployment is owned by Launchplane.
 Both images default to the `ubuntu` user for compatibility with existing
 restore and SSH mount workflows.
 
+Each series in `image-variants.json` owns its Python patch version. Community
+19 remains on Python 3.13; Community 20 uses Python 3.14. Builds and runtime
+smoke checks read the same selection. Local builds select it from
+`ODOO_SOURCE_REF`; `PYTHON_VERSION` can override it for an unpublished trial.
+
 ## Local Python Inspections
 
 `uv sync --locked` installs the development-only dependencies for the Python
@@ -345,8 +350,13 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   advisory scan.
 - `schedule` (weekly) promotes `nightly-*`, `sha-*`, and `build-*` tags.
 - `push` to `main` promotes each series' stable, source and build tags.
-- Manual `workflow_dispatch` runs promote `sha-*` and `build-*` tags, and also
-  each series' stable tags unless `publish_stable` is turned off (it defaults on).
+- Manual `workflow_dispatch` runs on `main` promote `sha-*` and `build-*` tags,
+  and also each series' stable tags unless `publish_stable` is turned off
+  (it defaults on). Task-branch trials use `publish_stable=false`: only
+  run-scoped candidate and build tags are published, with no shared source alias
+  or registry-cache export. Task branches ignore `publish_stable=true` as well;
+  stable publication requires `main`. Shared caches remain readable.
+  Follow the [trial cleanup instructions](AGENTS.md#workflow-metadata).
   The legacy series keeps its existing unqualified nightly/source/build/cache
   names. Other series qualify candidate, nightly, source, build and cache names with their configured alias prefix;
   all stable tags use the series. Local verification tags, evidence and artifacts
@@ -361,7 +371,7 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   other qualified pair from progressing. Published evidence uploads precede
   the digest records that permit alias promotion. Index and platform annotations
   bind the series and Odoo revision; promotion checks them and alias readback.
-- Only the variant with Enterprise follow-up enabled dispatches `odoo-enterprise-docker`
+- Only runs on `main`, for the variant with Enterprise follow-up enabled, dispatch `odoo-enterprise-docker`
   build with the exact published runtime and devtools digests. It passes on
   the same stable decision, and asks for nightly tags only on scheduled runs.
   Community 20 never triggers an Enterprise 19 build. Base-image aliases mean
@@ -539,6 +549,10 @@ Use `--target runtime-devtools` and a separate local tag for its browser layer.
   `scripts/check-requirements-overrides.py` reject removed upstream
   requirements, unexpected unpinned or ranged requirements, and upstream exact
   pins that make an override removable.
+  Python 3.14 applies these overrides during the first upstream install so
+  libsass's fixed source builder is selected before the old builder can fail
+  on arm64. Python 3.13 retains its existing upstream-then-overrides install.
+  Override freshness checks evaluate markers for the selected Python version.
 - Neither the runtime virtual environment nor its uv-managed base interpreter
   under `/opt/uv/python` ships `pip` or `ensurepip`. Image builds and downstream
   dependency synchronization use `uv`; restoring `pip` would add unused

@@ -1,4 +1,4 @@
 [
-  {"series": "19.0", "alias_prefix": "", "enterprise_followup": true},
-  {"series": "20.0", "alias_prefix": "20.0-", "enterprise_followup": false}
+  {"series": "19.0", "python_version": "3.13.15", "alias_prefix": "", "enterprise_followup": true},
+  {"series": "20.0", "python_version": "3.14.10", "alias_prefix": "20.0-", "enterprise_followup": false}
 ]

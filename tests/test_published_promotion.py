@@ -9,9 +9,15 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import yaml
+
+
+def patch_attr(target: Any, name: str, *args: Any, **kwargs: Any) -> Any:
+    return patch.object(target, name, *args, **kwargs)
+
 
 HELPER_PATH = Path(__file__).resolve().parents[1] / "scripts/promote-published-images.py"
 SPEC = importlib.util.spec_from_file_location("promotion", HELPER_PATH)
@@ -96,7 +102,7 @@ class PublicationPromotionTest(unittest.TestCase):
                 "aliases": "\n".join(f"{ROOT}:{tag}-{target}" for tag in (LEGACY.series, "sha-a", "nightly", "nightly-20261025")),
             }
             (self.path / f"{target}.json").write_text(json.dumps(record))
-        self.patch = patch.object(promotion, "run_command", side_effect=self.registry.run)
+        self.patch = patch_attr(promotion, "run_command", side_effect=self.registry.run)
         self.patch.start()
         self.addCleanup(self.patch.stop)
 
@@ -180,7 +186,7 @@ class PublicationPromotionTest(unittest.TestCase):
                 self.registry.bind(LEGACY.series, "19", "runtime")
             return result
 
-        with patch.object(promotion, "run_command", side_effect=corrupt_alias), self.assertRaises(ValueError):
+        with patch_attr(promotion, "run_command", side_effect=corrupt_alias), self.assertRaises(ValueError):
             self.promote()
 
     def test_superseded_stable_does_not_dispatch_old_bases_as_a_source_only_run(self) -> None:
@@ -204,7 +210,7 @@ class PublicationPromotionTest(unittest.TestCase):
                         raise subprocess.CalledProcessError(1, arguments, stderr=failure)
                     return original(arguments)
 
-                with patch.object(promotion, "run_command", side_effect=unavailable_registry):
+                with patch_attr(promotion, "run_command", side_effect=unavailable_registry):
                     with self.assertRaises(subprocess.CalledProcessError):
                         self.promote()
                 self.assertFalse(self.registry.mutations)
@@ -282,7 +288,7 @@ class VersionedPromotionTest(unittest.TestCase):
         raw = json.dumps(manifest)
         registry.aliases[f"{ROOT}:{variant.series}-runtime"] = digest = f"sha256:{hashlib.sha256(raw.encode()).hexdigest()}"
         registry.manifests[digest] = raw
-        with patch.object(promotion, "run_command", side_effect=registry.run), self.assertRaises(ValueError):
+        with patch_attr(promotion, "run_command", side_effect=registry.run), self.assertRaises(ValueError):
             promotion.inspect_order(f"{ROOT}:{variant.series}-runtime", variant, allow_legacy=True)
         self.assertFalse(registry.mutations)
 
@@ -306,7 +312,7 @@ class VersionedPromotionTest(unittest.TestCase):
                             }
                         )
                     )
-                with patch.object(promotion, "run_command", side_effect=registry.run):
+                with patch_attr(promotion, "run_command", side_effect=registry.run):
                     result = promotion.promote("example/images", root, 23, variant, SOURCE_REVISION)
                 self.assertEqual(result.digests, expected)
                 self.assertEqual(result.delivered["dispatch"], variant.enterprise_followup)
@@ -338,7 +344,7 @@ class VersionedPromotionTest(unittest.TestCase):
                         (root / f"{target}.json").write_text(json.dumps(record))
                     if fault == "existing-series":
                         registry.aliases[f"{ROOT}:{variant.series}-devtools"] = registry.add_manifest("24", "devtools", other)
-                    with patch.object(promotion, "run_command", side_effect=registry.run), self.assertRaises(ValueError):
+                    with patch_attr(promotion, "run_command", side_effect=registry.run), self.assertRaises(ValueError):
                         promotion.promote("example/images", root, 23, variant, SOURCE_REVISION)
                     self.assertFalse(registry.mutations)
 
@@ -349,6 +355,8 @@ class VersionedPromotionTest(unittest.TestCase):
             [original[0], original[0]],
             [{**original[0], "alias_prefix": "wrong-"}],
             [{**original[0], "enterprise_followup": "false"}],
+            [{**original[0], "python_version": "3.14"}],
+            [{key: value for key, value in original[0].items() if key != "python_version"}],
         ):
             with self.subTest(records=records), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "variants.json"
@@ -377,7 +385,7 @@ class VerificationPairTest(unittest.TestCase):
         )
         self.steps = {
             identifier: next(step["run"] for step in workflow["jobs"][job]["steps"] if step.get("id") == identifier)
-            for identifier, job in (("verification_pass", "verify"), ("verified_pair", "publish"))
+            for identifier, job in (("verification_pass", "verify"), ("verified_pair", "publish"), ("tags", "publish"))
         }
         inputs = self.root / "dependency-health-inputs"
         inputs.mkdir()
@@ -385,6 +393,9 @@ class VerificationPairTest(unittest.TestCase):
         self.inputs.write_text(json.dumps({"scanner": {"image": "fixture", "database": "pinned"}, "cutoff": "fixture"}))
         self.configuration = hashlib.sha256(self.inputs.read_bytes()).hexdigest()
         self.commit = "c" * 40
+        self.event = "workflow_dispatch"
+        self.ref = "refs/heads/work/trial"
+        self.publish_stable = "false"
 
     def render(self, value: str, variant: promotion.ImageVariant, suffix: str) -> str:
         target = "runtime-devtools" if suffix == "devtools" else suffix
@@ -393,6 +404,7 @@ class VerificationPairTest(unittest.TestCase):
             "env.VARIANT_KEY": key,
             "github.event.pull_request.head.sha || github.sha": self.commit,
             "matrix.target": target,
+            "matrix.suffix": suffix,
             "needs.resolve_inputs.outputs.scan_configuration_sha256": self.configuration,
             "runner.temp": str(self.root),
             "github.run_id": self.run_id,
@@ -406,6 +418,8 @@ class VerificationPairTest(unittest.TestCase):
 
     def run_step(self, identifier: str, variant: promotion.ImageVariant, suffix: str) -> subprocess.CompletedProcess[str]:
         script = self.render(self.steps[identifier], variant, suffix)
+        output = self.root / f"output-{suffix}"
+        output.unlink(missing_ok=True)
         return subprocess.run(
             ["bash", "-euo", "pipefail", "-c", script],
             env={
@@ -416,10 +430,54 @@ class VerificationPairTest(unittest.TestCase):
                 "GITHUB_SHA": self.commit,
                 "GITHUB_RUN_ID": self.run_id,
                 "GITHUB_RUN_ATTEMPT": self.attempt,
+                "GITHUB_REPOSITORY": "example/images",
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_EVENT_NAME": self.event,
+                "GITHUB_REF": self.ref,
+                "DISPATCH_PUBLISH_STABLE": self.publish_stable,
+                "ALIAS_PREFIX": variant.alias_prefix,
+                "NIGHTLY_DATE": "20261103",
             },
             capture_output=True,
             text=True,
         )
+
+    def test_trial_tags_isolate_promotion_without_changing_default_branch_releases(self) -> None:
+        for event, ref, stable, families, followup in (
+            ("workflow_dispatch", "refs/heads/work/trial", "false", {"build"}, False),
+            ("workflow_dispatch", "refs/heads/work/trial", "true", {"build"}, False),
+            ("workflow_dispatch", "refs/heads/main", "false", {"build", "source"}, True),
+            ("workflow_dispatch", "refs/heads/main", "true", {"build", "source", "stable"}, True),
+            ("push", "refs/heads/main", "false", {"build", "source", "stable"}, True),
+            ("schedule", "refs/heads/main", "false", {"build", "source", "nightly", "nightly-20261103"}, True),
+        ):
+            for variant in VARIANTS:
+                with self.subTest(event=event, ref=ref, stable=stable, series=variant.series):
+                    self.event, self.ref, self.publish_stable = event, ref, stable
+                    registry = Registry()
+                    for suffix in promotion.TARGETS:
+                        result = self.run_step("tags", variant, suffix)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        output = (self.root / f"output-{suffix}").read_text()
+                        cache_export = next(
+                            line.removeprefix("cache_export=") for line in output.splitlines() if line.startswith("cache_export=")
+                        )
+                        self.assertEqual(bool(cache_export), ref == "refs/heads/main")
+                        aliases = output.split("aliases<<EOF\n")[1].split("EOF\n")[0].strip()
+                        (self.root / f"{suffix}.json").write_text(
+                            json.dumps(
+                                {
+                                    "series": variant.series,
+                                    "odoo_source_revision": SOURCE_REVISION,
+                                    "digest": registry.add_manifest("20", suffix, variant),
+                                    "aliases": aliases,
+                                }
+                            )
+                        )
+                    with patch_attr(promotion, "run_command", side_effect=registry.run):
+                        delivered = promotion.promote("example/images", self.root, 20, variant, SOURCE_REVISION).delivered
+                    self.assertEqual({family for family in delivered if family != "dispatch"}, families)
+                    self.assertEqual(delivered["dispatch"], variant.enterprise_followup and followup)
 
     def qualify(self, variant: promotion.ImageVariant) -> Path:
         selected = Path(self.render(self.download_path, variant, "runtime"))

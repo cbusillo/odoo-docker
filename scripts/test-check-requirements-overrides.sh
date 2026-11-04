@@ -14,7 +14,7 @@ run_check() {
 	python3 "${repo_root}/scripts/check-requirements-overrides.py" \
 		--requirements "${requirements_file}" \
 		--overrides "${overrides_file}" \
-		--python-version 3.13
+		--python-version "${1:-3.13}"
 }
 
 printf 'lxml-html-clean\n' >"${requirements_file}"
@@ -73,5 +73,26 @@ if run_check >"${output_file}"; then
 	exit 1
 fi
 grep -Fq 'no active upstream requirement for Python 3.13' "${output_file}"
+
+printf 'demo==1.1.0\n' >"${requirements_file}"
+printf 'demo==1.2.0 ; python_version >= "3.14"\n' >"${overrides_file}"
+run_check >"${output_file}"
+run_check 3.14 >"${output_file}"
+
+printf 'demo==1.2.0\n' >"${requirements_file}"
+run_check >"${output_file}"
+if run_check 3.14 >"${output_file}"; then
+	echo 'Expected an active conditional override to become stale when upstream catches up.' >&2
+	exit 1
+fi
+grep -Fq 'remove or raise the override' "${output_file}"
+
+printf 'other==1.0.0\n' >"${requirements_file}"
+run_check >"${output_file}"
+if run_check 3.14 >"${output_file}"; then
+	echo 'Expected an active conditional override to reject a removed requirement.' >&2
+	exit 1
+fi
+grep -Fq 'no active upstream requirement' "${output_file}"
 
 echo 'requirements override checks passed'
