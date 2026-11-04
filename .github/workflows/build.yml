@@ -739,6 +739,10 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf "${BASELINE_ROOT}"
+          docker image rm \
+            "odoo-docker:baseline-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.VARIANT_KEY }}" \
+            "odoo-docker:verify-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.VARIANT_KEY }}" \
+            || true
           docker buildx prune \
             --builder "${{ steps.setup_buildx_verify.outputs.name }}" \
             --force \
