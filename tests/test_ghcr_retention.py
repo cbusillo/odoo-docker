@@ -131,8 +131,8 @@ class GhcrRetentionTest(unittest.TestCase):
         prefix = json.loads((REPO_ROOT / "image-variants.json").read_text())[0]["alias_prefix"]
         now = datetime.now(UTC)
 
-        def created(age: timedelta) -> str:
-            return (now - age).strftime("%Y-%m-%dT%H:%M:%SZ")
+        def created(build_age: timedelta) -> str:
+            return (now - build_age).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         scenario: dict[str, Any] = {"versions": [], "rawInspections": {}}
         ages = [timedelta(hours=index + 1) for index in range(keep_count)]
