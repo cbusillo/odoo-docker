@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -122,6 +123,35 @@ class GhcrRetentionTest(unittest.TestCase):
         run = run_retention(scenario)
         self.assertIsNone(run.failure)
         self.assertEqual(run.deleted_ids, expected_deleted)
+
+    def test_tagged_builds_younger_than_the_tagged_window_survive_beyond_the_newest_slots(self) -> None:
+        env = load_workflow(RETENTION_WORKFLOW)["jobs"]["cleanup"]["env"]
+        keep_count = int(env["KEEP_SHA_COUNT"])
+        keep_days = int(env["KEEP_TAGGED_DAYS"])
+        prefix = json.loads((REPO_ROOT / "image-variants.json").read_text())[0]["alias_prefix"]
+        now = datetime.now(UTC)
+
+        def created(age: timedelta) -> str:
+            return (now - age).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        scenario: dict[str, Any] = {"versions": [], "rawInspections": {}}
+        ages = [timedelta(hours=index + 1) for index in range(keep_count)]
+        ages += [timedelta(days=keep_days - 1), timedelta(days=keep_days + 1)]
+        for identity, age in enumerate(ages, start=1):
+            digest = f"sha256:index-{identity}"
+            child = f"sha256:child-{identity}"
+            tag = f"{prefix}sha-{identity:x}-devtools"
+            scenario["versions"].append({**package_version(identity, digest, tag), "created_at": created(age)})
+            scenario["versions"].append(package_version(100 + identity, child))
+            scenario["rawInspections"][digest] = manifest_inspection(
+                {"manifests": [{"digest": child, "mediaType": "application/vnd.oci.image.manifest.v1+json"}]}
+            )
+        expired = len(ages)
+
+        run = run_retention(scenario)
+
+        self.assertIsNone(run.failure)
+        self.assertEqual(run.deleted_ids, {expired, 100 + expired})
 
     def test_invalid_variant_configuration_deletes_nothing(self) -> None:
         for configuration in ("not json", "[]", '[{"series":"malformed"}]'):

@@ -406,7 +406,9 @@ while still giving us a recoverable remote cache when a builder is recreated.
 
 The GHCR retention workflow keeps stable, nightly, and registry-cache tags,
 preserves the newest 10 `sha-*`, validated `build-*`, and `candidate-*` tags per
-series and image suffix, and prunes unreferenced untagged versions older than 7 days.
+series and image suffix, keeps every other tagged version for at least 30 days so
+a digest pinned elsewhere outlives its weekly update, and prunes unreferenced
+untagged versions older than 7 days.
 Tag grammar comes from the same variant file; unreadable or invalid variant
 configuration stops cleanup before any deletion.
 Stable series tags and their referenced manifests remain protected even when
