@@ -22,6 +22,7 @@ jobs:
     env:
       PACKAGE_NAME: odoo-docker
       KEEP_SHA_COUNT: "10"
+      KEEP_TAGGED_DAYS: "30"
       KEEP_UNTAGGED_DAYS: "7"
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
     steps:
@@ -40,6 +41,7 @@ jobs:
           script: |
             const packageName = process.env.PACKAGE_NAME;
             const keepShaCount = Number.parseInt(process.env.KEEP_SHA_COUNT || "10", 10);
+            const keepTaggedDays = Number.parseInt(process.env.KEEP_TAGGED_DAYS || "30", 10);
             const keepUntaggedDays = Number.parseInt(process.env.KEEP_UNTAGGED_DAYS || "7", 10);
             const dryRun = String(process.env.DRY_RUN).toLowerCase() === "true";
             const variants = JSON.parse(process.env.IMAGE_VARIANTS);
@@ -59,7 +61,9 @@ jobs:
 
             const versions = await github.paginate(listRoute, listParameters);
             versions.sort((left, right) => new Date(right.created_at) - new Date(left.created_at));
-            const keepUntaggedCutoffEpochMilliseconds = Date.now() - (keepUntaggedDays * 24 * 60 * 60 * 1000);
+            const dayMilliseconds = 24 * 60 * 60 * 1000;
+            const keepTaggedCutoffEpochMilliseconds = Date.now() - (keepTaggedDays * dayMilliseconds);
+            const keepUntaggedCutoffEpochMilliseconds = Date.now() - (keepUntaggedDays * dayMilliseconds);
 
             const taggedVersions = versions.filter((version) =>
               Array.isArray(version?.metadata?.container?.tags)
@@ -87,7 +91,8 @@ jobs:
 
             for (const version of taggedVersions) {
               const tags = version.metadata.container.tags;
-              if (shouldKeepByTag(tags)) {
+              const olderThanTaggedWindow = Date.parse(version.created_at) < keepTaggedCutoffEpochMilliseconds;
+              if (shouldKeepByTag(tags) || !olderThanTaggedWindow) {
                 keepIds.add(version.id);
               }
             }
@@ -231,6 +236,7 @@ jobs:
             core.info(`Tagged versions kept: ${taggedVersions.filter((version) => keepIds.has(version.id)).length}`);
             core.info(`Tagged versions to delete: ${deleteTaggedVersions.length}`);
             core.info(`Unpullable indexes to delete: ${brokenIndexes.length}`);
+            core.info(`Tagged retention window days: ${keepTaggedDays}`);
             core.info(`Untagged versions found: ${untaggedVersions.length}`);
             core.info(`Untagged retention window days: ${keepUntaggedDays}`);
             core.info(`Untagged versions to delete: ${deleteUntaggedVersions.length}`);
