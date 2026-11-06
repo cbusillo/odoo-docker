@@ -10,7 +10,7 @@ ARG POSTGRESQL_LIBPQ_VERSION
 ARG RESOLVER_CUTOFF
 
 # Keep the official uv image first so Renovate tracks it for Docker updates.
-FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv-binary
+FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv-binary
 
 FROM --platform=$BUILDPLATFORM alpine/git:v2.54.0@sha256:ae0f6f4bce38d2b8c40becc0d6241a08d9f57186ea03029de2189a2b5e722d94 AS odoo-source
 ARG ODOO_SOURCE_REPOSITORY
@@ -34,7 +34,7 @@ RUN if grep -Eq '^version_info = \(20,' odoo/odoo/release.py; then \
       git -C odoo apply /patches/20.0-pdf-media-box.patch; \
     fi
 
-FROM --platform=$BUILDPLATFORM alpine/curl:8.22.0@sha256:a39f52cab21d7e283448a9f73032dfb578ffcea9edaaa90c1d637117149b337f AS wkhtmltox
+FROM --platform=$BUILDPLATFORM alpine/curl:8.22.0@sha256:f05779b04a6f3c6f228c67118786f5c80d4c4922dd79b0b24c92dc10a74f594f AS wkhtmltox
 ARG TARGETARCH
 ARG WKHTMLTOPDF_VERSION=0.12.6.1-3
 ARG WKHTMLTOPDF_TARGET=jammy
@@ -56,7 +56,7 @@ RUN set -eux; \
       "https://github.com/wkhtmltopdf/packaging/releases/download/${WKHTMLTOPDF_VERSION}/wkhtmltox_${WKHTMLTOPDF_VERSION}.${WKHTMLTOPDF_TARGET}_${package_arch}.deb"; \
     echo "${checksum}  wkhtmltox.deb" | sha1sum -c -
 
-FROM ubuntu:noble@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55 AS runtime-system
+FROM ubuntu:noble@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852 AS runtime-system
 ARG PYTHON_VERSION
 ARG ODOO_SOURCE_REF
 ARG APT_REFRESH_EPOCH=0
