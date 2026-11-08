@@ -47,8 +47,7 @@ Evidence: [README.md](README.md); tenant business logic belongs downstream.
 - Leave trial tags and package versions to the existing daily registry
   retention. Record the trial digest and its replacement by a post-merge build;
   do not delete package versions by hand.
-- Stable and nightly promotion and their reruns remain gated through the merge
-  train or Chris's approval. Do not push tags by hand.
+- Do not push tags by hand.
 
 ## Test Selection
 
