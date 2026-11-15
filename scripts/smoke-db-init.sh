@@ -74,11 +74,17 @@ docker run --rm \
 	--entrypoint /bin/bash \
 	"${image_reference}" -lc "
 set -euo pipefail
+init_modules=base,launchplane_runtime_health
+# Install the image's MuK theme where present, so a pin that no longer loads on
+# this Odoo source fails here.
+if [[ -f /opt/launchplane/addons/muk_web_theme/__manifest__.py ]]; then
+  init_modules=\"\${init_modules},muk_web_theme\"
+fi
 # Check that the environment password still overrides a stale config value.
 printf '[options]\ndb_password = stale-config-password\n' > /volumes/config/_generated.conf
 odoo-bin \
   -d '${db_name}' \
-  --init base,launchplane_runtime_health \
+  --init \"\${init_modules}\" \
   --test-tags /base:TestImage,/base:TestIrAttachment.test_10_image_autoresize \
   --without-demo \
   --http-interface=127.0.0.1 \
@@ -98,6 +104,11 @@ for module in base launchplane_runtime_health; do
 		exit 1
 	fi
 done
+muk_theme_state="$(docker exec "${postgres_container}" psql -U "${db_user}" -d "${db_name}" -Atc "select state from ir_module_module where name = 'muk_web_theme';")"
+if [[ -n "${muk_theme_state}" && "${muk_theme_state}" != "installed" ]]; then
+	echo "Expected the image's muk_web_theme to install, got: ${muk_theme_state}" >&2
+	exit 1
+fi
 
 # Authenticate a non-server data command through the same image wrapper.
 docker run --rm \

@@ -106,6 +106,15 @@ support Launchplane-managed runtime behavior. These addons are separate from
 upstream Odoo source, downstream project addons in `/opt/project/addons`, and
 shared business addons in `/opt/extra_addons`.
 
+The 20.0 images also place MuK's LGPL-3 Community backend theme there:
+`muk_web_theme` and its nine `muk_web_*` dependencies from
+[muk-it/odoo-modules](https://github.com/muk-it/odoo-modules), pinned by
+`MUK_MODULES_REV` in the [Dockerfile](Dockerfile). None of them installs by
+itself. A product adopts the theme in its own change: it repins to an image
+pair that carries it and installs `muk_web_theme`. Products should not bring a
+second copy of these modules. `muk_web_enterprise_theme` is never shipped
+because it needs Odoo Enterprise.
+
 `launchplane_runtime_health` is loaded as a server-wide module by default. It
 exposes `GET /launchplane/health` with `auth="none"` and `save_session=False`
 so Launchplane can verify the exact runtime serving a public lane without

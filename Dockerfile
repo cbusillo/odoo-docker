@@ -34,6 +34,30 @@ RUN if grep -Eq '^version_info = \(20,' odoo/odoo/release.py; then \
       git -C odoo apply /patches/20.0-pdf-media-box.patch; \
     fi
 
+# MuK's LGPL-3 Community backend theme for 20.0, offered to every product on
+# the image-owned addons path. No module here auto-installs; products install
+# muk_web_theme themselves. muk_web_enterprise_theme needs web_enterprise and is
+# never copied.
+FROM --platform=$BUILDPLATFORM alpine/git:v2.54.0@sha256:ae0f6f4bce38d2b8c40becc0d6241a08d9f57186ea03029de2189a2b5e722d94 AS community-addons
+ARG ODOO_SOURCE_REF
+ARG MUK_MODULES_REPOSITORY=https://github.com/muk-it/odoo-modules.git
+ARG MUK_MODULES_REV=2191e73ed8150f3e01ca235db679f962efa3a087
+ARG MUK_THEME_MODULES="muk_web_theme muk_web_utils muk_web_group muk_web_chatter muk_web_dialog muk_web_appsbar muk_web_colors muk_web_refresh muk_web_list_column muk_web_list_mode"
+WORKDIR /source
+RUN set -eux; \
+    mkdir addons; \
+    if [ "${ODOO_SOURCE_REF}" = "20.0" ]; then \
+      git init muk; \
+      git -C muk remote add origin "${MUK_MODULES_REPOSITORY}"; \
+      git -C muk fetch --depth 1 origin "${MUK_MODULES_REV}"; \
+      git -C muk checkout --detach FETCH_HEAD; \
+      for module in ${MUK_THEME_MODULES}; do \
+        grep -Fq "'license': 'LGPL-3'" "muk/${module}/__manifest__.py"; \
+        cp -R "muk/${module}" addons/; \
+      done; \
+      rm -rf muk; \
+    fi
+
 FROM --platform=$BUILDPLATFORM alpine/curl:8.22.0@sha256:f05779b04a6f3c6f228c67118786f5c80d4c4922dd79b0b24c92dc10a74f594f AS wkhtmltox
 ARG TARGETARCH
 ARG WKHTMLTOPDF_VERSION=0.12.6.1-3
@@ -225,6 +249,7 @@ FROM runtime-pythondeps AS runtime
 
 COPY --from=odoo-source --chown=ubuntu:ubuntu /source/odoo /odoo
 COPY --chown=ubuntu:ubuntu launchplane/addons /opt/launchplane/addons
+COPY --from=community-addons --chown=ubuntu:ubuntu /source/addons/ /opt/launchplane/addons/
 COPY scripts/odoo-bin-wrapper.sh /usr/local/bin/odoo-bin-wrapper.sh
 COPY scripts/configure-dev-addon-paths.sh /usr/local/bin/configure-dev-addon-paths.sh
 COPY scripts/odoo-python-sync.sh /usr/local/bin/odoo-python-sync.sh
