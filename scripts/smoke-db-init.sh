@@ -11,6 +11,7 @@ shell_container="${network_name}-shell"
 db_name="odoo_smoke_${suffix//[^[:alnum:]]/_}"
 health_db_name="odoo_health_${suffix//[^[:alnum:]]/_}"
 db_user="odoo"
+community_modules="muk_web_theme document_page"
 db_password=$'synthetic smoke password $ # \\ \' " %'
 
 cleanup() {
@@ -75,11 +76,13 @@ docker run --rm \
 	"${image_reference}" -lc "
 set -euo pipefail
 init_modules=base,launchplane_runtime_health
-# Install the image's MuK theme where present, so a pin that no longer loads on
-# this Odoo source fails here.
-if [[ -f /opt/launchplane/addons/muk_web_theme/__manifest__.py ]]; then
-  init_modules=\"\${init_modules},muk_web_theme\"
-fi
+# Install the image's community addons where present, so a pin that no longer
+# loads on this Odoo source fails here.
+for community_module in ${community_modules}; do
+  if [[ -f /opt/launchplane/addons/\${community_module}/__manifest__.py ]]; then
+    init_modules=\"\${init_modules},\${community_module}\"
+  fi
+done
 # Check that the environment password still overrides a stale config value.
 printf '[options]\ndb_password = stale-config-password\n' > /volumes/config/_generated.conf
 odoo-bin \
@@ -104,11 +107,13 @@ for module in base launchplane_runtime_health; do
 		exit 1
 	fi
 done
-muk_theme_state="$(docker exec "${postgres_container}" psql -U "${db_user}" -d "${db_name}" -Atc "select state from ir_module_module where name = 'muk_web_theme';")"
-if [[ -n "${muk_theme_state}" && "${muk_theme_state}" != "installed" ]]; then
-	echo "Expected the image's muk_web_theme to install, got: ${muk_theme_state}" >&2
-	exit 1
-fi
+for module in ${community_modules}; do
+	module_state="$(docker exec "${postgres_container}" psql -U "${db_user}" -d "${db_name}" -Atc "select state from ir_module_module where name = '${module}';")"
+	if [[ -n "${module_state}" && "${module_state}" != "installed" ]]; then
+		echo "Expected the image's ${module} to install, got: ${module_state}" >&2
+		exit 1
+	fi
+done
 
 # Authenticate a non-server data command through the same image wrapper.
 docker run --rm \
