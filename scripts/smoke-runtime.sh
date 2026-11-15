@@ -18,6 +18,11 @@ test -d /opt/project/addons
 test -d /opt/extra_addons
 test -d /opt/launchplane/addons
 test -f /opt/launchplane/addons/launchplane_runtime_health/__manifest__.py
+case "${EXPECTED_ODOO_SERIES}" in
+  20.0) test -f /opt/launchplane/addons/muk_web_theme/__manifest__.py ;;
+  19.0) test ! -e /opt/launchplane/addons/muk_web_theme ;;
+esac
+test ! -e /opt/launchplane/addons/muk_web_enterprise_theme
 test -f /volumes/config/_generated.conf
 /venv/bin/python - <<"PY"
 from importlib import metadata
