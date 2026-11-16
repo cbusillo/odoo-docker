@@ -11,6 +11,7 @@ shell_container="${network_name}-shell"
 db_name="odoo_smoke_${suffix//[^[:alnum:]]/_}"
 health_db_name="odoo_health_${suffix//[^[:alnum:]]/_}"
 db_user="odoo"
+community_modules="muk_web_theme document_page"
 db_password=$'synthetic smoke password $ # \\ \' " %'
 
 cleanup() {
@@ -74,11 +75,19 @@ docker run --rm \
 	--entrypoint /bin/bash \
 	"${image_reference}" -lc "
 set -euo pipefail
+init_modules=base,launchplane_runtime_health
+# Install the image's community addons where present, so a pin that no longer
+# loads on this Odoo source fails here.
+for community_module in ${community_modules}; do
+  if [[ -f /opt/launchplane/addons/\${community_module}/__manifest__.py ]]; then
+    init_modules=\"\${init_modules},\${community_module}\"
+  fi
+done
 # Check that the environment password still overrides a stale config value.
 printf '[options]\ndb_password = stale-config-password\n' > /volumes/config/_generated.conf
 odoo-bin \
   -d '${db_name}' \
-  --init base,launchplane_runtime_health \
+  --init \"\${init_modules}\" \
   --test-tags /base:TestImage,/base:TestIrAttachment.test_10_image_autoresize \
   --without-demo \
   --http-interface=127.0.0.1 \
@@ -95,6 +104,13 @@ for module in base launchplane_runtime_health; do
 	module_state="$(docker exec "${postgres_container}" psql -U "${db_user}" -d "${db_name}" -Atc "select state from ir_module_module where name = '${module}';")"
 	if [[ "${module_state}" != "installed" ]]; then
 		echo "Expected Odoo ${module} module to be installed, got: ${module_state}" >&2
+		exit 1
+	fi
+done
+for module in ${community_modules}; do
+	module_state="$(docker exec "${postgres_container}" psql -U "${db_user}" -d "${db_name}" -Atc "select state from ir_module_module where name = '${module}';")"
+	if [[ -n "${module_state}" && "${module_state}" != "installed" ]]; then
+		echo "Expected the image's ${module} to install, got: ${module_state}" >&2
 		exit 1
 	fi
 done
