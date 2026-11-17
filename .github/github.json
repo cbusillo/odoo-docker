@@ -18,8 +18,8 @@
       "metadata": "jq empty .github/github.json"
     },
     "build": {
-      "runtime": "docker build -t ghcr.io/cbusillo/odoo-docker:19.0-runtime --target runtime .",
-      "devtools": "docker build -t ghcr.io/cbusillo/odoo-docker:19.0-devtools --target runtime-devtools ."
+      "runtime": "docker build -t ghcr.io/cbusillo/odoo-docker:20.0-runtime --target runtime .",
+      "devtools": "docker build -t ghcr.io/cbusillo/odoo-docker:20.0-devtools --target runtime-devtools ."
     },
     "smoke": {
       "runtime": "bash scripts/smoke-runtime.sh <image-reference> <odoo-series>",

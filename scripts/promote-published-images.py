@@ -45,8 +45,8 @@ def read_variants(path: Path) -> list[ImageVariant]:
         if record["enterprise_followup"] and record["alias_prefix"]:
             raise ValueError("Enterprise follow-up requires the legacy namespace")
         variants.append(ImageVariant(**record))
-    if len({variant.series for variant in variants}) != len(variants) or sum(not variant.alias_prefix for variant in variants) != 1:
-        raise ValueError("Image variants require unique series and one legacy namespace")
+    if len({variant.series for variant in variants}) != len(variants) or sum(not variant.alias_prefix for variant in variants) > 1:
+        raise ValueError("Image variants require unique series and at most one legacy namespace")
     return variants
 
 

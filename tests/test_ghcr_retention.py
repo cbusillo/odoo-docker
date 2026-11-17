@@ -164,14 +164,27 @@ class GhcrRetentionTest(unittest.TestCase):
 
     def test_a_series_removed_from_active_builds_keeps_its_stable_manifest(self) -> None:
         variants = json.loads((REPO_ROOT / "image-variants.json").read_text())
-        retired = next(variant for variant in variants if variant["alias_prefix"])
+        retired = {"series": "99.0"}
         scenario = self.published_package()
-        scenario["variants_json"] = json.dumps([variant for variant in variants if variant != retired])
+        scenario["variants_json"] = json.dumps(variants)
         scenario["versions"][0]["metadata"]["container"]["tags"] = [f"{retired['series']}-runtime"]
         scenario["versions"][0]["created_at"] = OUTSIDE_RETENTION_WINDOW
         run = run_retention(scenario)
         self.assertIsNone(run.failure)
         self.assertEqual(run.deleted_ids, {self.ORPHAN_ID})
+
+    def test_retired_legacy_tags_keep_their_manifests_and_platform_children(self) -> None:
+        for tag in (
+            "nightly-runtime", "nightly-20261025-runtime", "sha-abc-runtime",
+            "build-123-abc-runtime", "candidate-123-abc-runtime", "buildcache-runtime",
+        ):
+            with self.subTest(tag=tag):
+                scenario = self.published_package()
+                scenario["versions"][0]["metadata"]["container"]["tags"] = [tag]
+                scenario["versions"][0]["created_at"] = OUTSIDE_RETENTION_WINDOW
+                run = run_retention(scenario)
+                self.assertIsNone(run.failure)
+                self.assertEqual(run.deleted_ids, {self.ORPHAN_ID})
 
     def published_package(self) -> dict[str, Any]:
         return {

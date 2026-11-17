@@ -32,7 +32,7 @@ Both images default to the `ubuntu` user for compatibility with existing
 restore and SSH mount workflows.
 
 Each series in `image-variants.json` owns its Python patch version. Community
-19 remains on Python 3.13; Community 20 uses Python 3.14. Builds and runtime
+20 uses Python 3.14. Only Community 20 runtime and devtools images are built. Builds and runtime
 smoke checks read the same selection. Local builds select it from
 `ODOO_SOURCE_REF`; `PYTHON_VERSION` can override it for an unpublished trial.
 
@@ -373,8 +373,7 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   or registry-cache export. Task branches ignore `publish_stable=true` as well;
   stable publication requires `main`. Shared caches remain readable.
   Follow the [trial cleanup instructions](AGENTS.md#workflow-metadata).
-  The legacy series keeps its existing unqualified nightly/source/build/cache
-  names. Other series qualify candidate, nightly, source, build and cache names with their configured alias prefix;
+  Candidate, nightly, source, build and cache names use the configured alias prefix;
   all stable tags use the series. Local verification tags, evidence and artifacts
   include the series to prevent cross-version collisions.
 - Train candidates run full validation through their generated batch PR,
@@ -387,12 +386,9 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
   other qualified pair from progressing. Published evidence uploads precede
   the digest records that permit alias promotion. Index and platform annotations
   bind the series and Odoo revision; promotion checks them and alias readback.
-- Only runs on `main`, for the variant with Enterprise follow-up enabled, dispatch `odoo-enterprise-docker`
-  build with the exact published runtime and devtools digests. It passes on
-  the same stable decision, and asks for nightly tags only on scheduled runs.
-  Community 20 never triggers an Enterprise 19 build. Base-image aliases mean
-  image qualification; tenant testing, Client acceptance and production release
-  remain on their own gated paths.
+- Enterprise follow-up builds are retired. Existing older images remain available
+  for migration and rollback until all tenants complete their Community 20 cutovers.
+  Base-image publication does not deploy tenants or accept a production release.
 - `pull_request` runs verify-only (no image publishing) and reports one stable
   `image-verification` merge gate after lint, source resolution, override
   validation inside each selected series, all supported image builds, smoke tests,
@@ -483,11 +479,11 @@ into one pull request.
 
 ```bash
 docker build \
-  -t ghcr.io/cbusillo/odoo-docker:19.0-runtime \
+  -t ghcr.io/cbusillo/odoo-docker:20.0-runtime \
   --target runtime \
   .
 docker build \
-  -t ghcr.io/cbusillo/odoo-docker:19.0-devtools \
+  -t ghcr.io/cbusillo/odoo-docker:20.0-devtools \
   --target runtime-devtools \
   .
 ```
