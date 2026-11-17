@@ -48,7 +48,7 @@ each worktree using `.github/github.json`. Shared inspection profiles, scopes,
 and repository-local VCS mappings remain versioned; sibling checkouts and SDK
 paths do not.
 
-The runtime health addon also needs real Odoo 19 source for import resolution.
+The runtime health addon also needs real Odoo 20 source for import resolution.
 Choose a clean external checkout at an exact reviewed commit, then expose that
 source to this worktree's interpreter before running the inspection helper:
 
@@ -575,12 +575,12 @@ Use `--target runtime-devtools` and a separate local tag for its browser layer.
   `pip` is intentionally unavailable; use `uv venv` instead.
 
 Publishing jobs share GitHub's native queued concurrency group through alias
-promotion and downstream dispatch. Each candidate records the workflow run
+promotion. Each candidate records the workflow run
 number in an OCI `io.github.cbusillo.build-run-number` annotation. Promotion
 reads each alias directly from the registry and compares each family
 independently. A newer stable or nightly alias on either target protects the
 whole pair; unrelated families do not suppress one another. Both eligible
-mappings are planned before writes and verified before dispatch. A failed-jobs
+mappings are planned before writes and verified afterward. A failed-jobs
 retry can repair a partial pair using the already checked candidates from
 successful jobs, including candidates from different attempts of the same run.
 The source resolver fixes the nightly date for both legs and failed-job retries.
@@ -589,8 +589,7 @@ and attempt; artifact names remain stable so failed-job retries can reuse
 successful jobs from earlier attempts of the same run.
 Floating and dated nightly aliases have independent pairs. Equal run numbers are
 repairs, not supersession. Unique build aliases are independent of shared source
-aliases. Community dispatch flags reflect only the families actually delivered
-by that execution.
+aliases.
 
 Existing images without that annotation are the legacy baseline (order zero).
 Only an exact registry tag-not-found result means an absent alias. Present but
