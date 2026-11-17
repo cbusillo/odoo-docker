@@ -2,7 +2,7 @@
 set -euo pipefail
 
 image_reference="${1:?Usage: scripts/smoke-readiness.sh <runtime-image> [browser-image]}"
-browser_image="${2:-ghcr.io/cbusillo/odoo-docker:19.0-devtools}"
+browser_image="${2:-ghcr.io/cbusillo/odoo-docker:20.0-devtools}"
 suffix="${RANDOM}-$$"
 network="odd-readiness-${suffix}"
 postgres="${network}-postgres"

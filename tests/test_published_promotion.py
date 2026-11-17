@@ -25,7 +25,7 @@ promotion = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(promotion)
 ROOT = "ghcr.io/example/images"
 VARIANTS = promotion.read_variants(HELPER_PATH.parents[1] / "image-variants.json")
-LEGACY = next(variant for variant in VARIANTS if not variant.alias_prefix)
+LEGACY = promotion.ImageVariant("99.0", "3.13.0", "", True)
 SOURCE_REVISION = "a" * 40
 
 
@@ -322,7 +322,7 @@ class VersionedPromotionTest(unittest.TestCase):
 
     def test_wrong_series_revision_or_alias_never_writes(self) -> None:
         for variant in VARIANTS:
-            other = next(candidate for candidate in VARIANTS if candidate != variant)
+            other = LEGACY
             for fault in ("manifest-series", "manifest-source", "record-series", "record-source", "alias", "existing-series"):
                 with self.subTest(series=variant.series, fault=fault), tempfile.TemporaryDirectory() as directory:
                     registry = Registry()

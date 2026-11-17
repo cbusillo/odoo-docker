@@ -3,7 +3,7 @@ set -euo pipefail
 
 image_reference="${1:?Usage: scripts/smoke-runtime.sh <image-reference>}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-expected_python_version="$(jq -er --arg series "${2:-}" '.[] | select(if $series == "" then .alias_prefix == "" else .series == $series end) | .python_version' "${repo_root}/image-variants.json")"
+expected_python_version="$(jq -er --arg series "${2:-}" 'if $series == "" then .[0].python_version else .[] | select(.series == $series) | .python_version end' "${repo_root}/image-variants.json")"
 
 docker run --rm --network none --env EXPECTED_ODOO_SERIES="${2:-}" --env EXPECTED_PYTHON_VERSION="${expected_python_version}" --entrypoint /bin/bash "${image_reference}" -lc '
 set -euo pipefail
