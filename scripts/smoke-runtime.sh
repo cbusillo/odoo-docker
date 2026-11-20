@@ -37,10 +37,12 @@ case "${EXPECTED_ODOO_SERIES}" in
   20.0)
     test -f /opt/launchplane/addons/muk_web_theme/__manifest__.py
     test -f /opt/launchplane/addons/document_page/__manifest__.py
+    test -f /opt/launchplane/addons/product_sequence/__manifest__.py
     ;;
   19.0)
     test ! -e /opt/launchplane/addons/muk_web_theme
     test ! -e /opt/launchplane/addons/document_page
+    test ! -e /opt/launchplane/addons/product_sequence
     ;;
 esac
 test ! -e /opt/launchplane/addons/muk_web_enterprise_theme
