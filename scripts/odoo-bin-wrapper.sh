@@ -159,4 +159,8 @@ if [[ "$inject_runtime_defaults" == "true" ]]; then
   fi
 fi
 
+if [[ -z "${OPENBLAS_NUM_THREADS:-}" && -z "${OPENBLAS_DEFAULT_NUM_THREADS:-}" &&
+      -z "${GOTO_NUM_THREADS:-}" && -z "${OMP_NUM_THREADS:-}" ]]; then
+  export OPENBLAS_NUM_THREADS=1
+fi
 exec "$python_executable" "$odoo_script" "${arguments[@]}"

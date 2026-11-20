@@ -29,6 +29,7 @@ elif [[ "${PGPASSWORD:-}" != "${WRAPPER_EXPECTED_PASSWORD:?missing expected pass
   exit 1
 fi
 printf '%s\n' "$@" > "${WRAPPER_CAPTURE_FILE:?missing WRAPPER_CAPTURE_FILE}"
+printf '%s\n' "${OPENBLAS_NUM_THREADS:-}" > "${WRAPPER_CAPTURE_FILE}.blas-threads"
 exit 0
 EOF
 chmod +x "${fake_python_bin}"
@@ -54,7 +55,9 @@ run_wrapper() {
 }
 
 test_password=$'synthetic password $ # \\ quote\'\"\nsecond line'
+unset OPENBLAS_NUM_THREADS OPENBLAS_DEFAULT_NUM_THREADS GOTO_NUM_THREADS OMP_NUM_THREADS
 run_wrapper --stop-after-init
+grep -Fx -- 1 "${captured_arguments_file}.blas-threads" >/dev/null
 grep -Fx -- "${fake_source_bin}" "${captured_arguments_file}" >/dev/null
 grep -Fx -- "--db_host=database" "${captured_arguments_file}" >/dev/null
 grep -Fx -- "--db_port=5432" "${captured_arguments_file}" >/dev/null
@@ -62,7 +65,9 @@ grep -Fx -- "--db_user=odoo" "${captured_arguments_file}" >/dev/null
 grep -Fx -- "--addons-path=/opt/launchplane/addons,/opt/project/addons" "${captured_arguments_file}" >/dev/null
 grep -Fx -- "--load=base,web,launchplane_runtime_health" "${captured_arguments_file}" >/dev/null
 
-run_wrapper shell -d opw --no-http
+requested_blas_threads=3
+OPENBLAS_NUM_THREADS="${requested_blas_threads}" run_wrapper shell -d opw --no-http
+grep -Fx -- "${requested_blas_threads}" "${captured_arguments_file}.blas-threads" >/dev/null
 second_argument="$(sed -n '2p' "${captured_arguments_file}")"
 if [[ "${second_argument}" != "shell" ]]; then
   echo "Expected shell subcommand as second argument, got: ${second_argument}" >&2
@@ -72,6 +77,13 @@ if grep -q -- "--db_host=" "${captured_arguments_file}"; then
   echo "Wrapper injected server defaults for shell subcommand" >&2
   exit 1
 fi
+
+for thread_control in OPENBLAS_DEFAULT_NUM_THREADS GOTO_NUM_THREADS OMP_NUM_THREADS; do
+  export "${thread_control}=${requested_blas_threads}"
+  run_wrapper shell --no-http
+  grep -Fx -- '' "${captured_arguments_file}.blas-threads" >/dev/null
+  unset "${thread_control}"
+done
 
 run_wrapper db dump fixture /tmp/fixture.dump --format dump
 grep -Fx -- "db" "${captured_arguments_file}" >/dev/null
