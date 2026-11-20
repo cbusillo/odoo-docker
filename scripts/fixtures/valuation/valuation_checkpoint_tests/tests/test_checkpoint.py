@@ -590,8 +590,11 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         at = self._opening_stock()
         anchor = self._shipment(at)
         checkpoint = self._checkpoint(anchor)
-        shipment = self._shipment(at + timedelta(seconds=1))
+        customer_without_valuation = self.customer_location.sudo().copy({"valuation_account_id": False})
+        with freeze_time(at + timedelta(seconds=1)):
+            shipment = self._make_out_move(self.product_avco, 1, location_dest_id=customer_without_valuation.id)
         self.assertEqual(shipment.value, -40)
+        self.assertFalse(shipment.account_move_id)
         with freeze_time(at):
             self._make_in_move(self.product_standard_auto, 1)
             other_shipment = self._make_out_move(self.product_standard_auto, 1)
