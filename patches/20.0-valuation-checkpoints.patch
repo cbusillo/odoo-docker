@@ -92,13 +92,14 @@
                  for product in self
              }
          value_by_product_id = {p.id: p.qty_available * std_price_by_product_id.get(p.id, 0) for p in self}
-@@ -354,15 +367,15 @@
+@@ -354,16 +367,16 @@
              return std_price_by_product_id, value_by_product_id
 
          moves_by_product = self._get_stock_moves_with_valuation_by_product(at_date)
 -        std_price_history_by_product = self._get_std_price_history_by_product(at_date)
 +        std_price_history_by_product = self._get_std_price_history_by_product(at_date, lot=lot)
 
+         edited_move_ids = OrderedSet()
          for product in self:
              std_price = std_price_by_product_id.get(product.id, product.standard_price)
              price_changes = iter(std_price_history_by_product.get(product, self.env['product.value']))
@@ -112,7 +113,7 @@
                  if move.is_in:
                      continue
 @@ -372,9 +385,40 @@
-
+         self.env['stock.move'].browse(edited_move_ids)._update_accounting_entries()
          return std_price_by_product_id, value_by_product_id
 
 +    def _get_valued_quantities_at_positions(self, checkpoints: "odoo.model.product_value", lot: "odoo.model.stock_lot | bool | None" = None) -> dict[int, float]:
@@ -235,13 +236,14 @@
              products = products.with_context(to_date=at_date)
              if lot:
                  lot = lot.with_context(to_date=at_date)
-@@ -556,7 +605,7 @@
+@@ -556,8 +605,8 @@
              return std_price_by_product_id, value_by_product_id
 
          moves_by_product = self._get_stock_moves_with_valuation_by_product(at_date, lot=lot)
 -        std_price_history_by_product = self._get_std_price_history_by_product(at_date)
 +        std_price_history_by_product = self._get_std_price_history_by_product(at_date, lot=lot)
 
+         edited_move_ids = OrderedSet()
          for product in self:
              stack = stack_by_product[product]
 @@ -564,8 +613,8 @@
@@ -476,7 +478,7 @@
                  moves_in_res_past[product.id] += quantity
 --- a/addons/stock_account/models/stock_move.py
 +++ b/addons/stock_account/models/stock_move.py
-@@ -188,11 +188,18 @@
+@@ -188,9 +188,16 @@
              new_date = fields.Datetime.to_datetime(vals['date'])
              impacted_moves = self.filtered(lambda m: (m.is_in or m.is_out) and m.date != new_date)
              recompute_date = min([*impacted_moves.mapped('date'), new_date]) if impacted_moves else False
@@ -487,23 +489,28 @@
          res = super().write(vals)
          if recompute_date:
              impacted_moves._set_value(recompute_date=recompute_date)
-         if vals.get('value'):
-             self.cogs_aml_ids._set_cogs()
 +        if positioned:
 +            positioned._check_after_move()
 +            positioned._replay_positioned_scopes(positioned_scopes + positioned._positioned_replay_scopes())
          return res
 
      def _read_group_select(self, table, aggregate_spec):
-@@ -252,6 +259,8 @@
+@@ -247,10 +254,14 @@
+     def _action_done(self, cancel_backorder=False):
+         self = self.sudo()  # noqa: PLW0642
+-        moves = super()._action_done(cancel_backorder=cancel_backorder)
++        moves = super(StockMove, self.with_context(no_create_missing=True))._action_done(
++            cancel_backorder=cancel_backorder,
++        ).with_env(self.env)
+         moves_out = moves.filtered(lambda m: m.is_out)
          moves_in = moves.filtered(lambda m: m.is_in or m.is_dropship)
-         moves_out._set_value()
-         moves_in._set_value()
+         moves_out.with_context(no_create_missing=True)._set_value()
+         moves_in.with_context(no_create_missing=True)._set_value()
+         moves._create_account_move()
 +        positioned = self.env['product.value'].sudo().search([('after_move_id', 'in', moves.ids)])
 +        positioned._replay_positioned_scopes(positioned._positioned_replay_scopes())
-         moves.cogs_aml_ids._set_cogs()
-         moves._create_account_move()
          (moves_in | moves_out).sudo()._create_analytic_move()
+         return moves
 --- a/addons/stock/models/stock_lot.py
 +++ b/addons/stock/models/stock_lot.py
 @@ -8,6 +8,7 @@
