@@ -118,7 +118,7 @@ jobs:
           set -euo pipefail
 
           resolver_cutoff="$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:00:00Z')"
-          apt_snapshot="$(date -u -d '24 hours ago' '+%Y%m%dT%H0000Z')"
+          apt_snapshot="$(date -u '+%Y%m%dT%H%M%SZ')"
           ubuntu_image="$(sed -n 's/^FROM \(ubuntu:noble@sha256:[0-9a-f]\{64\}\) AS runtime-system$/\1/p' Dockerfile)"
           trivy_image="${TRIVY_IMAGE}"
 
