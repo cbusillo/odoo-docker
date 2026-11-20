@@ -25,8 +25,12 @@ tenant runtime deployment is owned by Launchplane.
 
 ## Images
 
-- `runtime`: base Odoo runtime + PostgreSQL client + uv tooling
-- `runtime-devtools`: `runtime` plus Playwright-managed Chromium test tooling
+- `runtime`: base Odoo runtime, PostgreSQL client, and uv tooling. The image
+  contains the built Python environment, RTL CSS tooling, and required shared
+  libraries. Native compilers and Linux headers stay in the build stages.
+- `runtime-devtools`: `runtime` plus the native toolchain, development headers,
+  npm, and Playwright-managed Chromium. Use this image to build Python packages
+  that need a compiler.
 
 Both images default to the `ubuntu` user for compatibility with existing
 restore and SSH mount workflows.
@@ -121,6 +125,10 @@ pinned by `OCA_KNOWLEDGE_REV`. They do not install by themselves either; a
 product gets them through the house-standard module in
 `odoo-shared-addons`. The build refuses a module whose manifest does not carry
 the expected license.
+
+The 20.0 images carry OCA Product Sequence from the
+[unmerged 20.0 port](https://github.com/OCA/product-attribute/pull/2445) pinned
+by `OCA_PRODUCT_ATTRIBUTE_REV`. It is available for products to install.
 
 `launchplane_runtime_health` is loaded as a server-wide module by default. It
 exposes `GET /launchplane/health` with `auth="none"` and `save_session=False`
@@ -460,7 +468,9 @@ scheduled updates explicit.
 
 The Dockerfile pins artifact-affecting base and build images by digest, uses an
 exact uv-managed Python patch release, and accepts workflow-resolved Ubuntu
-snapshot, PostgreSQL package, and package-index cutoff inputs. Trivy snapshots
+snapshot, PostgreSQL package, and package-index cutoff inputs. CI pins and
+records the Ubuntu snapshot at input resolution time. Python and npm retain
+the 24-hour cooldown. Trivy snapshots
 record repository/source identity, producer and database revisions, scan scope,
 configuration hash, and platform. Publication evidence additionally records the
 exact manifest-list digest, platform child digests, and snapshot hashes.

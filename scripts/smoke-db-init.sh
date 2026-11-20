@@ -11,7 +11,7 @@ shell_container="${network_name}-shell"
 db_name="odoo_smoke_${suffix//[^[:alnum:]]/_}"
 health_db_name="odoo_health_${suffix//[^[:alnum:]]/_}"
 db_user="odoo"
-community_modules="muk_web_theme document_page"
+community_modules="muk_web_theme document_page product_sequence"
 db_password=$'synthetic smoke password $ # \\ \' " %'
 
 cleanup() {

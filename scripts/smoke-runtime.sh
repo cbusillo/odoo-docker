@@ -7,6 +7,21 @@ expected_python_version="$(jq -er --arg series "${2:-}" 'if $series == "" then .
 
 docker run --rm --network none --env EXPECTED_ODOO_SERIES="${2:-}" --env EXPECTED_PYTHON_VERSION="${expected_python_version}" --entrypoint /bin/bash "${image_reference}" -lc '
 set -euo pipefail
+if [[ "$1" == runtime ]]; then
+  for package in build-essential libc6-dev linux-libc-dev; do
+    if [[ "$(dpkg-query -W -f="\${db:Status-Status}" "${package}" 2>/dev/null)" == installed ]]; then
+      echo "Unexpected runtime package: ${package}" >&2
+      exit 1
+    fi
+  done
+  for compiler in cc gcc c++ g++; do
+    if command -v "${compiler}"; then
+      echo "Unexpected runtime compiler: ${compiler}" >&2
+      exit 1
+    fi
+  done
+  test ! -e /usr/include/linux
+fi
 test -x /odoo/odoo-bin
 test -x /usr/local/bin/uv
 test -x /usr/local/bin/odoo-python-sync.sh
@@ -22,10 +37,12 @@ case "${EXPECTED_ODOO_SERIES}" in
   20.0)
     test -f /opt/launchplane/addons/muk_web_theme/__manifest__.py
     test -f /opt/launchplane/addons/document_page/__manifest__.py
+    test -f /opt/launchplane/addons/product_sequence/__manifest__.py
     ;;
   19.0)
     test ! -e /opt/launchplane/addons/muk_web_theme
     test ! -e /opt/launchplane/addons/document_page
+    test ! -e /opt/launchplane/addons/product_sequence
     ;;
 esac
 test ! -e /opt/launchplane/addons/muk_web_enterprise_theme
@@ -55,7 +72,10 @@ if [ -n "${EXPECTED_ODOO_SERIES}" ]; then
   PYTHONPATH=/odoo /venv/bin/python -c "import os; from odoo import release; assert \".\".join(map(str, release.version_info[:2])) == os.environ[\"EXPECTED_ODOO_SERIES\"], release.version"
 fi
 /venv/bin/python -c "import os, sys; assert sys.version_info[:3] == tuple(map(int, os.environ[\"EXPECTED_PYTHON_VERSION\"].split(\".\"))), sys.version"
-/venv/bin/python -c "import cryptography, OpenSSL"
+/venv/bin/python -c "import _ldap, cairo, cryptography, gevent, OpenSSL, psycopg2, sass; from lxml import etree; from PIL import _imaging"
+lessc --version
+rtlcss --version
+wkhtmltopdf --version
 test ! -e /venv/bin/pip
 /venv/bin/python -c "import importlib.util; assert importlib.util.find_spec(\"pip\") is None"
 test ! -e /usr/share/python-wheels
@@ -76,6 +96,6 @@ env -u VIRTUAL_ENV "${base_python}" -c "import importlib.util; assert importlib.
 /odoo/odoo-bin --help >/dev/null
 /odoo/odoo-bin shell --help >/dev/null
 ODOO_SOURCE_BIN=/bin/true ODOO_WRAPPER_PYTHON=/bin/echo /odoo/odoo-bin --stop-after-init | grep -F -- "--load=base,web,launchplane_runtime_health" >/dev/null
-'
+' smoke-runtime "${3:-runtime}"
 
 echo "runtime smoke checks passed: ${image_reference}"

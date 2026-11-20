@@ -4,7 +4,7 @@ set -euo pipefail
 image_reference="${1:?Usage: scripts/smoke-devtools.sh <image-reference>}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-"${script_dir}/smoke-runtime.sh" "${image_reference}" "${2:-}"
+"${script_dir}/smoke-runtime.sh" "${image_reference}" "${2:-}" devtools
 
 docker run --rm --network none --entrypoint /bin/bash "${image_reference}" -lc '
 set -euo pipefail
@@ -22,6 +22,16 @@ if [[ ! -x "${binary}" ]]; then
   fi
 fi
 "${binary}" --version >/dev/null
+python_include="$(/venv/bin/python -c "import sysconfig; print(sysconfig.get_path(\"include\"))")"
+cd "$(mktemp -d)"
+c++ -shared -fPIC -x c++ -I "${python_include}" -o native_probe.so - << "CPP"
+#include <Python.h>
+#include <linux/version.h>
+
+static PyModuleDef module = {PyModuleDef_HEAD_INIT, "native_probe"};
+PyMODINIT_FUNC PyInit_native_probe() { return PyModule_Create(&module); }
+CPP
+/venv/bin/python -c "import native_probe"
 /venv/bin/python3 - <<"PY"
 from pathlib import Path
 import site
