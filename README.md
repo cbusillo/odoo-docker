@@ -25,8 +25,12 @@ tenant runtime deployment is owned by Launchplane.
 
 ## Images
 
-- `runtime`: base Odoo runtime + PostgreSQL client + uv tooling
-- `runtime-devtools`: `runtime` plus Playwright-managed Chromium test tooling
+- `runtime`: base Odoo runtime, PostgreSQL client, and uv tooling. The image
+  contains the built Python environment, RTL CSS tooling, and required shared
+  libraries. Native compilers and Linux headers stay in the build stages.
+- `runtime-devtools`: `runtime` plus the native toolchain, development headers,
+  npm, and Playwright-managed Chromium. Use this image to build Python packages
+  that need a compiler.
 
 Both images default to the `ubuntu` user for compatibility with existing
 restore and SSH mount workflows.
