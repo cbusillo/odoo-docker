@@ -585,16 +585,28 @@ class TestValuationCheckpoint(TestStockValuationCommon):
         self.assertEqual((first.value, second.value), (-40, -40))
 
     def test_native_reset_and_revalidation_move_the_checkpoint_with_its_anchor(self) -> None:
+        self.customer_location.sudo().valuation_account_id = self.account_expense
+        self.product_avco.categ_id = self.category_avco_auto
         at = self._opening_stock()
         anchor = self._shipment(at)
         checkpoint = self._checkpoint(anchor)
-        shipment = self._shipment(at + timedelta(seconds=1))
+        customer_without_valuation = self.customer_location.sudo().copy({"valuation_account_id": False})
+        with freeze_time(at + timedelta(seconds=1)):
+            shipment = self._make_out_move(self.product_avco, 1, location_dest_id=customer_without_valuation.id)
         self.assertEqual(shipment.value, -40)
-        anchor._action_reset_to_progress()
+        self.assertFalse(shipment.account_move_id)
+        with freeze_time(at):
+            self._make_in_move(self.product_standard_auto, 1)
+            other_shipment = self._make_out_move(self.product_standard_auto, 1)
+        self.assertTrue(anchor.account_move_id and other_shipment.account_move_id)
+        batch = anchor | other_shipment
+        batch._action_reset_to_progress()
         with freeze_time(at + timedelta(seconds=2)):
-            anchor.quantity = 1
-            anchor.picked = True
-            anchor._action_done()
+            batch.quantity = 1
+            batch.picked = True
+            batch._action_done()
+        self.assertTrue(anchor.account_move_id)
+        self.assertEqual(anchor.account_move_id, other_shipment.account_move_id)
         self.assertEqual(checkpoint.date, anchor.date)
         self.assertEqual(anchor.date, at + timedelta(seconds=2))
         self.assertEqual((anchor.value, shipment.value), (-30, -30))

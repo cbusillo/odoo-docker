@@ -460,7 +460,9 @@ scheduled updates explicit.
 
 The Dockerfile pins artifact-affecting base and build images by digest, uses an
 exact uv-managed Python patch release, and accepts workflow-resolved Ubuntu
-snapshot, PostgreSQL package, and package-index cutoff inputs. Trivy snapshots
+snapshot, PostgreSQL package, and package-index cutoff inputs. CI pins and
+records the Ubuntu snapshot at input resolution time. Python and npm retain
+the 24-hour cooldown. Trivy snapshots
 record repository/source identity, producer and database revisions, scan scope,
 configuration hash, and platform. Publication evidence additionally records the
 exact manifest-list digest, platform child digests, and snapshot hashes.
