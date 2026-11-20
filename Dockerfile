@@ -35,9 +35,7 @@ RUN if grep -Eq '^version_info = \(20,' odoo/odoo/release.py; then \
       git -C odoo apply /patches/20.0-pdf-media-box.patch; \
     fi
 
-# Community addons for 20.0, offered to every product on the image-owned
-# addons path: MuK's LGPL-3 backend theme and OCA's AGPL-3 document_page. No
-# module here auto-installs; products install them themselves.
+# Community addons for 20.0 on the image-owned addons path. No module here auto-installs.
 # muk_web_enterprise_theme needs web_enterprise and is never copied.
 FROM --platform=$BUILDPLATFORM alpine/git:v2.54.0@sha256:ae0f6f4bce38d2b8c40becc0d6241a08d9f57186ea03029de2189a2b5e722d94 AS community-addons
 ARG ODOO_SOURCE_REF
@@ -47,6 +45,8 @@ ARG MUK_THEME_MODULES="muk_web_theme muk_web_utils muk_web_group muk_web_chatter
 ARG OCA_KNOWLEDGE_REPOSITORY=https://github.com/OCA/knowledge.git
 ARG OCA_KNOWLEDGE_REV=87b058922c0cf980ddfb4b6341f3de805a3ad476
 ARG OCA_KNOWLEDGE_MODULES="document_page document_knowledge"
+ARG OCA_PRODUCT_ATTRIBUTE_REPOSITORY=https://github.com/OCA/product-attribute.git
+ARG OCA_PRODUCT_ATTRIBUTE_REV=b0aa90757aea6057f764fb0938550b76a465a0a1
 WORKDIR /source
 RUN set -eux; \
     mkdir addons; \
@@ -65,6 +65,7 @@ RUN set -eux; \
     if [ "${ODOO_SOURCE_REF}" = "20.0" ]; then \
       copy_pinned_modules "${MUK_MODULES_REPOSITORY}" "${MUK_MODULES_REV}" LGPL-3 "${MUK_THEME_MODULES}"; \
       copy_pinned_modules "${OCA_KNOWLEDGE_REPOSITORY}" "${OCA_KNOWLEDGE_REV}" AGPL-3 "${OCA_KNOWLEDGE_MODULES}"; \
+      copy_pinned_modules "${OCA_PRODUCT_ATTRIBUTE_REPOSITORY}" "${OCA_PRODUCT_ATTRIBUTE_REV}" AGPL-3 product_sequence; \
     fi
 
 FROM --platform=$BUILDPLATFORM alpine/curl:8.22.0@sha256:f05779b04a6f3c6f228c67118786f5c80d4c4922dd79b0b24c92dc10a74f594f AS wkhtmltox

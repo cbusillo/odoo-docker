@@ -126,6 +126,11 @@ product gets them through the house-standard module in
 `odoo-shared-addons`. The build refuses a module whose manifest does not carry
 the expected license.
 
+The 20.0 images carry [OCA Product Sequence](https://github.com/OCA/product-attribute/pull/2445)
+at the revision pinned by `OCA_PRODUCT_ATTRIBUTE_REV`. The module depends on
+native `product`. Products install it through the shared `product_numbering`
+addon when they adopt product numbering.
+
 `launchplane_runtime_health` is loaded as a server-wide module by default. It
 exposes `GET /launchplane/health` with `auth="none"` and `save_session=False`
 so Launchplane can verify the exact runtime serving a public lane without
