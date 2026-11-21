@@ -50,8 +50,10 @@ docker exec "${postgres}" pg_isready -h 127.0.0.1 -U odoo >/dev/null
 common=(--network "${network}" -e ODOO_DB_HOST="${postgres}" -e ODOO_DB_USER=odoo
     -e ODOO_DB_PASSWORD=isolated-fixture -v "${fixture_volume}:/fixture"
     -v "${data_volume}:/volumes/data")
+odoo_major="$(docker run --rm -e PYTHONPATH=/odoo --entrypoint /venv/bin/python "${image_reference}" \
+    -c 'from odoo import release; print(release.version_info[0])')"
 fixture_modules=website
-if [[ "$(docker run --rm --entrypoint odoo-bin "${image_reference}" --version)" == "Odoo Server 20.0" ]]; then
+if [[ "${odoo_major}" == 20 ]]; then
     fixture_modules+=,contacts,muk_web_chatter
 fi
 docker run --rm --name "${transient}" "${common[@]}" "${image_reference}" \

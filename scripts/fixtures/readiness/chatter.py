@@ -5,6 +5,8 @@ from typing import NamedTuple
 
 from playwright.sync_api import Browser, Page, expect, sync_playwright
 
+LATEST_NOTE = "Chatter fixture note 15"
+
 
 class FormGeometry(NamedTuple):
     sheet_width: float
@@ -48,7 +50,7 @@ def wait_for_chatter(page: Page, *, aside: bool) -> None:
         expect(panel).to_have_class(re.compile(r"\bo-aside\b"), timeout=15000)
     else:
         expect(panel).not_to_have_class(re.compile(r"\bo-aside\b"), timeout=15000)
-    panel.get_by_text("Chatter fixture note 15", exact=True).wait_for(state="attached")
+    panel.get_by_text(LATEST_NOTE, exact=True).wait_for(state="attached")
     panel.get_by_text("Completed fixture activity", exact=False).wait_for(state="attached")
     panel.get_by_text("Pending fixture activity", exact=False).wait_for(state="attached")
 
@@ -62,8 +64,11 @@ def geometry(page: Page) -> FormGeometry:
             const content = renderer.closest(".o_content");
             const sheetBox = sheet.getBoundingClientRect();
             const titleBox = title.getBoundingClientRect();
-            const hit = document.elementFromPoint(titleBox.left + Math.min(10, titleBox.width / 2), titleBox.top + titleBox.height / 2);
-            return [sheetBox.width, sheetBox.height, title.contains(hit),
+            const x = titleBox.left + Math.min(10, titleBox.width / 2);
+            const y = titleBox.top + titleBox.height / 2;
+            const titleVisible = x >= sheetBox.left && x < sheetBox.right && y >= sheetBox.top &&
+                y < sheetBox.bottom && title.contains(document.elementFromPoint(x, y));
+            return [sheetBox.width, sheetBox.height, titleVisible,
                 content.scrollWidth, content.clientWidth, chatter.getBoundingClientRect().top, sheetBox.bottom];
         }""",
     )
@@ -83,11 +88,18 @@ def inspect_form(
     layout = geometry(page)
     print(mode, transition, width, layout, flush=True)
     if (
-        not layout.title_visible
+        layout.sheet_width <= 0
+        or layout.sheet_height <= 0
+        or not layout.title_visible
         or layout.scroll_width > layout.client_width
         or (not aside and layout.chatter_top < layout.sheet_bottom)
     ):
         failures.append(f"{mode} {transition} at {width}: {layout}")
+    if not aside:
+        note = page.locator(".o-mail-Form-chatter").get_by_text(LATEST_NOTE, exact=True)
+        note.scroll_into_view_if_needed()
+        expect(note).to_be_in_viewport()
+        page.locator("main.o_content").evaluate("content => { content.scrollTop = 0; }")
 
 
 def check_bottom(browser: Browser, origin: str, failures: list[str]) -> None:
@@ -101,20 +113,26 @@ def check_bottom(browser: Browser, origin: str, failures: list[str]) -> None:
             inspect_form(page, "Bottom", width, "reload", aside=False, failures=failures)
 
 
+def drag_side(page: Page) -> int:
+    wait_for_chatter(page, aside=True)
+    handle = page.locator(".o-mail-Form-chatter.o-aside .mk_chatter_resize").bounding_box()
+    assert handle is not None
+    position = handle["y"] + 30
+    page.mouse.move(handle["x"] + 2, position)
+    page.mouse.down()
+    page.mouse.move(4, position, steps=20)
+    page.mouse.up()
+    stored = page.evaluate("localStorage.getItem('muk_web_chatter.width')")
+    assert isinstance(stored, str) and stored.isdecimal(), stored
+    return int(stored)
+
+
 def check_side(browser: Browser, origin: str, failures: list[str]) -> None:
     with browser.new_context(viewport={"width": 3440, "height": 1000}) as context:
         page = context.new_page()
         open_record(page, origin, "side")
-        wait_for_chatter(page, aside=True)
-        handle = page.locator(".o-mail-Form-chatter.o-aside .mk_chatter_resize").bounding_box()
-        assert handle is not None
-        position = handle["y"] + 30
-        page.mouse.move(handle["x"] + 2, position)
-        page.mouse.down()
-        page.mouse.move(4, position, steps=20)
-        page.mouse.up()
-        stored = page.evaluate("localStorage.getItem('muk_web_chatter.width')")
-        assert int(stored) > 1920, stored
+        stored = drag_side(page)
+        assert stored > 1920, stored
         for width, aside in (
             (3440, True),
             (1920, True),
@@ -126,7 +144,12 @@ def check_side(browser: Browser, origin: str, failures: list[str]) -> None:
             inspect_form(page, "Side", width, "resize", aside=aside, failures=failures)
             page.reload(wait_until="domcontentloaded")
             inspect_form(page, "Side", width, "reload", aside=aside, failures=failures)
-            assert page.evaluate("localStorage.getItem('muk_web_chatter.width')") == stored
+            assert page.evaluate("localStorage.getItem('muk_web_chatter.width')") == str(stored)
+
+        page.set_viewport_size({"width": 1920, "height": 1000})
+        narrow_width = drag_side(page)
+        assert 0 < narrow_width < stored, (narrow_width, stored)
+        inspect_form(page, "Side", 1920, "drag", aside=True, failures=failures)
 
 
 def main() -> None:
