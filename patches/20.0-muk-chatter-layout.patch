@@ -1,0 +1,51 @@
+--- a/muk_web_chatter/static/src/views/form/form_renderer.scss
++++ b/muk_web_chatter/static/src/views/form/form_renderer.scss
+@@ -1,4 +1,4 @@
+ .o_form_renderer:has(> .o-mail-Form-chatter:not(.o-aside)) {
+-    height: auto;
++    height: auto !important;
+     flex-direction: column;
+ }
+--- a/muk_web_chatter/static/src/chatter/web/chatter.scss
++++ b/muk_web_chatter/static/src/chatter/web/chatter.scss
+@@ -9,7 +9,8 @@
+         --mk-Chatter-width,
+         calc(#{$o-mail-Chatter-minWidth} + var(--Chatter-asideExtraWidth))
+     );
+-    max-width: var(--mk-Chatter-width, none);
++    --mk-Chatter-min-sheet-width: 250px;
++    max-width: calc(min(var(--mk-Chatter-width, 100%), max(0px, 100% - var(--mk-Chatter-min-sheet-width))));
+     .mk_chatter_resize {
+         top: 0;
+         bottom: 0;
+--- a/muk_web_chatter/static/src/views/form/form_renderer.js
++++ b/muk_web_chatter/static/src/views/form/form_renderer.js
+@@ -12,7 +12,6 @@
+     EXTERNAL_COMBO_XXL: 'EXTERNAL_COMBO',
+ };
+ const MIN_CHATTER_WIDTH = 50;
+-const MIN_SHEET_WIDTH = 250;
+ const STORAGE_KEY = 'muk_web_chatter.width';
+
+ /** Place the chatter per user preference and wire its drag-resize handle. */
+@@ -38,6 +37,9 @@
+         const container = ev.currentTarget.parentElement;
+         const startX = ev.pageX;
+         const startWidth = container.offsetWidth;
++        const minSheetWidth = Number.parseFloat(
++            getComputedStyle(container).getPropertyValue('--mk-Chatter-min-sheet-width'),
++        );
+         const drag = new AbortController();
+         document.addEventListener(
+             'mousemove',
+@@ -49,8 +51,8 @@
+                             startWidth - (moveEvent.pageX - startX),
+                         ),
+                         Math.max(
+-                            container.parentElement.offsetWidth - MIN_SHEET_WIDTH,
+-                            MIN_SHEET_WIDTH,
++                            container.parentElement.offsetWidth - minSheetWidth,
++                            minSheetWidth,
+                         ),
+                     ),
+                 ),

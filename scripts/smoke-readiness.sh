@@ -50,8 +50,17 @@ docker exec "${postgres}" pg_isready -h 127.0.0.1 -U odoo >/dev/null
 common=(--network "${network}" -e ODOO_DB_HOST="${postgres}" -e ODOO_DB_USER=odoo
     -e ODOO_DB_PASSWORD=isolated-fixture -v "${fixture_volume}:/fixture"
     -v "${data_volume}:/volumes/data")
+fixture_modules=website
+if [[ "$(docker run --rm --entrypoint odoo-bin "${image_reference}" --version)" == "Odoo Server 20.0" ]]; then
+    fixture_modules+=,contacts,muk_web_chatter
+fi
 docker run --rm --name "${transient}" "${common[@]}" "${image_reference}" \
-    odoo-bin -d readiness_fixture --init website --without-demo --stop-after-init --max-cron-threads=0 --log-level=warn
+    odoo-bin -d readiness_fixture --init "${fixture_modules}" --without-demo --stop-after-init --max-cron-threads=0 --log-level=warn
+if [[ "${fixture_modules}" != website ]]; then
+    docker run --rm -i --name "${transient}" "${common[@]}" "${image_reference}" \
+        odoo-bin shell -d readiness_fixture --db_host="${postgres}" --db_user=odoo \
+        --max-cron-threads=0 --log-level=warn < "${repo_root}/scripts/fixtures/readiness/setup_chatter.py"
+fi
 docker run --rm -i --name "${transient}" "${common[@]}" "${image_reference}" \
     odoo-bin shell -d readiness_fixture --db_host="${postgres}" --db_user=odoo \
     --max-cron-threads=0 --log-level=warn < "${repo_root}/scripts/fixtures/readiness/setup.py"
@@ -65,6 +74,10 @@ for _ in {1..90}; do
     sleep 1
 done
 docker exec "${candidate}" /venv/bin/python /fixture/scripts/assets.py
+if [[ "${fixture_modules}" != website ]]; then
+    docker run --rm --name "${transient}" "${common[@]}" -e PYTHONPATH=/fixture/browser-driver --entrypoint /venv/bin/python "${browser_image}" \
+        /fixture/scripts/chatter.py
+fi
 
 refresh_observations() {
     docker run --rm --name "${transient}" "${common[@]}" -e PYTHONPATH=/fixture/browser-driver --entrypoint /venv/bin/python "${browser_image}" \
