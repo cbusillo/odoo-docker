@@ -8,13 +8,22 @@
  }
 --- a/muk_web_chatter/static/src/chatter/web/chatter.scss
 +++ b/muk_web_chatter/static/src/chatter/web/chatter.scss
-@@ -9,7 +9,8 @@
-         --mk-Chatter-width,
-         calc(#{$o-mail-Chatter-minWidth} + var(--Chatter-asideExtraWidth))
-     );
+@@ -5,11 +5,13 @@
+     display: none;
+ }
+ .o-mail-Form-chatter.o-aside {
+-    width: var(
+-        --mk-Chatter-width,
+-        calc(#{$o-mail-Chatter-minWidth} + var(--Chatter-asideExtraWidth))
+-    );
 -    max-width: var(--mk-Chatter-width, none);
-+    --mk-Chatter-min-sheet-width: 250px;
-+    max-width: calc(min(var(--mk-Chatter-width, 100%), max(0px, 100% - var(--mk-Chatter-min-sheet-width))));
++    --mk-Chatter-native-width: #{$o-mail-Chatter-minWidth};
++    --mk-Chatter-sheet-min-width: #{$o-form-sheet-min-width};
++    width: var(--mk-Chatter-width, calc(var(--mk-Chatter-native-width) + var(--Chatter-asideExtraWidth)));
++    max-width: calc(min(var(--mk-Chatter-width), max(
++        var(--mk-Chatter-native-width) + var(--Chatter-asideExtraWidth),
++        100% - var(--mk-Chatter-sheet-min-width)
++    )));
      .mk_chatter_resize {
          top: 0;
          bottom: 0;
@@ -28,24 +37,27 @@
  const STORAGE_KEY = 'muk_web_chatter.width';
 
  /** Place the chatter per user preference and wire its drag-resize handle. */
-@@ -38,6 +37,9 @@
+@@ -38,6 +37,11 @@
          const container = ev.currentTarget.parentElement;
          const startX = ev.pageX;
          const startWidth = container.offsetWidth;
-+        const minSheetWidth = Number.parseFloat(
-+            getComputedStyle(container).getPropertyValue('--mk-Chatter-min-sheet-width'),
-+        );
++        const styles = getComputedStyle(container);
++        const nativeWidth = Number.parseFloat(styles.getPropertyValue('--mk-Chatter-native-width'));
++        const extraWidth = Number.parseFloat(styles.getPropertyValue('--Chatter-asideExtraWidth'));
++        const sheetMinWidth = Number.parseFloat(styles.getPropertyValue('--mk-Chatter-sheet-min-width'));
++        const maxWidth = Math.max(nativeWidth + extraWidth, container.parentElement.offsetWidth - sheetMinWidth);
          const drag = new AbortController();
          document.addEventListener(
              'mousemove',
-@@ -49,8 +51,8 @@
+@@ -48,10 +52,7 @@
+                             MIN_CHATTER_WIDTH,
                              startWidth - (moveEvent.pageX - startX),
                          ),
-                         Math.max(
+-                        Math.max(
 -                            container.parentElement.offsetWidth - MIN_SHEET_WIDTH,
 -                            MIN_SHEET_WIDTH,
-+                            container.parentElement.offsetWidth - minSheetWidth,
-+                            minSheetWidth,
-                         ),
+-                        ),
++                        maxWidth,
                      ),
                  ),
+             { signal: drag.signal },

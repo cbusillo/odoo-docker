@@ -12,6 +12,9 @@ class FormGeometry(NamedTuple):
     sheet_width: float
     sheet_height: float
     title_visible: bool
+    title_width: float
+    rendered_words: int
+    split_words: int
     scroll_width: int
     client_width: int
     chatter_top: float
@@ -68,7 +71,20 @@ def geometry(page: Page) -> FormGeometry:
             const y = titleBox.top + titleBox.height / 2;
             const titleVisible = x >= sheetBox.left && x < sheetBox.right && y >= sheetBox.top &&
                 y < sheetBox.bottom && title.contains(document.elementFromPoint(x, y));
-            return [sheetBox.width, sheetBox.height, titleVisible,
+            const walker = document.createTreeWalker(title, NodeFilter.SHOW_TEXT);
+            const range = document.createRange();
+            let renderedWords = 0;
+            let splitWords = 0;
+            for (let node; (node = walker.nextNode());) {
+                for (const word of node.textContent.matchAll(/[A-Za-z0-9]+/g)) {
+                    range.setStart(node, word.index);
+                    range.setEnd(node, word.index + word[0].length);
+                    const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
+                    if (rects.length) renderedWords++;
+                    if (new Set(rects.map(rect => Math.round(rect.top))).size > 1) splitWords++;
+                }
+            }
+            return [sheetBox.width, sheetBox.height, titleVisible, titleBox.width, renderedWords, splitWords,
                 content.scrollWidth, content.clientWidth, chatter.getBoundingClientRect().top, sheetBox.bottom];
         }""",
     )
@@ -91,6 +107,8 @@ def inspect_form(
         layout.sheet_width <= 0
         or layout.sheet_height <= 0
         or not layout.title_visible
+        or not layout.rendered_words
+        or layout.split_words
         or layout.scroll_width > layout.client_width
         or (not aside and layout.chatter_top < layout.sheet_bottom)
     ):
@@ -113,14 +131,15 @@ def check_bottom(browser: Browser, origin: str, failures: list[str]) -> None:
             inspect_form(page, "Bottom", width, "reload", aside=False, failures=failures)
 
 
-def drag_side(page: Page) -> int:
+def drag_side(page: Page, delta: int) -> int:
     wait_for_chatter(page, aside=True)
     handle = page.locator(".o-mail-Form-chatter.o-aside .mk_chatter_resize").bounding_box()
     assert handle is not None
     position = handle["y"] + 30
-    page.mouse.move(handle["x"] + 2, position)
+    start = handle["x"] + 2
+    page.mouse.move(start, position)
     page.mouse.down()
-    page.mouse.move(4, position, steps=20)
+    page.mouse.move(max(4, start + delta), position, steps=20)
     page.mouse.up()
     stored = page.evaluate("localStorage.getItem('muk_web_chatter.width')")
     assert isinstance(stored, str) and stored.isdecimal(), stored
@@ -131,7 +150,10 @@ def check_side(browser: Browser, origin: str, failures: list[str]) -> None:
     with browser.new_context(viewport={"width": 3440, "height": 1000}) as context:
         page = context.new_page()
         open_record(page, origin, "side")
-        stored = drag_side(page)
+        page.set_viewport_size({"width": 1920, "height": 1000})
+        inspect_form(page, "Side", 1920, "fresh", aside=True, failures=failures)
+        page.set_viewport_size({"width": 3440, "height": 1000})
+        stored = drag_side(page, -3440)
         assert stored > 1920, stored
         for width, aside in (
             (3440, True),
@@ -147,9 +169,16 @@ def check_side(browser: Browser, origin: str, failures: list[str]) -> None:
             assert page.evaluate("localStorage.getItem('muk_web_chatter.width')") == str(stored)
 
         page.set_viewport_size({"width": 1920, "height": 1000})
-        narrow_width = drag_side(page)
-        assert 0 < narrow_width < stored, (narrow_width, stored)
-        inspect_form(page, "Side", 1920, "drag", aside=True, failures=failures)
+        panel = page.locator(".o-mail-Form-chatter.o-aside")
+        before = panel.bounding_box()
+        assert before is not None
+        narrow_width = drag_side(page, 140)
+        assert 0 < narrow_width < before["width"], (narrow_width, before["width"])
+        page.reload(wait_until="domcontentloaded")
+        inspect_form(page, "Side", 1920, "narrower drag reload", aside=True, failures=failures)
+        assert page.evaluate("localStorage.getItem('muk_web_chatter.width')") == str(narrow_width)
+        restored = panel.bounding_box()
+        assert restored is not None and restored["width"] == narrow_width, restored
 
 
 def main() -> None:
