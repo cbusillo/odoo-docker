@@ -117,7 +117,9 @@ The 20.0 images also place MuK's LGPL-3 Community backend theme there:
 itself. A product adopts the theme in its own change: it repins to an image
 pair that carries it and installs `muk_web_theme`. Products should not bring a
 second copy of these modules. `muk_web_enterprise_theme` is never shipped
-because it needs Odoo Enterprise.
+because it needs Odoo Enterprise. The packaged MuK Chatter patch keeps
+wide forms visible in Bottom mode and limits a restored Side width to the
+available space.
 
 The 20.0 images also carry OCA's AGPL-3 `document_page` and its
 `document_knowledge` dependency from [OCA/knowledge](https://github.com/OCA/knowledge),
@@ -548,7 +550,9 @@ Use `--target runtime-devtools` and a separate local tag for its browser layer.
   `base:TestIrAttachment.test_10_image_autoresize` on both Odoo 19 and 20.
 - `scripts/smoke-readiness.sh <runtime-image> [browser-image]` creates a fresh
   Website database on a private internal Docker network, exercises Chromium and
-  real page/asset preparation, and proves readiness failures. All database keys
+  real page/asset preparation, and proves readiness failures. On Odoo 20 it
+  also checks Bottom and Side chatter on a populated synthetic contact after
+  resize and reload. All database keys
   and runtime identities in this fixture are inert, and no ports are published.
   Inputs cross through `docker cp`; fixture files, browser dependencies and
   filestore stay in disposable Docker volumes, avoiding retained host handles
