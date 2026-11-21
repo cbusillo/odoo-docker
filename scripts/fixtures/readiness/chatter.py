@@ -71,7 +71,33 @@ def geometry(page: Page) -> FormGeometry:
             const y = titleBox.top + titleBox.height / 2;
             const titleVisible = x >= sheetBox.left && x < sheetBox.right && y >= sheetBox.top &&
                 y < sheetBox.bottom && title.contains(document.elementFromPoint(x, y));
-            const walker = document.createTreeWalker(title, NodeFilter.SHOW_TEXT);
+            const control = title.querySelector("textarea, input");
+            let text = title;
+            let mirror;
+            let textWidth = title.clientWidth;
+            if (control) {
+                const style = getComputedStyle(control);
+                textWidth = control.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+                mirror = document.createElement("div");
+                Object.assign(mirror.style, {
+                    position: "fixed",
+                    top: "0",
+                    left: "-10000px",
+                    visibility: "hidden",
+                    boxSizing: "content-box",
+                    width: textWidth + "px",
+                    font: style.font,
+                    letterSpacing: style.letterSpacing,
+                    wordSpacing: style.wordSpacing,
+                    whiteSpace: control.tagName === "INPUT" ? "pre" : style.whiteSpace,
+                    overflowWrap: style.overflowWrap,
+                    wordBreak: style.wordBreak,
+                });
+                mirror.textContent = control.value;
+                document.body.append(mirror);
+                text = mirror;
+            }
+            const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
             const range = document.createRange();
             let renderedWords = 0;
             let splitWords = 0;
@@ -81,10 +107,12 @@ def geometry(page: Page) -> FormGeometry:
                     range.setEnd(node, word.index + word[0].length);
                     const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
                     if (rects.length) renderedWords++;
-                    if (new Set(rects.map(rect => Math.round(rect.top))).size > 1) splitWords++;
+                    if (new Set(rects.map(rect => Math.round(rect.top))).size > 1 ||
+                        rects.some(rect => rect.width > textWidth)) splitWords++;
                 }
             }
-            return [sheetBox.width, sheetBox.height, titleVisible, titleBox.width, renderedWords, splitWords,
+            mirror?.remove();
+            return [sheetBox.width, sheetBox.height, titleVisible, textWidth, renderedWords, splitWords,
                 content.scrollWidth, content.clientWidth, chatter.getBoundingClientRect().top, sheetBox.bottom];
         }""",
     )
