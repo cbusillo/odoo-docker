@@ -238,6 +238,9 @@ post-switch verification; HTTP 200 from liveness or `/web/health` is insufficien
 - `/odoo/odoo-bin` is a compatibility wrapper over upstream
   `/usr/local/bin/odoo-source-bin`.
 - The wrapper must preserve Odoo subcommands (`server`, `shell`, `db`, etc.).
+- The wrapper defaults OpenBLAS to one thread to keep NumPy imports within
+  Odoo's address-space limit on high-core hosts. Nonempty OpenBLAS thread
+  settings, including its legacy and OpenMP fallbacks, take precedence.
 - Runtime defaults (`--db_host`, `--addons-path`, etc.) are injected only for
   server-style invocations so non-server commands keep upstream argument
   parsing semantics.
