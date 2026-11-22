@@ -119,7 +119,8 @@ pair that carries it and installs `muk_web_theme`. Products should not bring a
 second copy of these modules. `muk_web_enterprise_theme` is never shipped
 because it needs Odoo Enterprise. The packaged MuK Chatter patch keeps
 wide forms visible in Bottom mode and limits a restored Side width to the
-available space.
+available space. The packaged MuK AppsBar patch adds a desktop top-bar button
+that switches between the existing Large and Small user preferences.
 
 The 20.0 images also carry OCA's AGPL-3 `document_page` and its
 `document_knowledge` dependency from [OCA/knowledge](https://github.com/OCA/knowledge),
@@ -552,7 +553,8 @@ Use `--target runtime-devtools` and a separate local tag for its browser layer.
   Website database on a private internal Docker network, exercises Chromium and
   real page/asset preparation, and proves readiness failures. On Odoo 20 it
   also checks Bottom and Side chatter on a populated synthetic contact after
-  resize and reload. All database keys
+  resize and reload. It also checks the AppsBar toggle and saved preference,
+  icon navigation, the responsive boundary, and Invisible. All database keys
   and runtime identities in this fixture are inert, and no ports are published.
   Inputs cross through `docker cp`; fixture files, browser dependencies and
   filestore stay in disposable Docker volumes, avoiding retained host handles

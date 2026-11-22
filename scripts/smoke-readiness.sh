@@ -54,7 +54,7 @@ odoo_major="$(docker run --rm -e PYTHONPATH=/odoo --entrypoint /venv/bin/python 
     -c 'from odoo import release; print(release.version_info[0])')"
 fixture_modules=website
 if [[ "${odoo_major}" == 20 ]]; then
-    fixture_modules+=,contacts,muk_web_chatter
+    fixture_modules+=,contacts,muk_web_chatter,muk_web_appsbar
 fi
 docker run --rm --name "${transient}" "${common[@]}" "${image_reference}" \
     odoo-bin -d readiness_fixture --init "${fixture_modules}" --without-demo --stop-after-init --max-cron-threads=0 --log-level=warn
@@ -79,6 +79,8 @@ docker exec "${candidate}" /venv/bin/python /fixture/scripts/assets.py
 if [[ "${fixture_modules}" != website ]]; then
     docker run --rm --name "${transient}" "${common[@]}" -e PYTHONPATH=/fixture/browser-driver --entrypoint /venv/bin/python "${browser_image}" \
         /fixture/scripts/chatter.py
+    docker run --rm --name "${transient}" "${common[@]}" -e PYTHONPATH=/fixture/browser-driver --entrypoint /venv/bin/python "${browser_image}" \
+        /fixture/scripts/appsbar.py
 fi
 
 refresh_observations() {
