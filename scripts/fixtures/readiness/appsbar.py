@@ -2,7 +2,7 @@ import os
 import re
 
 from chatter import open_record
-from playwright.sync_api import Page, Route, expect, sync_playwright
+from playwright.sync_api import Page, Route, ViewportSize, expect, sync_playwright
 
 ORIGIN = "http://fixture.invalid:8069"
 
@@ -76,6 +76,7 @@ def check_rejected_write(page: Page) -> None:
 
     def reject_write(route: Route) -> None:
         request = route.request.post_data_json
+        assert isinstance(request, dict), request
         calls.append(request["params"]["args"])
         route.fulfill(
             json={
@@ -125,7 +126,7 @@ def main() -> None:
             executable_path=os.environ["CHROME_BIN"],
             args=["--no-sandbox", "--disable-dev-shm-usage"],
         )
-        viewport = {"width": 1280, "height": 1000}
+        viewport: ViewportSize = {"width": 1280, "height": 1000}
         with browser.new_context(viewport=viewport) as context:
             check_toggle(context.new_page())
         with browser.new_context(viewport=viewport) as context:
