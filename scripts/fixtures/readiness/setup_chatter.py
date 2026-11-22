@@ -3,6 +3,7 @@ from odoo.api import Environment
 
 
 def setup_chatter(env: Environment) -> None:
+    regular_user_groups = env.ref("base.group_user") | env.ref("base.group_user_regular")
     users = (
         env["res.users"]
         .with_context(no_reset_password=True)
@@ -14,7 +15,7 @@ def setup_chatter(env: Environment) -> None:
                     "password": "isolated-chatter-fixture",
                     "chatter_position": position,
                     "sidebar_type": sidebar_type,
-                    "group_ids": [Command.set(env.ref("base.group_user").ids)],
+                    "group_ids": [Command.set(regular_user_groups.ids)],
                 }
                 for name, position, sidebar_type in (
                     ("bottom", "bottom", "large"),
