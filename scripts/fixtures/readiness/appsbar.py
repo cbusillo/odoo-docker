@@ -77,7 +77,7 @@ def check_rejected_write(page: Page) -> None:
     error_dialog = page.get_by_role("dialog")
     writes: list[Route] = []
     write_url = "**/web/dataset/call_kw/res.users/write"
-    page.route(write_url, lambda route: writes.append(route))
+    page.route(write_url, lambda intercepted: writes.append(intercepted))
     expand.click()
     expect(collapse).to_have_attribute("aria-disabled", "true")
     page.keyboard.press("Space")
