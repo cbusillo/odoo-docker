@@ -47,7 +47,9 @@ def check_toggle(page: Page) -> None:
 
     page.set_viewport_size({"width": 991, "height": 1000})
     expect(collapse).to_be_hidden()
-    expect(panel).to_have_css("width", "0px")
+    expect(contacts).to_be_visible()
+    expect(contacts_label).to_be_hidden()
+    assert 0 < panel.evaluate("panel => panel.offsetWidth") < large_width
     page.set_viewport_size({"width": 992, "height": 1000})
     expect(collapse).to_be_visible()
     expect(contacts_label).to_be_visible()
@@ -60,8 +62,9 @@ def check_toggle(page: Page) -> None:
     panel.get_by_role("menuitem", name="Discuss", exact=True).click()
     expect(panel.get_by_role("menuitem", name="Discuss", exact=True).locator("xpath=..")).to_have_class(re.compile(r"\bactive\b"))
     expect(expand).to_be_visible()
-    page.set_viewport_size({"width": 700, "height": 1000})
+    page.set_viewport_size({"width": 767, "height": 1000})
     expect(expand).to_be_hidden()
+    expect(panel).to_have_css("width", "0px")
     page.locator(".o_menu_toggle").click()
     expect(page.get_by_text("All Apps", exact=True)).to_be_visible()
 

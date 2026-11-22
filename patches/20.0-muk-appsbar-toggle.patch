@@ -1,5 +1,5 @@
 diff --git a/muk_web_appsbar/static/src/webclient/appsbar/appsbar.scss b/muk_web_appsbar/static/src/webclient/appsbar/appsbar.scss
-index 4f11e1c..b5cfaf6 100644
+index 4f11e1c..005f44c 100644
 --- a/muk_web_appsbar/static/src/webclient/appsbar/appsbar.scss
 +++ b/muk_web_appsbar/static/src/webclient/appsbar/appsbar.scss
 @@ -85,3 +85,12 @@
@@ -10,7 +10,7 @@ index 4f11e1c..b5cfaf6 100644
 +.o_home_menu_background .mk_apps_sidebar_toggle {
 +    display: none;
 +}
-+@include media-breakpoint-down(md) {
++@include media-breakpoint-down(lg) {
 +    .mk_apps_sidebar_toggle {
 +        display: none;
 +    }
