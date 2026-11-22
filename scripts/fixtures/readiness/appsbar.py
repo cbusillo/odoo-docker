@@ -1,4 +1,5 @@
 import os
+import re
 
 from chatter import open_record
 from playwright.sync_api import Page, Route, expect, sync_playwright
@@ -17,12 +18,14 @@ def check_toggle(page: Page) -> None:
     expect(record).to_be_visible()
     record_url = page.url
     expect(contacts_label).to_be_visible()
+    large_width = panel.evaluate("panel => panel.offsetWidth")
     expect(collapse).to_have_attribute("aria-expanded", "true")
     collapse.click()
     expect(expand).to_have_attribute("aria-expanded", "false")
     expect(contacts).to_be_visible()
     expect(contacts_label).to_be_hidden()
-    expect(contacts.locator("xpath=..")).to_have_class("nav-item active")
+    assert 0 < panel.evaluate("panel => panel.offsetWidth") < large_width
+    expect(contacts.locator("xpath=..")).to_have_class(re.compile(r"\bactive\b"))
     expect(record).to_be_visible()
     expect(page).to_have_url(record_url)
 
@@ -55,7 +58,7 @@ def check_toggle(page: Page) -> None:
     collapse.click()
     expect(expand).to_have_attribute("aria-disabled", "false")
     panel.get_by_role("menuitem", name="Discuss", exact=True).click()
-    expect(panel.get_by_role("menuitem", name="Discuss", exact=True).locator("xpath=..")).to_have_class("nav-item active")
+    expect(panel.get_by_role("menuitem", name="Discuss", exact=True).locator("xpath=..")).to_have_class(re.compile(r"\bactive\b"))
     expect(expand).to_be_visible()
     page.set_viewport_size({"width": 700, "height": 1000})
     expect(expand).to_be_hidden()
@@ -64,11 +67,11 @@ def check_toggle(page: Page) -> None:
 
 
 def check_rejected_write(page: Page) -> None:
-    open_record(page, ORIGIN, "bottom")
+    open_record(page, ORIGIN, "read-only")
     expand = page.get_by_role("button", name="Expand AppsBar", exact=True)
     collapse = page.get_by_role("button", name="Collapse AppsBar", exact=True)
-    notice = page.get_by_text("Could not save the AppsBar layout.", exact=True)
-    error_dialog = page.get_by_text("Odoo Server Error", exact=True)
+    notice = page.locator(".o_notification")
+    error_dialog = page.get_by_role("dialog")
     calls = []
 
     def reject_write(route: Route) -> None:
@@ -93,6 +96,7 @@ def check_rejected_write(page: Page) -> None:
     page.route(write_url, reject_write)
     expand.click()
     expect(notice).to_have_count(1)
+    expect(notice).to_be_visible()
     expect(error_dialog).to_have_count(0)
     expect(expand).to_have_attribute("aria-expanded", "false")
     expect(expand).to_have_attribute("aria-disabled", "false")

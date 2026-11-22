@@ -20,6 +20,7 @@ def setup_chatter(env: Environment) -> None:
                     ("bottom", "bottom", "large"),
                     ("side", "side", "large"),
                     ("invisible", "side", "invisible"),
+                    ("read-only", "bottom", "small"),
                 )
             ],
         )
@@ -31,14 +32,18 @@ def setup_chatter(env: Environment) -> None:
             {"name": "Chatter geometry fixture"},
         )
     )
-    partner.activity_schedule("mail.mail_activity_data_todo", user_id=users[0].id).action_feedback("Completed fixture activity")
+    partner.activity_schedule(
+        "mail.mail_activity_data_todo", user_id=users[0].id
+    ).action_feedback("Completed fixture activity")
     partner.activity_schedule(
         "mail.mail_activity_data_todo",
         summary="Pending fixture activity",
         user_id=users[0].id,
     )
     for number in range(16):
-        partner.message_post(body=f"Chatter fixture note {number}", subtype_xmlid="mail.mt_note")
+        partner.message_post(
+            body=f"Chatter fixture note {number}", subtype_xmlid="mail.mt_note"
+        )
     env.cr.commit()
 
 
