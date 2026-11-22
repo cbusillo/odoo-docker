@@ -20,7 +20,7 @@ def setup_chatter(env: Environment) -> None:
                     ("bottom", "bottom", "large"),
                     ("side", "side", "large"),
                     ("invisible", "side", "invisible"),
-                    ("read-only", "bottom", "small"),
+                    ("rejected-write", "bottom", "small"),
                 )
             ],
         )

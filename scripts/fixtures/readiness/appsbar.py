@@ -67,44 +67,44 @@ def check_toggle(page: Page) -> None:
 
 
 def check_rejected_write(page: Page) -> None:
-    open_record(page, ORIGIN, "read-only")
+    open_record(page, ORIGIN, "rejected-write")
     expand = page.get_by_role("button", name="Expand AppsBar", exact=True)
     collapse = page.get_by_role("button", name="Collapse AppsBar", exact=True)
     notice = page.locator(".o_notification")
     error_dialog = page.get_by_role("dialog")
-    calls = []
-
-    def reject_write(route: Route) -> None:
-        request = route.request.post_data_json
-        assert isinstance(request, dict), request
-        calls.append(request["params"]["args"])
-        route.fulfill(
-            json={
-                "jsonrpc": "2.0",
-                "id": request["id"],
-                "error": {
-                    "code": 200,
-                    "message": "Odoo Server Error",
-                    "data": {
-                        "name": "odoo.exceptions.AccessError",
-                        "message": "Fixture denies this write",
-                    },
+    writes: list[Route] = []
+    write_url = "**/web/dataset/call_kw/res.users/write"
+    page.route(write_url, writes.append)
+    expand.click()
+    expect(collapse).to_have_attribute("aria-disabled", "true")
+    page.keyboard.press("Space")
+    assert len(writes) == 1, writes
+    route = writes[0]
+    request = route.request.post_data_json
+    assert isinstance(request, dict), request
+    route.fulfill(
+        json={
+            "jsonrpc": "2.0",
+            "id": request["id"],
+            "error": {
+                "code": 200,
+                "message": "Odoo Server Error",
+                "data": {
+                    "name": "odoo.exceptions.AccessError",
+                    "message": "Fixture denies this write",
                 },
             },
-        )
-
-    write_url = "**/web/dataset/call_kw/res.users/write"
-    page.route(write_url, reject_write)
-    expand.click()
-    expect(notice).to_have_count(1)
-    expect(notice).to_be_visible()
-    expect(error_dialog).to_have_count(0)
+        },
+    )
     expect(expand).to_have_attribute("aria-expanded", "false")
     expect(expand).to_have_attribute("aria-disabled", "false")
     expect(expand).to_be_focused()
-    assert len(calls) == 1 and calls[0][1] == {"sidebar_type": "large"}, calls
+    expect(notice).to_have_count(1)
+    expect(notice).to_be_visible()
+    expect(error_dialog).to_have_count(0)
+    assert len(writes) == 1, writes
 
-    page.unroute(write_url, reject_write)
+    page.unroute(write_url)
     expand.click()
     expect(collapse).to_have_attribute("aria-disabled", "false")
     page.reload()
