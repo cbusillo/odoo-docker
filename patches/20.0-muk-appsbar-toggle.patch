@@ -1,0 +1,156 @@
+diff --git a/muk_web_appsbar/static/src/webclient/appsbar/appsbar.scss b/muk_web_appsbar/static/src/webclient/appsbar/appsbar.scss
+index 4f11e1c..005f44c 100644
+--- a/muk_web_appsbar/static/src/webclient/appsbar/appsbar.scss
++++ b/muk_web_appsbar/static/src/webclient/appsbar/appsbar.scss
+@@ -85,3 +85,12 @@
+         --mk-sidebar-width: 0;
+     }
+ }
++
++.o_home_menu_background .mk_apps_sidebar_toggle {
++    display: none;
++}
++@include media-breakpoint-down(lg) {
++    .mk_apps_sidebar_toggle {
++        display: none;
++    }
++}
+diff --git a/muk_web_appsbar/static/src/webclient/appsbar/appsbar.xml b/muk_web_appsbar/static/src/webclient/appsbar/appsbar.xml
+index 1b4bb99..181af7f 100644
+--- a/muk_web_appsbar/static/src/webclient/appsbar/appsbar.xml
++++ b/muk_web_appsbar/static/src/webclient/appsbar/appsbar.xml
+@@ -3,13 +3,14 @@
+ <templates xml:space="preserve">
+ 
+ 	<t t-name="muk_web_appsbar.AppsBar">
+-		<div class="mk_apps_sidebar_panel d-print-none">
++		<div id="mk_apps_sidebar" class="mk_apps_sidebar_panel d-print-none">
+ 			<div class="mk_apps_sidebar">
+ 				<ul class="mk_apps_sidebar_menu">
+ 				    <t t-foreach="this.appMenuService.getAppsMenuItems()" t-as="app" t-key="app.id">
+ 			            <li t-attf-class="nav-item {{ app.id === this.appMenuService.getCurrentApp()?.id ? 'active' : '' }}">
+ 			            	<a
+ 			            		t-att-href="app.href"
++								t-att-aria-label="app.label"
+ 		            			t-att-data-menu-id="app.id"
+ 		            			t-att-data-menu-xmlid="app.xmlid"
+ 		            			t-att-data-action-id="app.actionID"
+@@ -19,6 +20,7 @@
+ 		            		>
+ 			                	<img
+ 			                		class="mk_apps_sidebar_icon"
++									alt=""
+ 			                		t-att-src="app.webIconData || '/base/static/description/icon.png'"
+ 			                	/>
+ 						        <span class="mk_apps_sidebar_name">
+diff --git a/muk_web_appsbar/static/src/webclient/layout/layout.js b/muk_web_appsbar/static/src/webclient/layout/layout.js
+index 1dc0701..f0114a2 100644
+--- a/muk_web_appsbar/static/src/webclient/layout/layout.js
++++ b/muk_web_appsbar/static/src/webclient/layout/layout.js
+@@ -1,5 +1,8 @@
++import { _t } from "@web/core/l10n/translation";
++import { useService } from "@web/core/utils/hooks";
+ import { patch } from '@web/core/utils/patch';
+ 
++import { NavBar } from "@web/webclient/navbar/navbar";
+ import { WebClient } from '@web/webclient/webclient';
+ import { AppsBar } from '@muk_web_appsbar/webclient/appsbar/appsbar';
+ 
+@@ -10,3 +13,13 @@ patch(WebClient, {
+         AppsBar,
+     },
+ });
++
++patch(NavBar.prototype, {
++    setup() {
++        super.setup(...arguments);
++        this.appsBar = useService("app_menu");
++    },
++    get appsBarToggleLabel() {
++        return this.appsBar.sidebar.type === "small" ? _t("Expand AppsBar") : _t("Collapse AppsBar");
++    },
++});
+diff --git a/muk_web_appsbar/static/src/webclient/layout/layout.xml b/muk_web_appsbar/static/src/webclient/layout/layout.xml
+index 7fca9b6..c5c1161 100644
+--- a/muk_web_appsbar/static/src/webclient/layout/layout.xml
++++ b/muk_web_appsbar/static/src/webclient/layout/layout.xml
+@@ -12,4 +12,26 @@
+ 	    </xpath>
+ 	</t>
+ 
++    <t
++        t-name="muk_web_appsbar.NavBar"
++        t-inherit="web.NavBar"
++        t-inherit-mode="extension"
++    >
++        <xpath expr="//t[@t-call='web.NavBar.AppsMenu']" position="after">
++            <button
++                t-if="this.appsBar.sidebar.type !== 'invisible'"
++                type="button"
++                class="mk_apps_sidebar_toggle btn border-0 text-reset flex-shrink-0"
++                t-att-title="this.appsBarToggleLabel"
++                t-att-aria-label="this.appsBarToggleLabel"
++                aria-controls="mk_apps_sidebar"
++                t-att-aria-expanded="this.appsBar.sidebar.type === 'small' ? 'false' : 'true'"
++                t-att-aria-disabled="this.appsBar.sidebar.saving ? 'true' : 'false'"
++                t-on-click="() => this.appsBar.toggleSidebar()"
++            >
++                <i t-att-class="this.appsBar.sidebar.type === 'small' ? 'fa fa-indent' : 'fa fa-outdent'" aria-hidden="true"/>
++            </button>
++        </xpath>
++    </t>
++
+ </templates>
+diff --git a/muk_web_appsbar/static/src/webclient/menus/app_menu_service.js b/muk_web_appsbar/static/src/webclient/menus/app_menu_service.js
+index 25c89da..039ac6d 100644
+--- a/muk_web_appsbar/static/src/webclient/menus/app_menu_service.js
++++ b/muk_web_appsbar/static/src/webclient/menus/app_menu_service.js
+@@ -1,3 +1,5 @@
++import { proxy } from "@odoo/owl";
++import { _t } from "@web/core/l10n/translation";
+ import { registry } from '@web/core/registry';
+ import { user } from '@web/core/user';
+ 
+@@ -6,10 +8,40 @@ import {
+     reorderApps,
+ } from '@web/webclient/menus/menu_helpers';
+ 
++const sidebarClass = (type) => `mk_sidebar_type_${type}`;
++
+ export const appMenuService = {
+-    dependencies: ['menu'],
+-    async start(env, { menu }) {
++    dependencies: ["menu", "notification", "orm"],
++    async start(env, { menu, notification, orm }) {
++        const bodyClasses = document.body.classList;
++        const type = ["large", "small"].find((type) => bodyClasses.contains(sidebarClass(type)));
++        const sidebar = proxy({
++            type: type ?? "invisible",
++            saving: false,
++        });
++        function setSidebarType(type) {
++            bodyClasses.replace(sidebarClass(sidebar.type), sidebarClass(type));
++            sidebar.type = type;
++        }
+         return {
++            sidebar,
++            async toggleSidebar() {
++                if (sidebar.saving || sidebar.type === "invisible") {
++                    return;
++                }
++                const previousType = sidebar.type;
++                const nextType = previousType === "small" ? "large" : "small";
++                sidebar.saving = true;
++                setSidebarType(nextType);
++                try {
++                    await orm.write("res.users", [user.userId], { sidebar_type: nextType });
++                } catch {
++                    setSidebarType(previousType);
++                    notification.add(_t("Could not save the AppsBar layout."), { type: "warning" });
++                } finally {
++                    sidebar.saving = false;
++                }
++            },
+             getCurrentApp() {
+                 return menu.getCurrentApp();
+             },
