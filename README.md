@@ -117,9 +117,7 @@ The 20.0 images also place MuK's LGPL-3 Community backend theme there:
 itself. A product adopts the theme in its own change: it repins to an image
 pair that carries it and installs `muk_web_theme`. Products should not bring a
 second copy of these modules. `muk_web_enterprise_theme` is never shipped
-because it needs Odoo Enterprise. The packaged MuK Chatter patch keeps
-wide forms visible in Bottom mode and limits a restored Side width to the
-available space. The packaged MuK AppsBar patch adds a desktop top-bar button
+because it needs Odoo Enterprise. The packaged MuK AppsBar patch adds a desktop top-bar button
 that switches between the existing Large and Small user preferences.
 
 The 20.0 images also carry OCA's AGPL-3 `document_page` and its

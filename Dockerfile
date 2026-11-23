@@ -40,7 +40,7 @@ RUN if grep -Eq '^version_info = \(20,' odoo/odoo/release.py; then \
 FROM --platform=$BUILDPLATFORM alpine/git:v2.54.0@sha256:6a1fdb962814ca11508ca8d1bab94375b5b7ac4e4a9a40981c29fc32c02f095d AS community-addons
 ARG ODOO_SOURCE_REF
 ARG MUK_MODULES_REPOSITORY=https://github.com/muk-it/odoo-modules.git
-ARG MUK_MODULES_REV=2191e73ed8150f3e01ca235db679f962efa3a087
+ARG MUK_MODULES_REV=e1e2fa44eb060aa9370ddb32feff651c28345999
 ARG MUK_THEME_MODULES="muk_web_theme muk_web_utils muk_web_group muk_web_chatter muk_web_dialog muk_web_appsbar muk_web_colors muk_web_refresh muk_web_list_column muk_web_list_mode"
 ARG OCA_KNOWLEDGE_REPOSITORY=https://github.com/OCA/knowledge.git
 ARG OCA_KNOWLEDGE_REV=87b058922c0cf980ddfb4b6341f3de805a3ad476
@@ -48,7 +48,7 @@ ARG OCA_KNOWLEDGE_MODULES="document_page document_knowledge"
 ARG OCA_PRODUCT_ATTRIBUTE_REPOSITORY=https://github.com/OCA/product-attribute.git
 ARG OCA_PRODUCT_ATTRIBUTE_REV=b0aa90757aea6057f764fb0938550b76a465a0a1
 WORKDIR /source
-COPY patches/20.0-muk-chatter-layout.patch patches/20.0-muk-appsbar-toggle.patch /patches/
+COPY patches/20.0-muk-appsbar-toggle.patch /patches/
 RUN set -eux; \
     mkdir addons; \
     copy_pinned_modules() { \
@@ -65,7 +65,7 @@ RUN set -eux; \
     }; \
     if [ "${ODOO_SOURCE_REF}" = "20.0" ]; then \
       copy_pinned_modules "${MUK_MODULES_REPOSITORY}" "${MUK_MODULES_REV}" LGPL-3 "${MUK_THEME_MODULES}"; \
-      git -C addons apply /patches/20.0-muk-chatter-layout.patch /patches/20.0-muk-appsbar-toggle.patch; \
+      git -C addons apply /patches/20.0-muk-appsbar-toggle.patch; \
       copy_pinned_modules "${OCA_KNOWLEDGE_REPOSITORY}" "${OCA_KNOWLEDGE_REV}" AGPL-3 "${OCA_KNOWLEDGE_MODULES}"; \
       copy_pinned_modules "${OCA_PRODUCT_ATTRIBUTE_REPOSITORY}" "${OCA_PRODUCT_ATTRIBUTE_REV}" AGPL-3 product_sequence; \
     fi
