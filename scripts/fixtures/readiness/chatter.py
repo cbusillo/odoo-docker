@@ -21,8 +21,8 @@ class FormGeometry(NamedTuple):
     sheet_bottom: float
 
 
-def open_record(page: Page, origin: str, position: str) -> None:
-    page.goto(f"{origin}/web/login?login=fixture-{position}")
+def open_record(page: Page, origin: str, user: str) -> None:
+    page.goto(f"{origin}/web/login?login=fixture-{user}")
     page.locator('input[name="password"]').fill("isolated-chatter-fixture")
     page.get_by_role("button", name="Log in", exact=True).click()
     page.wait_for_url(lambda url: "/web/login" not in url)
