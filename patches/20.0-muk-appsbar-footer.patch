@@ -1,0 +1,29 @@
+diff --git a/muk_web_appsbar/models/ir_http.py b/muk_web_appsbar/models/ir_http.py
+index 5f29c54..1e4de9a 100644
+--- a/muk_web_appsbar/models/ir_http.py
++++ b/muk_web_appsbar/models/ir_http.py
+@@ -17,6 +17,10 @@ class IrHttp(models.AbstractModel):
+         result = super().session_info()
+         if self.env.user._is_internal():
+             allowed = result['user_companies']['allowed_companies']
++            default_logo = self.env['res.company']._get_logo()
+             for company in self.env['res.company'].browse(allowed):
+-                allowed[company.id]['has_appsbar_image'] = bool(company.appbar_image)
++                footer = company.appbar_image
++                allowed[company.id]['has_appsbar_image'] = bool(footer)
++                if footer and not company.uses_default_logo and footer.checksum == default_logo.checksum:
++                    allowed[company.id]['appsbar_uses_company_logo'] = True
+         return result
+diff --git a/muk_web_appsbar/static/src/webclient/appsbar/appsbar.js b/muk_web_appsbar/static/src/webclient/appsbar/appsbar.js
+index 51f207d..55e93cf 100644
+--- a/muk_web_appsbar/static/src/webclient/appsbar/appsbar.js
++++ b/muk_web_appsbar/static/src/webclient/appsbar/appsbar.js
+@@ -14,7 +14,7 @@ export class AppsBar extends Component {
+         if (user.activeCompany.has_appsbar_image) {
+             this.sidebarImageUrl = url('/web/image', {
+                 model: 'res.company',
+-                field: 'appbar_image',
++                field: user.activeCompany.appsbar_uses_company_logo ? 'logo_web' : 'appbar_image',
+                 id: user.activeCompany.id,
+             });
+         }

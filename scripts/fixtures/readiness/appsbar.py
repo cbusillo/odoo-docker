@@ -17,6 +17,12 @@ def check_toggle(page: Page) -> None:
     record = page.locator(".o_form_view")
     expect(record).to_be_visible()
     record_url = page.url
+    footer = panel.locator(".mk_apps_sidebar_logo img")
+    expect(footer).to_be_visible()
+    footer_url = footer.evaluate("img => img.currentSrc")
+    company_logo = page.request.get(f"{ORIGIN}/web/binary/company_logo")
+    rendered_footer = page.request.get(footer_url)
+    assert company_logo.ok and rendered_footer.ok and rendered_footer.body() == company_logo.body()
     expect(contacts_label).to_be_visible()
     large_width = panel.evaluate("panel => panel.offsetWidth")
     expect(collapse).to_have_attribute("aria-expanded", "true")

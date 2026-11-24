@@ -1,8 +1,11 @@
 from odoo import Command
 from odoo.api import Environment
+from odoo.tools import BinaryBytes, file_open
 
 
 def setup_chatter(env: Environment) -> None:
+    with file_open("contacts/static/description/icon.png", "rb") as icon:
+        env.company.logo = BinaryBytes(icon.read(), filename="fixture-logo.png")
     regular_user_groups = env.ref("base.group_user") | env.ref("base.group_user_regular")
     users = (
         env["res.users"]
