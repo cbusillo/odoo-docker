@@ -7,6 +7,14 @@ from playwright.sync_api import Page, Route, ViewportSize, expect, sync_playwrig
 ORIGIN = "http://fixture.invalid:8069"
 
 
+def check_footer(page: Page, reference_path: str) -> None:
+    footer = page.locator(".mk_apps_sidebar_logo img")
+    expect(footer).to_be_visible()
+    rendered = page.request.get(footer.evaluate("img => img.src"))
+    expected = page.request.get(f"{ORIGIN}{reference_path}")
+    assert rendered.ok and expected.ok and rendered.body() == expected.body()
+
+
 def check_toggle(page: Page) -> None:
     panel = page.locator(".mk_apps_sidebar_panel")
     contacts = panel.get_by_role("menuitem", name="Contacts", exact=True)
@@ -17,12 +25,7 @@ def check_toggle(page: Page) -> None:
     record = page.locator(".o_form_view")
     expect(record).to_be_visible()
     record_url = page.url
-    footer = panel.locator(".mk_apps_sidebar_logo img")
-    expect(footer).to_be_visible()
-    footer_url = footer.evaluate("img => img.currentSrc")
-    company_logo = page.request.get(f"{ORIGIN}/web/binary/company_logo")
-    rendered_footer = page.request.get(footer_url)
-    assert company_logo.ok and rendered_footer.ok and rendered_footer.body() == company_logo.body()
+    check_footer(page, "/web/binary/company_logo")
     expect(contacts_label).to_be_visible()
     large_width = panel.evaluate("panel => panel.offsetWidth")
     expect(collapse).to_have_attribute("aria-expanded", "true")
@@ -118,6 +121,16 @@ def check_rejected_write(page: Page) -> None:
     expect(collapse).to_have_attribute("aria-disabled", "false")
     page.reload()
     expect(collapse).to_be_visible()
+
+    session = page.request.post(
+        f"{ORIGIN}/web/session/get_session_info",
+        data={"jsonrpc": "2.0", "method": "call", "params": {}},
+    ).json()["result"]
+    companies = session["user_companies"]
+    other_company, = set(companies["allowed_companies"]) - {str(companies["current_company"])}
+    page.context.add_cookies([{"name": "cids", "value": other_company, "url": ORIGIN}])
+    page.reload()
+    check_footer(page, f"/web/image/res.company/{other_company}/appbar_image")
 
 
 def check_invisible(page: Page) -> None:

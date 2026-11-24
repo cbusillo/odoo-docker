@@ -1,11 +1,9 @@
 from odoo import Command
 from odoo.api import Environment
-from odoo.tools import BinaryBytes, file_open
 
 
 def setup_chatter(env: Environment) -> None:
-    with file_open("contacts/static/description/icon.png", "rb") as icon:
-        env.company.logo = BinaryBytes(icon.read(), filename="fixture-logo.png")
+    env.company.logo = env.ref("base.module_contacts").icon_image
     regular_user_groups = env.ref("base.group_user") | env.ref("base.group_user_regular")
     users = (
         env["res.users"]
@@ -29,6 +27,12 @@ def setup_chatter(env: Environment) -> None:
             ],
         )
     )
+    footer_company = env["res.company"].create({
+        "name": "Custom footer fixture",
+        "logo": env.company.logo,
+        "appbar_image": env.ref("base.module_mail").icon_image,
+    })
+    users.filtered(lambda user: user.login == "fixture-rejected-write").company_ids = [Command.link(footer_company.id)]
     partner = (
         env["res.partner"]
         .with_context(mail_create_nosubscribe=True, mail_activity_quick_update=True)
