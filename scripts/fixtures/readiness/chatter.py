@@ -143,7 +143,7 @@ def inspect_form(
         failures.append(f"{mode} {transition} at {width}: {layout}")
     if not aside:
         note = page.locator(".o-mail-Form-chatter").get_by_text(LATEST_NOTE, exact=True)
-        note.scroll_into_view_if_needed()
+        note.hover(trial=True)
         expect(note).to_be_in_viewport()
         page.locator("main.o_content").evaluate("content => { content.scrollTop = 0; }")
 
