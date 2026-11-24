@@ -131,6 +131,12 @@ The 20.0 images carry OCA Product Sequence from the
 [unmerged 20.0 port](https://github.com/OCA/product-attribute/pull/2445) pinned
 by `OCA_PRODUCT_ATTRIBUTE_REV`. It is available for products to install.
 
+The 20.0 images also carry OCA Audit Log (`auditlog`, AGPL-3) from the
+[20.0 migration PR](https://github.com/OCA/server-tools/pull/3771), pinned by
+`OCA_SERVER_TOOLS_REV`. Each product can explicitly install the module and
+subscribe audit rules for the models it chooses. Default database initialization
+leaves Audit Log uninstalled.
+
 `launchplane_runtime_health` is loaded as a server-wide module by default. It
 exposes `GET /launchplane/health` with `auth="none"` and `save_session=False`
 so Launchplane can verify the exact runtime serving a public lane without
@@ -547,6 +553,9 @@ Use `--target runtime-devtools` and a separate local tag for its browser layer.
   image/attachment tests against the installed Pillow. The selection retains
   `base:TestImage` where available and exercises
   `base:TestIrAttachment.test_10_image_autoresize` on both Odoo 19 and 20.
+  When Audit Log is packaged, the smoke checks that it stays uninstalled on the
+  default database and explicitly installs it on a second database, where an
+  upstream test subscribes a rule and checks that a synthetic record is logged.
 - `scripts/smoke-readiness.sh <runtime-image> [browser-image]` creates a fresh
   Website database on a private internal Docker network, exercises Chromium and
   real page/asset preparation, and proves readiness failures. On Odoo 20 it
