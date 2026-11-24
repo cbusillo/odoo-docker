@@ -7,6 +7,14 @@ from playwright.sync_api import Page, Route, ViewportSize, expect, sync_playwrig
 ORIGIN = "http://fixture.invalid:8069"
 
 
+def check_footer(page: Page, reference_path: str) -> None:
+    footer = page.locator(".mk_apps_sidebar_logo img")
+    expect(footer).to_be_visible()
+    rendered = page.request.get(footer.evaluate("img => img.src"))
+    expected = page.request.get(f"{ORIGIN}{reference_path}")
+    assert rendered.ok and expected.ok and rendered.body() == expected.body()
+
+
 def check_toggle(page: Page) -> None:
     panel = page.locator(".mk_apps_sidebar_panel")
     contacts = panel.get_by_role("menuitem", name="Contacts", exact=True)
@@ -17,6 +25,7 @@ def check_toggle(page: Page) -> None:
     record = page.locator(".o_form_view")
     expect(record).to_be_visible()
     record_url = page.url
+    check_footer(page, "/web/binary/company_logo")
     expect(contacts_label).to_be_visible()
     large_width = panel.evaluate("panel => panel.offsetWidth")
     expect(collapse).to_have_attribute("aria-expanded", "true")
@@ -114,6 +123,18 @@ def check_rejected_write(page: Page) -> None:
     expect(collapse).to_be_visible()
 
 
+def check_other_company_footer(page: Page) -> None:
+    session = page.request.post(
+        f"{ORIGIN}/web/session/get_session_info",
+        data={"jsonrpc": "2.0", "method": "call", "params": {}},
+    ).json()["result"]
+    companies = session["user_companies"]
+    other_company, = set(companies["allowed_companies"]) - {str(companies["current_company"])}
+    page.evaluate("id => { document.cookie = `cids=${id}; path=/`; }", other_company)
+    page.reload()
+    check_footer(page, f"/web/image/res.company/{other_company}/appbar_image")
+
+
 def check_invisible(page: Page) -> None:
     open_record(page, ORIGIN, "invisible")
     expect(page.locator(".o_form_view")).to_be_visible()
@@ -133,11 +154,13 @@ def main() -> None:
         with browser.new_context(viewport=viewport) as context:
             check_toggle(context.new_page())
         with browser.new_context(viewport=viewport) as context:
-            check_rejected_write(context.new_page())
+            page = context.new_page()
+            check_rejected_write(page)
+            check_other_company_footer(page)
         with browser.new_context(viewport=viewport) as context:
             check_invisible(context.new_page())
         browser.close()
-    print("AppsBar desktop, persistence, navigation, responsive and Invisible checks passed")
+    print("AppsBar desktop, persistence, navigation, responsive, Invisible and footer checks passed")
 
 
 if __name__ == "__main__":

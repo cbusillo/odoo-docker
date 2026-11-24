@@ -48,7 +48,7 @@ ARG OCA_KNOWLEDGE_MODULES="document_page document_knowledge"
 ARG OCA_PRODUCT_ATTRIBUTE_REPOSITORY=https://github.com/OCA/product-attribute.git
 ARG OCA_PRODUCT_ATTRIBUTE_REV=b0aa90757aea6057f764fb0938550b76a465a0a1
 WORKDIR /source
-COPY patches/20.0-muk-appsbar-toggle.patch /patches/
+COPY patches/20.0-muk-appsbar-*.patch /patches/
 RUN set -eux; \
     mkdir addons; \
     copy_pinned_modules() { \
@@ -65,7 +65,7 @@ RUN set -eux; \
     }; \
     if [ "${ODOO_SOURCE_REF}" = "20.0" ]; then \
       copy_pinned_modules "${MUK_MODULES_REPOSITORY}" "${MUK_MODULES_REV}" LGPL-3 "${MUK_THEME_MODULES}"; \
-      git -C addons apply /patches/20.0-muk-appsbar-toggle.patch; \
+      git -C addons apply /patches/20.0-muk-appsbar-*.patch; \
       copy_pinned_modules "${OCA_KNOWLEDGE_REPOSITORY}" "${OCA_KNOWLEDGE_REV}" AGPL-3 "${OCA_KNOWLEDGE_MODULES}"; \
       copy_pinned_modules "${OCA_PRODUCT_ATTRIBUTE_REPOSITORY}" "${OCA_PRODUCT_ATTRIBUTE_REV}" AGPL-3 product_sequence; \
     fi

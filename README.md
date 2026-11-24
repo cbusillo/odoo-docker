@@ -118,7 +118,9 @@ itself. A product adopts the theme in its own change: it repins to an image
 pair that carries it and installs `muk_web_theme`. Products should not bring a
 second copy of these modules. `muk_web_enterprise_theme` is never shipped
 because it needs Odoo Enterprise. The packaged MuK AppsBar patch adds a desktop top-bar button
-that switches between the existing Large and Small user preferences.
+that switches between the existing Large and Small user preferences. When the footer still contains
+Odoo's stock placeholder, the sidebar displays the active company's web logo. Custom footer images
+and empty footers keep their configured behavior.
 
 The 20.0 images also carry OCA's AGPL-3 `document_page` and its
 `document_knowledge` dependency from [OCA/knowledge](https://github.com/OCA/knowledge),
