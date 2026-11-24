@@ -122,13 +122,15 @@ def check_rejected_write(page: Page) -> None:
     page.reload()
     expect(collapse).to_be_visible()
 
+
+def check_other_company_footer(page: Page) -> None:
     session = page.request.post(
         f"{ORIGIN}/web/session/get_session_info",
         data={"jsonrpc": "2.0", "method": "call", "params": {}},
     ).json()["result"]
     companies = session["user_companies"]
     other_company, = set(companies["allowed_companies"]) - {str(companies["current_company"])}
-    page.context.add_cookies([{"name": "cids", "value": other_company, "url": ORIGIN}])
+    page.evaluate("id => { document.cookie = `cids=${id}; path=/`; }", other_company)
     page.reload()
     check_footer(page, f"/web/image/res.company/{other_company}/appbar_image")
 
@@ -152,11 +154,13 @@ def main() -> None:
         with browser.new_context(viewport=viewport) as context:
             check_toggle(context.new_page())
         with browser.new_context(viewport=viewport) as context:
-            check_rejected_write(context.new_page())
+            page = context.new_page()
+            check_rejected_write(page)
+            check_other_company_footer(page)
         with browser.new_context(viewport=viewport) as context:
             check_invisible(context.new_page())
         browser.close()
-    print("AppsBar desktop, persistence, navigation, responsive and Invisible checks passed")
+    print("AppsBar desktop, persistence, navigation, responsive, Invisible and footer checks passed")
 
 
 if __name__ == "__main__":
