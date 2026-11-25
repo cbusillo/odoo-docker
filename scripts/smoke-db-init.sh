@@ -9,6 +9,7 @@ postgres_container="${network_name}-postgres"
 odoo_container="${network_name}-odoo"
 shell_container="${network_name}-shell"
 db_name="odoo_smoke_${suffix//[^[:alnum:]]/_}"
+audit_db_name="odoo_audit_${suffix//[^[:alnum:]]/_}"
 health_db_name="odoo_health_${suffix//[^[:alnum:]]/_}"
 db_user="odoo"
 community_modules="muk_web_theme document_page product_sequence"
@@ -98,6 +99,21 @@ if ! grep -Eq \"odoo[.]tests[.]result: 0 failed, 0 error[(]s[)] of [1-9][0-9]* t
   echo 'Expected a successful, nonempty upstream Odoo image test run' >&2
   exit 1
 fi
+if [[ -f /opt/launchplane/addons/auditlog/__manifest__.py ]]; then
+  odoo-bin \
+    -d '${audit_db_name}' \
+    --init auditlog \
+    --test-tags /auditlog:TestAuditlogFull.test_LogCreation \
+    --without-demo \
+    --http-interface=127.0.0.1 \
+    --stop-after-init \
+    --log-level=warn \
+    --log-handler=odoo.tests:INFO 2>&1 | tee /tmp/odoo-auditlog-tests.log
+  if ! grep -Eq \"odoo[.]tests[.]result: 0 failed, 0 error[(]s[)] of [1-9][0-9]* tests when loading database '${audit_db_name}'[[:space:]]*$\" /tmp/odoo-auditlog-tests.log; then
+    echo 'Expected a successful, nonempty Audit Log test run' >&2
+    exit 1
+  fi
+fi
 "
 
 for module in base launchplane_runtime_health; do
@@ -114,6 +130,12 @@ for module in ${community_modules}; do
 		exit 1
 	fi
 done
+
+audit_module_state="$(docker exec "${postgres_container}" psql -U "${db_user}" -d "${db_name}" -Atc "select state from ir_module_module where name = 'auditlog';")"
+if [[ -n "${audit_module_state}" && "${audit_module_state}" != "uninstalled" ]]; then
+	echo "Expected Audit Log to stay uninstalled during normal initialization, got: ${audit_module_state}" >&2
+	exit 1
+fi
 
 # Authenticate a non-server data command through the same image wrapper.
 docker run --rm \
