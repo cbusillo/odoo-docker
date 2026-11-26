@@ -104,14 +104,14 @@ if [[ -f /opt/launchplane/addons/auditlog/__manifest__.py ]]; then
   odoo-bin \
     -d '${audit_db_name}' \
     --init website,auditlog \
-    --test-tags /auditlog:TestAuditlogFull.test_LogCreation \
+    --test-tags /auditlog:TestAuditlogFull.test_LogCreation,/website:WithContext.test_05_homepage_not_slash_url \
     --without-demo \
     --http-interface=127.0.0.1 \
     --stop-after-init \
     --log-level=warn \
     --log-handler=odoo.tests:INFO 2>&1 | tee /tmp/odoo-auditlog-tests.log
-  if ! grep -Eq \"odoo[.]tests[.]result: 0 failed, 0 error[(]s[)] of [1-9][0-9]* tests when loading database '${audit_db_name}'[[:space:]]*$\" /tmp/odoo-auditlog-tests.log; then
-    echo 'Expected a successful, nonempty Audit Log test run' >&2
+  if ! grep -Eq \"odoo[.]tests[.]result: 0 failed, 0 error[(]s[)] of 2 tests when loading database '${audit_db_name}'[[:space:]]*$\" /tmp/odoo-auditlog-tests.log; then
+    echo 'Expected the Audit Log and website homepage tests to pass' >&2
     exit 1
   fi
   odoo-bin shell -d '${audit_db_name}' --db_host='${postgres_container}' --db_user='${db_user}' \
