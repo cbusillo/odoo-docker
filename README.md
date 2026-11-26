@@ -137,7 +137,8 @@ The 20.0 images also carry OCA Audit Log (`auditlog`, AGPL-3) from the
 [20.0 migration PR](https://github.com/OCA/server-tools/pull/3771), pinned by
 `OCA_SERVER_TOOLS_REV`. Each product can explicitly install the module and
 subscribe audit rules for the models it chooses. Default database initialization
-leaves Audit Log uninstalled.
+leaves Audit Log uninstalled. The image applies the pending ORM writes before
+full audit snapshots using the [OCA correction](https://github.com/OCA/server-tools/pull/3718).
 
 `launchplane_runtime_health` is loaded as a server-wide module by default. It
 exposes `GET /launchplane/health` with `auth="none"` and `save_session=False`
@@ -558,6 +559,8 @@ Use `--target runtime-devtools` and a separate local tag for its browser layer.
   When Audit Log is packaged, the smoke checks that it stays uninstalled on the
   default database and explicitly installs it on a second database, where an
   upstream test subscribes a rule and checks that a synthetic record is logged.
+  A website layout edit checks that the assigned domain survives an asset refresh
+  and that the view audit records the actor and both values.
 - `scripts/smoke-readiness.sh <runtime-image> [browser-image]` creates a fresh
   Website database on a private internal Docker network, exercises Chromium and
   real page/asset preparation, and proves readiness failures. On Odoo 20 it

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+fixture_dir="$(cd "$(dirname "$0")/fixtures" && pwd)"
 image_reference="${1:?Usage: scripts/smoke-db-init.sh <image-reference>}"
 
 suffix="${RANDOM:-0}-$$"
@@ -67,7 +68,7 @@ if [[ "${ready}" != "true" ]]; then
 	exit 1
 fi
 
-docker run --rm \
+docker run --rm -i \
 	--network "${network_name}" \
 	-e ODOO_DB_HOST="${postgres_container}" \
 	-e ODOO_DB_PORT=5432 \
@@ -102,7 +103,7 @@ fi
 if [[ -f /opt/launchplane/addons/auditlog/__manifest__.py ]]; then
   odoo-bin \
     -d '${audit_db_name}' \
-    --init auditlog \
+    --init website,auditlog \
     --test-tags /auditlog:TestAuditlogFull.test_LogCreation \
     --without-demo \
     --http-interface=127.0.0.1 \
@@ -113,8 +114,9 @@ if [[ -f /opt/launchplane/addons/auditlog/__manifest__.py ]]; then
     echo 'Expected a successful, nonempty Audit Log test run' >&2
     exit 1
   fi
+  odoo-bin shell -d '${audit_db_name}' --no-http --log-level=warn
 fi
-"
+" < "${fixture_dir}/auditlog/website.py"
 
 for module in base launchplane_runtime_health; do
 	module_state="$(docker exec "${postgres_container}" psql -U "${db_user}" -d "${db_name}" -Atc "select state from ir_module_module where name = '${module}';")"
