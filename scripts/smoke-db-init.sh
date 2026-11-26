@@ -104,7 +104,7 @@ if [[ -f /opt/launchplane/addons/auditlog/__manifest__.py ]]; then
   odoo-bin \
     -d '${audit_db_name}' \
     --init website,auditlog \
-    --test-tags /auditlog:TestAuditlogFull.test_LogCreation \
+    --test-tags /auditlog:TestAuditlogFull.test_LogCreation,/website:WithContext.test_05_homepage_not_slash_url \
     --without-demo \
     --http-interface=127.0.0.1 \
     --stop-after-init \

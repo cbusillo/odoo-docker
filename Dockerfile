@@ -33,6 +33,7 @@ RUN if grep -Eq '^version_info = \(20,' odoo/odoo/release.py; then \
       git -C odoo apply /patches/20.0-valuation-checkpoints.patch; \
       git -C odoo apply /patches/20.0-inline-parent-context.patch; \
       git -C odoo apply /patches/20.0-pdf-media-box.patch; \
+      git -C odoo apply /patches/20.0-website-social-url.patch; \
     fi
 
 # Community addons for 20.0 on the image-owned addons path. No module here auto-installs.

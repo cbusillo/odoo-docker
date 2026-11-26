@@ -743,3 +743,10 @@ A deferred-parent native Hoot regression covers the context handoff and control
 overrides. [CM266](https://github.com/cbusillo/odoo-tenant-cm/issues/266) supplies the
 ordinary-user purchase-to-count browser consumer; downstream image adoption and
 Client/runtime qualification remain with the program lead.
+
+## Website social URLs
+
+The Community 20 image uses the selected website’s native canonical URL as
+the default Open Graph URL. Sharing a configured homepage uses the same
+public URL as its canonical link, including Odoo’s language handling.
+The database-init smoke exercises the rendered homepage. [Native patch](patches/20.0-website-social-url.patch)
