@@ -114,7 +114,8 @@ if [[ -f /opt/launchplane/addons/auditlog/__manifest__.py ]]; then
     echo 'Expected a successful, nonempty Audit Log test run' >&2
     exit 1
   fi
-  odoo-bin shell -d '${audit_db_name}' --no-http --log-level=warn
+  odoo-bin shell -d '${audit_db_name}' --db_host='${postgres_container}' --db_user='${db_user}' \
+    --addons-path=\"\${ODOO_ADDONS_PATH}\" --data-dir=\"\${ODOO_DATA_DIR}\" --no-http --log-level=warn
 fi
 " < "${fixture_dir}/auditlog/website.py"
 
