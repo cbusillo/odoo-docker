@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 env = globals()["env"]
 module = env["ir.module.module"].search([("name", "=", "product_sequence")]).ensure_one()
 assert module.state == "uninstalled", module.state
@@ -38,3 +40,19 @@ module.button_immediate_install()
 after = stored_identifiers()
 assert after == before, (before, after)
 assert module.state == "installed", module.state
+
+with env.registry.cursor() as cursor:
+    products = env(cr=cursor)["product.product"]
+    automatic, requested = products.create([{"name": "Automatic"}, {"name": "Requested", "default_code": "/"}])
+    issued = automatic.default_code
+    assert issued and requested.default_code and issued != requested.default_code
+    assert "/" not in (issued, requested.default_code)
+    automatic.write({"default_code": "/"})
+    assert automatic.default_code and automatic.default_code not in (issued, "/")
+    with patch.object(type(products), "_is_product_sequence_placeholder", return_value=False):
+        literal = products.create({"name": "Literal", "default_code": "/"})
+        assert literal.default_code == "/"
+        automatic.write({"default_code": "/"})
+        assert automatic.default_code == "/"
+        requested.product_tmpl_id.default_code = "/"
+        assert requested.default_code == "/"
