@@ -1,0 +1,18 @@
+--- a/auditlog/models/auditlog_rule.py
++++ b/auditlog/models/auditlog_rule.py
+@@ -70,6 +70,7 @@
+     )
+
+     def __init__(self, env):
++        self._env = env
+         self._transaction = env.transaction
+
+     def __enter__(self):
+@@ -80,6 +81,7 @@
+         to the cursor, so if we want to keep using the same cursor, we need to
+         patch out these properties.
+         """
++        self._env.flush_all()
+         for attribute in self.transaction_attributes:
+             instance = getattr(self._transaction, attribute)
+             setattr(
