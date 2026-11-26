@@ -23,7 +23,8 @@ rule.set_to_confirmed()
 
 domain = "https://layout.example.invalid"
 site.domain = domain
-view.with_context(active_test=False).arch_db = after
+editor = env.ref("base.user_admin")
+view.with_user(editor).with_context(active_test=False).arch_db = after
 assets.reset_asset(stylesheet, bundle)
 assets.make_scss_customization(stylesheet, {"font-size-base": "1.1rem"})
 assert site.domain == domain, site.domain
@@ -40,5 +41,5 @@ with env.registry.cursor() as cursor:
         .ensure_one()
     )
     line = log.line_ids.filtered(lambda item: item.field_name == "arch_db").ensure_one()
-    assert log.user_id == later.user
+    assert log.user_id.id == editor.id
     assert (line.old_value_text, line.new_value_text) == (before, after)
