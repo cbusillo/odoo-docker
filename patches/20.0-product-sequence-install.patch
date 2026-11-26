@@ -1,0 +1,38 @@
+diff --git a/product_sequence/__manifest__.py b/product_sequence/__manifest__.py
+--- a/product_sequence/__manifest__.py
++++ b/product_sequence/__manifest__.py
+@@ -23,6 +23,5 @@
+         "demo/product_category_demo.xml",
+         "demo/product_template_demo.xml",
+     ],
+-    "pre_init_hook": "pre_init_hook",
+     "installable": True,
+ }
+--- a/product_sequence/models/product_product.py
++++ b/product_sequence/models/product_product.py
+@@ -16,11 +16,15 @@
+         help="Set to '/' and save if you want a new internal reference to be proposed.",
+     )
+ 
++    @api.model
++    def _is_product_sequence_placeholder(self, code: object) -> bool:
++        return code == "/"
++
+     @api.model_create_multi
+     def create(self, vals_list):
+         vals_list_updated = []
+         for vals in vals_list:
+-            if "default_code" not in vals or vals["default_code"] == "/":
++            if "default_code" not in vals or self._is_product_sequence_placeholder(vals["default_code"]):
+                 categ_id = vals.get("categ_id", False)
+                 template_id = vals.get("product_tmpl_id", False)
+                 category = self.env["product.category"]
+@@ -43,7 +47,7 @@
+         Note this is up to the user, if the product category is changed,
+         she/he will need to write '/' on the internal reference to force the
+         re-assignment."""
+-        if vals.get("default_code", "") == "/":
++        if "default_code" in vals and self._is_product_sequence_placeholder(vals["default_code"]):
+             product_category_obj = self.env["product.category"]
+             for product in self:
+                 category_id = vals.get("categ_id", product.categ_id.id)
