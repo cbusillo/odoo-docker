@@ -131,7 +131,12 @@ the expected license.
 
 The 20.0 images carry OCA Product Sequence from the
 [unmerged 20.0 port](https://github.com/OCA/product-attribute/pull/2445) pinned
-by `OCA_PRODUCT_ATTRIBUTE_REV`. It is available for products to install.
+by `OCA_PRODUCT_ATTRIBUTE_REV`. Installation is opt-in. The image omits the
+upstream pre-install hook so existing internal references and barcodes survive
+adoption. By default, an omitted reference on create or an explicit `/` on
+variant create or write requests a number. An addon can override
+`product.product._is_product_sequence_placeholder(code)` to pass an explicit
+reference through to the native create or write, including template inverse writes.
 
 The 20.0 images also carry OCA Audit Log (`auditlog`, AGPL-3) from the
 [20.0 migration PR](https://github.com/OCA/server-tools/pull/3771), pinned by
@@ -556,6 +561,8 @@ Use `--target runtime-devtools` and a separate local tag for its browser layer.
   image/attachment tests against the installed Pillow. The selection retains
   `base:TestImage` where available and exercises
   `base:TestIrAttachment.test_10_image_autoresize` on both Odoo 19 and 20.
+  On images carrying Product Sequence, the smoke installs it over active and
+  archived goods and services and compares their stored references and barcodes.
   When Audit Log is packaged, the smoke checks that it stays uninstalled on the
   default database and explicitly installs it on a second database, where an
   upstream test subscribes a rule and checks that a synthetic record is logged.

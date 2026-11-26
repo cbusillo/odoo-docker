@@ -51,7 +51,7 @@ ARG OCA_PRODUCT_ATTRIBUTE_REV=b0aa90757aea6057f764fb0938550b76a465a0a1
 ARG OCA_SERVER_TOOLS_REPOSITORY=https://github.com/OCA/server-tools.git
 ARG OCA_SERVER_TOOLS_REV=5c998f430dfdb9824e3d032b0cfe58cc914bcf81
 WORKDIR /source
-COPY patches/20.0-muk-appsbar-*.patch patches/20.0-auditlog-snapshot.patch /patches/
+COPY patches/20.0-muk-appsbar-*.patch patches/20.0-auditlog-snapshot.patch patches/20.0-product-sequence-install.patch /patches/
 RUN set -eux; \
     mkdir addons; \
     copy_pinned_modules() { \
@@ -71,6 +71,7 @@ RUN set -eux; \
       git -C addons apply /patches/20.0-muk-appsbar-*.patch; \
       copy_pinned_modules "${OCA_KNOWLEDGE_REPOSITORY}" "${OCA_KNOWLEDGE_REV}" AGPL-3 "${OCA_KNOWLEDGE_MODULES}"; \
       copy_pinned_modules "${OCA_PRODUCT_ATTRIBUTE_REPOSITORY}" "${OCA_PRODUCT_ATTRIBUTE_REV}" AGPL-3 product_sequence; \
+      git -C addons apply /patches/20.0-product-sequence-install.patch; \
       copy_pinned_modules "${OCA_SERVER_TOOLS_REPOSITORY}" "${OCA_SERVER_TOOLS_REV}" AGPL-3 auditlog; \
       git -C addons apply /patches/20.0-auditlog-snapshot.patch; \
     fi

@@ -13,7 +13,7 @@ db_name="odoo_smoke_${suffix//[^[:alnum:]]/_}"
 audit_db_name="odoo_audit_${suffix//[^[:alnum:]]/_}"
 health_db_name="odoo_health_${suffix//[^[:alnum:]]/_}"
 db_user="odoo"
-community_modules="muk_web_theme document_page product_sequence"
+community_modules="muk_web_theme document_page"
 db_password=$'synthetic smoke password $ # \\ \' " %'
 
 cleanup() {
@@ -85,6 +85,9 @@ for community_module in ${community_modules}; do
     init_modules=\"\${init_modules},\${community_module}\"
   fi
 done
+if [[ -f /opt/launchplane/addons/product_sequence/__manifest__.py ]]; then
+  init_modules+=,product
+fi
 # Check that the environment password still overrides a stale config value.
 printf '[options]\ndb_password = stale-config-password\n' > /volumes/config/_generated.conf
 odoo-bin \
@@ -118,6 +121,14 @@ if [[ -f /opt/launchplane/addons/auditlog/__manifest__.py ]]; then
     --addons-path=\"\${ODOO_ADDONS_PATH}\" --data-dir=\"\${ODOO_DATA_DIR}\" --no-http --log-level=warn
 fi
 " < "${fixture_dir}/auditlog/website.py"
+
+docker run --rm -i --network "${network_name}" \
+	-e PGHOST="${postgres_container}" -e PGUSER="${db_user}" -e ODOO_DB_PASSWORD="${db_password}" \
+	--entrypoint /bin/bash "${image_reference}" -ec '
+if [[ -f /opt/launchplane/addons/product_sequence/__manifest__.py ]]; then
+  odoo-bin shell -d "$1" --addons-path="${ODOO_ADDONS_PATH}" --no-http --log-level=warn
+fi
+' _ "${db_name}" < "${fixture_dir}/product_sequence/first_install.py"
 
 for module in base launchplane_runtime_health; do
 	module_state="$(docker exec "${postgres_container}" psql -U "${db_user}" -d "${db_name}" -Atc "select state from ir_module_module where name = '${module}';")"
