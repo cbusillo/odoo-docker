@@ -11,7 +11,7 @@ ARG RESOLVER_CUTOFF
 ARG NATIVE_BUILD_PACKAGES="build-essential libcairo2-dev libjpeg-dev libldap2-dev libsasl2-dev libssl-dev libxml2-dev libxslt1-dev pkg-config zlib1g-dev"
 
 # Keep the official uv image first so Renovate tracks it for Docker updates.
-FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv-binary
+FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:0.13.10@sha256:a3ea1357342c1a4bf9a0c53a3deb1b55379aefa037338d8113d5771efa01774f AS uv-binary
 
 FROM --platform=$BUILDPLATFORM alpine/git:v2.54.0@sha256:6a1fdb962814ca11508ca8d1bab94375b5b7ac4e4a9a40981c29fc32c02f095d AS odoo-source
 ARG ODOO_SOURCE_REPOSITORY
